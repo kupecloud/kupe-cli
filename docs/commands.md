@@ -355,11 +355,20 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--storage QUANTITY` | plan default | Storage (etcd PVC) size (e.g., `100Gi`). |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
-| `--kubeconfig` | off | After Running, fetch + print kubeconfig to stdout. |
-| `--kubeconfig-merge` | off | After Running, merge kubeconfig into `$KUBECONFIG`. |
-| `--dry-run=client\|server` | — | Show what would be sent / validate only. |
+| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`. |
 
 Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](../../kupe-control-operator/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
+
+Chain with `kupe cluster kubeconfig NAME --merge` to land a usable kubectl
+context after the Running wait completes:
+
+```bash
+kupe cluster create prod && kupe cluster kubeconfig prod --merge
+```
+
+Built-in `--kubeconfig` / `--kubeconfig-merge` convenience flags, plus
+`--dry-run=client|server`, are planned follow-ups — the server-side
+dry-run path also needs kupe-api support, which doesn't exist yet.
 
 **Example:**
 

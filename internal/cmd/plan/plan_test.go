@@ -33,6 +33,7 @@ func factoryWith(t *testing.T, fake *clienttest.Fake) *cli.Factory {
 	flags := &cli.GlobalFlags{ConfigPath: cfgPath}
 	f := cli.NewFactory(io, flags)
 	f.Client = func() (client.Interface, error) { return fake, nil }
+	f.PublicClient = func() (client.Interface, error) { return fake, nil }
 	return f
 }
 
@@ -91,6 +92,37 @@ func TestPlanGetDetailView(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("detail missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestPlanListWorksWithoutCredentials asserts plan browsing doesn't require
+// a logged-in context. The endpoint is public and the CLI now routes through
+// Factory.PublicClient, which never asks for a tenant or token.
+func TestPlanListWorksWithoutCredentials(t *testing.T) {
+	fake := clienttest.New()
+	fake.Plans["starter"] = &client.Plan{Name: "starter"}
+
+	// Factory with a config file that has NO contexts — as a first-time
+	// user would see it.
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{APIVersion: config.APIVersion, Kind: config.Kind}
+	if err := cfg.Save(cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	io, _, _ := cli.Test()
+	flags := &cli.GlobalFlags{ConfigPath: cfgPath}
+	f := cli.NewFactory(io, flags)
+	f.PublicClient = func() (client.Interface, error) { return fake, nil }
+
+	// f.Client should panic or error — we MUST NOT route through it.
+	f.Client = func() (client.Interface, error) {
+		t.Fatal("plan list tried to authenticate — must use PublicClient")
+		return nil, nil
+	}
+
+	if err := run(NewCmd(f), "list"); err != nil {
+		t.Fatalf("plan list failed without credentials: %v", err)
 	}
 }
 

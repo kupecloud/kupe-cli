@@ -77,10 +77,8 @@ func TestUpdateWaitRequiresTransitionBeforeRunning(t *testing.T) {
 
 	f := factoryWith(t, fake)
 
-	// Use a tight observation window — the scripted sequence reaches
-	// Upgrading by the 2nd poll so 5s is plenty.
 	start := time.Now()
-	got, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 5*time.Second, 10*time.Second)
+	got, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 10*time.Second)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("waitForUpdateConverged: %v", err)
@@ -88,38 +86,58 @@ func TestUpdateWaitRequiresTransitionBeforeRunning(t *testing.T) {
 	if got == nil || got.Status == nil || got.Status.Phase != client.PhaseRunning {
 		t.Fatalf("final phase = %+v; want Running", got)
 	}
-	// Observation must have taken at least one tick (the seeded sequence
-	// had to be drained). If we returned in sub-ms we bypassed observation.
+	// Must have taken at least one poll tick — if we returned in sub-ms
+	// we bypassed transition observation entirely.
 	if elapsed < 100*time.Millisecond {
-		t.Fatalf("returned in %v — likely skipped observation window", elapsed)
+		t.Fatalf("returned in %v — likely skipped transition observation", elapsed)
 	}
 }
 
-// TestUpdateWaitNoOpReturnsWithinObservationWindow verifies that when a
-// patch is a no-op (operator has nothing to do), the waiter does NOT
-// hang for the full --wait-timeout — it returns success once the
-// observation window expires without seeing a transition.
-func TestUpdateWaitNoOpReturnsWithinObservationWindow(t *testing.T) {
+// TestUpdateWaitTimesOutWhenOperatorNeverReacts is the contract for the
+// bug fix: if the cluster stays Running for the whole --wait-timeout
+// (operator ignored the PATCH, or the PATCH was a late-detected no-op),
+// the waiter returns ErrWaitTimeout instead of silently succeeding.
+// The old waiter exited success after a 30s observation window; we now
+// refuse to mask that as green and let the command exit 8.
+func TestUpdateWaitTimesOutWhenOperatorNeverReacts(t *testing.T) {
 	fake := clienttest.New()
-	// Cluster is Running and stays Running forever (simulating a no-op).
 	fake.Clusters["prod"] = &client.Cluster{
 		Name:   "prod",
 		Status: &client.ClusterStatus{Phase: client.PhaseRunning},
 	}
 	f := factoryWith(t, fake)
 
-	start := time.Now()
-	got, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 300*time.Millisecond, 30*time.Second)
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("no-op update waited with error: %v", err)
+	_, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 500*time.Millisecond)
+	if err == nil {
+		t.Fatal("stuck-on-Running update returned success; expected ErrWaitTimeout")
 	}
-	if got == nil {
-		t.Fatal("returned nil cluster")
+	if !errors.Is(err, ux.ErrWaitTimeout) {
+		t.Fatalf("err = %v; want ux.ErrWaitTimeout", err)
 	}
-	// Should return roughly at observation-window time, not at wait-timeout.
-	if elapsed > 2*time.Second {
-		t.Fatalf("no-op waited %v; expected near the observation window (~300ms)", elapsed)
+}
+
+// TestUpdateNoOpSkipsPATCHAndReturns asserts that when every update flag
+// already matches the cluster's current spec, the CLI does NOT call PATCH
+// at all — no operator transition to wait for, no round trip, no risk of
+// the waiter spuriously timing out.
+func TestUpdateNoOpSkipsPATCHAndReturns(t *testing.T) {
+	fake := clienttest.New()
+	fake.Clusters["prod"] = &client.Cluster{
+		Name:      "prod",
+		Version:   "1.32",
+		Resources: &client.ClusterResource{CPU: "4", Memory: "16Gi", Storage: "100Gi"},
+		Status:    &client.ClusterStatus{Phase: client.PhaseRunning},
+	}
+	f := factoryWith(t, fake)
+
+	// Re-requesting the exact same version must not trigger a PATCH.
+	if err := runCmd(newUpdateCmd(f), "prod", "--version", "1.32", "--cpu", "4", "--wait=false"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	for _, call := range fake.Calls {
+		if strings.HasPrefix(call, "UpdateCluster") {
+			t.Fatalf("no-op update still hit the API: %v", fake.Calls)
+		}
 	}
 }
 

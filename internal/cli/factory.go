@@ -48,6 +48,13 @@ type Factory struct {
 	// API URL, tenant, and token. Memoised per invocation. Tests inject a
 	// clienttest.Fake by overwriting this field before running a command.
 	Client func() (client.Interface, error)
+
+	// PublicClient returns a client.Interface configured for endpoints that
+	// do NOT require authentication (currently just the /api/v1/plans
+	// catalog). It uses the resolved API URL when available and falls back
+	// to config.DefaultAPIURL otherwise, so it never fails on missing
+	// tenant or credentials. Tests override this field with a fake.
+	PublicClient func() (client.Interface, error)
 }
 
 // UserAgent returns the string the CLI sends on every HTTP request. Stable
@@ -189,6 +196,25 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 			cli = client.New(r.APIURL, r.Tenant, tok, UserAgent(), opts...)
 		})
 		return cli, clientErr
+	}
+
+	var (
+		pubOnce sync.Once
+		pubCli  client.Interface
+	)
+	f.PublicClient = func() (client.Interface, error) {
+		pubOnce.Do(func() {
+			apiURL := config.DefaultAPIURL
+			if r, err := f.Resolved(); err == nil && r != nil && r.APIURL != "" {
+				apiURL = r.APIURL
+			}
+			opts := []client.Option{}
+			if flags.Verbose {
+				opts = append(opts, client.WithTrace(verboseTrace(io)))
+			}
+			pubCli = client.New(apiURL, "", "", UserAgent(), opts...)
+		})
+		return pubCli, nil
 	}
 
 	f.Token = func() (string, error) {

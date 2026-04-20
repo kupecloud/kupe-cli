@@ -47,7 +47,7 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu, --memory, --storage")
 			}
 
-			fmt, err := parsedFormat(f, opts.output)
+			fmtp, err := parsedFormat(f, opts.output)
 			if err != nil {
 				return err
 			}
@@ -56,36 +56,47 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 				return err
 			}
 
-			mutator := buildMutator(opts)
+			// Pre-flight GET serves two purposes:
+			//   1. Let us detect a no-op client-side (every flag already
+			//      matches current spec) and skip the PATCH entirely — so
+			//      the wait loop isn't asked to observe changes that will
+			//      never happen.
+			//   2. Supply the optimistic-locking etag for the default
+			//      branch without a second round-trip via RMW.
+			current, currentEtag, err := api.GetCluster(cmd.Context(), name)
+			if err != nil {
+				return err
+			}
+			if isNoOpUpdate(current, opts) {
+				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, current)
+			}
 
-			// The RunE precondition above guarantees at least one mutation
-			// field is set, so buildMutator is guaranteed to return a
-			// non-nil patch — simplifying the three branches.
+			patch := buildPatch(opts)
+
 			var updated *client.Cluster
 			switch {
 			case opts.force:
-				// No If-Match; pass empty etag.
-				current, _, gerr := api.GetCluster(cmd.Context(), name)
-				if gerr != nil {
-					return gerr
-				}
-				u, _, uerr := api.UpdateCluster(cmd.Context(), name, "", *mutator(current))
+				u, _, uerr := api.UpdateCluster(cmd.Context(), name, "", *patch)
 				if uerr != nil {
 					return uerr
 				}
 				updated = u
 			case opts.ifMatch != "":
-				current, _, gerr := api.GetCluster(cmd.Context(), name)
-				if gerr != nil {
-					return gerr
-				}
-				u, _, uerr := api.UpdateCluster(cmd.Context(), name, opts.ifMatch, *mutator(current))
+				u, _, uerr := api.UpdateCluster(cmd.Context(), name, opts.ifMatch, *patch)
 				if uerr != nil {
 					return uerr
 				}
 				updated = u
 			default:
-				u, uerr := api.UpdateClusterRMW(cmd.Context(), name, mutator)
+				// Optimistic PATCH with the etag from the pre-flight GET.
+				// On 412 (another writer landed in between) fall back to
+				// UpdateClusterRMW for one automatic GET+PATCH retry.
+				u, _, uerr := api.UpdateCluster(cmd.Context(), name, currentEtag, *patch)
+				if client.IsPreconditionFailed(uerr) {
+					u, uerr = api.UpdateClusterRMW(cmd.Context(), name, func(_ *client.Cluster) *client.PatchClusterRequest {
+						return patch
+					})
+				}
 				if uerr != nil {
 					return uerr
 				}
@@ -93,13 +104,14 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 			}
 
 			if !opts.wait {
-				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmt, updated)
+				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, updated)
 			}
-			// updates need convergence detection: phase may already be Running
-			// from before the patch, so waitForPhase would return instantly.
+			// Real spec change was sent; wait the full timeout for the
+			// operator to transition phase away from Running and back again.
+			// No silent-success shortcut for "no transition observed" — that
+			// was the source of the false-green bug.
 			final, werr := waitForUpdateConverged(
-				cmd.Context(), f.IOStreams, api, name, "cluster "+name,
-				30*time.Second, opts.waitTimeout,
+				cmd.Context(), f.IOStreams, api, name, "cluster "+name, opts.waitTimeout,
 			)
 			if werr != nil {
 				return mapWaitErr(werr)
@@ -107,7 +119,7 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 			if final == nil {
 				final = updated
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmt, final)
+			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, final)
 		},
 	}
 
@@ -123,19 +135,48 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 	return cmd
 }
 
-// buildMutator turns the update flags into a ClusterMutator. RunE's
+// buildPatch turns the update flags into a PatchClusterRequest. RunE's
 // precondition rejects all-empty-flags as MisuseError before this runs,
-// so the returned mutator always produces a non-nil patch.
-func buildMutator(opts *updateOpts) client.ClusterMutator {
-	return func(_ *client.Cluster) *client.PatchClusterRequest {
-		patch := &client.PatchClusterRequest{}
-		if opts.version != "" {
-			v := opts.version
-			patch.Version = &v
-		}
-		if r := resourceRequest(opts.cpu, opts.memory, opts.storage); r != nil {
-			patch.Resources = r
-		}
-		return patch
+// so the returned patch always has at least one field populated.
+func buildPatch(opts *updateOpts) *client.PatchClusterRequest {
+	patch := &client.PatchClusterRequest{}
+	if opts.version != "" {
+		v := opts.version
+		patch.Version = &v
 	}
+	if r := resourceRequest(opts.cpu, opts.memory, opts.storage); r != nil {
+		patch.Resources = r
+	}
+	return patch
+}
+
+// isNoOpUpdate returns true when every flag the user passed already matches
+// the cluster's current spec. String equality only — "4" and "4000m" compare
+// unequal even though the operator would treat them the same. A user who
+// passes a differently-formatted quantity will get a real PATCH and pay
+// the full --wait-timeout if the operator decides nothing needs to change;
+// that's the price of not pulling in the k8s quantity parser here.
+func isNoOpUpdate(current *client.Cluster, opts *updateOpts) bool {
+	if current == nil {
+		return false
+	}
+	if opts.version != "" && opts.version != current.Version {
+		return false
+	}
+	if current.Resources == nil {
+		// Caller specified a resource override but the cluster has no
+		// resource block yet — PATCH would create it, not a no-op.
+		return opts.cpu == "" && opts.memory == "" && opts.storage == ""
+	}
+	res := current.Resources
+	if opts.cpu != "" && opts.cpu != res.CPU {
+		return false
+	}
+	if opts.memory != "" && opts.memory != res.Memory {
+		return false
+	}
+	if opts.storage != "" && opts.storage != res.Storage {
+		return false
+	}
+	return true
 }

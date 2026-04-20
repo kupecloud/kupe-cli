@@ -66,7 +66,9 @@ func WithTrace(fn TraceFunc) Option {
 }
 
 // New builds a Client. baseURL should be the API root (no trailing slash);
-// tenant and token are mandatory. userAgent identifies the caller in logs.
+// userAgent identifies the caller in logs. tenant and token are typically
+// mandatory but can be empty when the client is only used for unauthenticated
+// endpoints such as /api/v1/plans (see factory.PublicClient).
 func New(baseURL, tenant, token, userAgent string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:   strings.TrimRight(baseURL, "/"),
@@ -225,7 +227,13 @@ func (c *Client) newRequest(ctx context.Context, method, path, etag string, body
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	// Token is optional: the public plan catalog (/api/v1/plans) accepts
+	// unauthenticated calls, so clients built for that endpoint pass "".
+	// Sending "Bearer " with an empty secret would trip the server's auth
+	// middleware needlessly — skip the header instead.
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
 	if bodyBytes != nil {

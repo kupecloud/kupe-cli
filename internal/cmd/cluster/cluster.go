@@ -89,74 +89,60 @@ func waitForPhase(ctx context.Context, streams *cli.IOStreams, api client.Interf
 }
 
 // waitForUpdateConverged is the wait strategy for `cluster update --wait`.
-// Unlike create/delete, where the cluster starts in a non-terminal phase
-// and we can straightforwardly poll for the target, an update on a cluster
-// that's already Running creates a race: the operator may not yet have
-// observed the spec change, so the first GetCluster returns phase=Running
-// from BEFORE the patch and we'd spuriously exit success before the
-// rollout began.
+// The cluster is expected to be Running at entry; a successful PATCH should
+// cause the operator to transition phase away from Running (Upgrading /
+// Provisioning / etc.) and then return it to Running once the rollout
+// settles.
 //
-// Fix: two phases.
+// The waiter requires BOTH transitions before declaring success:
 //
-//  1. Observation window — up to observeWindow, poll every second waiting
-//     for phase to LEAVE Running (i.e., the operator has picked up the
-//     change and started work). If the window expires without any phase
-//     transition, treat the update as a no-op and return success with the
-//     latest observed state.
-//  2. Convergence — once we've seen a transition away from Running, fall
-//     through to the normal waitForPhase(target=Running, timeout=timeout).
+//  1. Phase must leave Running — proof that the operator observed the
+//     spec change and started acting on it.
+//  2. Phase must return to Running — proof the rollout completed.
 //
-// This handles three cases correctly:
+// If the operator never picks up the change within timeout, the call
+// returns ErrWaitTimeout and the command surfaces exit 8 — NOT silent
+// success. That "no transition observed = all good" shortcut was the
+// source of a false-green bug: CI would move on before the rollout
+// started, and the next step would see the pre-patch state.
 //
-//   - Real update, operator quick: phase flips within the window → Phase 2
-//     waits for Running → exit success after convergence.
-//   - Real update, operator slow (>observeWindow): we exit with stale state.
-//     Users who need stronger guarantees should `kupe cluster wait` after.
-//   - No-op update (spec unchanged): phase never flips → window expires →
-//     we exit success immediately without spurious timeout.
-func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, label string, observeWindow, timeout time.Duration) (*client.Cluster, error) {
-	var latest *client.Cluster
-
-	// Phase 1 — observation.
-	obsCtx, cancel := context.WithTimeout(ctx, observeWindow)
-	defer cancel()
-
-	obsPoll := func(ctx context.Context) (string, bool, error) {
+// Callers MUST filter client-side no-ops (spec already matches) BEFORE
+// invoking the waiter; see isNoOpUpdate. If a no-op reaches this code
+// path, it will correctly time out — the operator has no transition to
+// produce. Exposing that as failure is preferable to exposing it as
+// success.
+func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, label string, timeout time.Duration) (*client.Cluster, error) {
+	var (
+		latest        *client.Cluster
+		sawTransition bool
+	)
+	poll := func(ctx context.Context) (string, bool, error) {
 		c, _, err := api.GetCluster(ctx, name)
 		if err != nil {
 			return "", false, err
 		}
 		latest = c
 		phase := phaseOf(c)
-		// "Done" here means "we observed a non-Running phase" — the
-		// operator has picked up the spec change.
-		if phase != client.PhaseRunning && phase != "" {
+		if phase == client.PhaseDegraded {
+			return phase, false, fmt.Errorf("cluster %q entered Degraded state", name)
+		}
+		if !sawTransition {
+			if phase != "" && phase != client.PhaseRunning {
+				sawTransition = true
+			}
+			return phase, false, nil
+		}
+		if phase == client.PhaseRunning {
 			return phase, true, nil
 		}
 		return phase, false, nil
 	}
-	obsErr := ux.WaitFor(obsCtx, streams, ux.WaitForOpts{
-		Label:    label + " (observing)",
-		Poll:     obsPoll,
-		Interval: 1 * time.Second,
-		Max:      2 * time.Second,
+	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
+		Label:   label,
+		Poll:    poll,
+		Timeout: timeout,
 	})
-
-	if obsErr != nil {
-		// DeadlineExceeded from the observation window = no transition
-		// seen = no-op update. Return success.
-		if errors.Is(obsErr, context.DeadlineExceeded) || errors.Is(obsErr, ux.ErrWaitTimeout) {
-			return latest, nil
-		}
-		// Honour real errors (including parent ctx cancellation).
-		if errors.Is(obsErr, context.Canceled) {
-			return latest, obsErr
-		}
-		return latest, obsErr
-	}
-
-	// Phase 2 — convergence back to Running.
-	return waitForPhase(ctx, streams, api, name, label, client.PhaseRunning, timeout)
+	return latest, err
 }
 
 // waitForGone polls until the cluster returns 404 (or Terminating flips to

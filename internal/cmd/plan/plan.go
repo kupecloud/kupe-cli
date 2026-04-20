@@ -21,9 +21,9 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Long: `Read-only access to the platform plans available to tenants: resource
 pool, observability pool, platform fee, and per-plan limits.
 
-The server endpoint is public (no auth required), but the CLI still
-routes through the current context's credentials for operational
-simplicity. No tenant context is needed for the data itself.`,
+The server endpoint is public, so plan list / plan get work without a
+logged-in context. When a context is configured the CLI still honours
+its --api-url for routing; tenant and token are not consulted.`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newGetCmd(f))
@@ -41,7 +41,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			api, err := f.Client()
+			api, err := f.PublicClient()
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			api, err := f.Client()
+			api, err := f.PublicClient()
 			if err != nil {
 				return err
 			}

@@ -1,0 +1,35 @@
+name: PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "**.go"
+      - ".github/workflows/**"
+      - ".golangci.yaml"
+      - ".goreleaser.yaml"
+      - "Makefile"
+
+permissions:
+  contents: read
+
+jobs:
+  go-lint:
+    uses: ./.github/workflows/go-lint.yaml
+
+  action-lint:
+    uses: ./.github/workflows/action-lint.yaml
+
+  unit-tests:
+    needs:
+      - go-lint
+      - action-lint
+    uses: ./.github/workflows/unit-tests.yaml
+
+  gosec:
+    needs:
+      - unit-tests
+    uses: ./.github/workflows/gosec.yaml

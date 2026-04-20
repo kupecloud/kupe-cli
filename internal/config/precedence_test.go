@@ -1,0 +1,94 @@
+package config
+
+import "testing"
+
+func TestResolvePrecedence(t *testing.T) {
+	cfg := &Config{
+		CurrentContext: "prod",
+		Contexts: []Context{
+			{Name: "prod", APIURL: "https://api.kupe.cloud", Tenant: "acme", TokenRef: TokenRefKeyring},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		flags   Flags
+		env     Env
+		wantURL string
+		wantTen string
+		wantCtx string
+		wantTok string
+	}{
+		{
+			name:    "pure-config",
+			wantURL: "https://api.kupe.cloud",
+			wantTen: "acme",
+			wantCtx: "prod",
+		},
+		{
+			name:    "flag-overrides-env-and-config",
+			flags:   Flags{APIURL: "https://flag.example", Tenant: "flag-ten", Token: "flag-tok"},
+			env:     Env{APIURL: "https://env.example", Tenant: "env-ten", Token: "env-tok"},
+			wantURL: "https://flag.example",
+			wantTen: "flag-ten",
+			wantCtx: "prod",
+			wantTok: "flag-tok",
+		},
+		{
+			name:    "env-overrides-config",
+			env:     Env{APIURL: "https://env.example", Tenant: "env-ten", Token: "env-tok"},
+			wantURL: "https://env.example",
+			wantTen: "env-ten",
+			wantCtx: "prod",
+			wantTok: "env-tok",
+		},
+		{
+			name:    "context-switch-via-flag",
+			flags:   Flags{Context: "missing"}, // name present but context absent
+			wantURL: DefaultAPIURL,             // no matching context → default
+			wantTen: "",                        // no tenant resolvable
+			wantCtx: "missing",
+		},
+		{
+			name:    "default-url-when-nothing-set",
+			flags:   Flags{Tenant: "standalone"},
+			wantURL: DefaultAPIURL,
+			wantTen: "standalone",
+			wantCtx: "prod", // inherits from cfg.CurrentContext
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := Resolve(tt.flags, tt.env, cfg)
+			if r.APIURL != tt.wantURL {
+				t.Errorf("APIURL = %q; want %q", r.APIURL, tt.wantURL)
+			}
+			if r.Tenant != tt.wantTen {
+				t.Errorf("Tenant = %q; want %q", r.Tenant, tt.wantTen)
+			}
+			if r.ContextName != tt.wantCtx {
+				t.Errorf("ContextName = %q; want %q", r.ContextName, tt.wantCtx)
+			}
+			if r.DirectToken != tt.wantTok {
+				t.Errorf("DirectToken = %q; want %q", r.DirectToken, tt.wantTok)
+			}
+		})
+	}
+}
+
+func TestResolveWithNilConfig(t *testing.T) {
+	r := Resolve(
+		Flags{Tenant: "standalone"},
+		Env{APIURL: "https://env.example"},
+		nil,
+	)
+	if r.Tenant != "standalone" {
+		t.Fatalf("Tenant = %q; want standalone", r.Tenant)
+	}
+	if r.APIURL != "https://env.example" {
+		t.Fatalf("APIURL = %q; want env override", r.APIURL)
+	}
+	if r.ContextName != "" {
+		t.Fatalf("ContextName = %q; want empty when no config + no flag/env context", r.ContextName)
+	}
+}

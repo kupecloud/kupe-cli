@@ -1,0 +1,122 @@
+# kupe
+
+The official command-line interface for [Kupe](https://kupe.cloud) — managed Kubernetes clusters in seconds.
+
+```bash
+kupe cluster create prod --type shared --version 1.32
+kupe cluster kubeconfig prod --merge
+kubectl get pods
+```
+
+## Install
+
+### macOS / Linux (Homebrew)
+
+```bash
+brew tap kupecloud/tap
+brew install kupe
+```
+
+(Or, as a one-liner: `brew install kupecloud/tap/kupe`.)
+
+### Windows (Scoop)
+
+```bash
+scoop bucket add kupe https://github.com/kupecloud/scoop-bucket
+scoop install kupe
+```
+
+### Install script
+
+```bash
+curl -fsSL https://get.kupe.cloud | sh
+```
+
+### From source
+
+```bash
+go install github.com/kupecloud/kupe-cli/cmd/kupe@latest
+```
+
+### Binary release
+
+Pre-built binaries for darwin / linux / windows × amd64 / arm64 are attached to each [GitHub release](https://github.com/kupecloud/kupe-cli/releases).
+
+## Quickstart
+
+```bash
+# 1. Log in (paste your API token from app.kupe.cloud → Settings → API Keys)
+kupe auth login
+
+# 2. Create a cluster
+kupe cluster create dev --type shared
+
+# 3. Merge its kubeconfig into ~/.kube/config
+kupe cluster kubeconfig dev --merge
+
+# 4. Use it
+kubectl --context kupe-<tenant>-dev get pods -A
+
+# 5. Tear it down
+kupe cluster delete dev
+```
+
+Full getting-started guide: [docs.kupe.cloud/cli/getting-started](https://docs.kupe.cloud/cli/getting-started).
+
+## CI usage
+
+```bash
+# Token from env var — no config file needed
+export KUPE_API_TOKEN="kupe_abc_..."
+export KUPE_TENANT="acme-corp"
+
+# JSON output, no TTY niceties
+kupe cluster create "ci-$GITHUB_SHA" --type shared --wait -o json
+```
+
+The CLI auto-detects non-TTY environments and switches off colors, spinners, and prompts. See [docs/design.md](./docs/design.md) for the full interactive-vs-CI contract.
+
+## Command overview
+
+| Command | Purpose |
+| ------- | ------- |
+| `kupe auth login` | Authenticate with an API token |
+| `kupe auth whoami` | Show who you're logged in as |
+| `kupe cluster list` | List clusters in the current tenant |
+| `kupe cluster create NAME` | Create a new cluster |
+| `kupe cluster kubeconfig NAME` | Fetch or merge a kubeconfig |
+| `kupe cluster delete NAME` | Delete a cluster |
+| `kupe apikey create` | Mint a new API token |
+| `kupe config use-context NAME` | Switch between environments / tenants |
+
+Run `kupe --help` or see [docs/commands.md](./docs/commands.md) for the full reference.
+
+## Configuration
+
+Config lives at `~/.config/kupe/config.yaml`. Tokens are stored in the OS keyring (Keychain / Secret Service / Credential Manager), not in the config file.
+
+All settings can be overridden by flags or `KUPE_*` environment variables. See [docs/auth.md](./docs/auth.md).
+
+## Documentation
+
+- [docs/architecture.md](./docs/architecture.md) — runtime model and package layout
+- [docs/design.md](./docs/design.md) — UX principles and command grammar
+- [docs/commands.md](./docs/commands.md) — full command reference
+- [docs/auth.md](./docs/auth.md) — authentication, config, and token storage
+- [docs/output.md](./docs/output.md) — `-o` formats and TTY behavior
+- [docs/tui.md](./docs/tui.md) — planned k9s-like TUI mode
+
+## Development
+
+```bash
+make build       # Build the binary into ./bin/kupe
+make test        # Unit tests
+make lint        # golangci-lint
+make snapshot    # Build a release locally (no publish)
+```
+
+See [docs/testing.md](./docs/testing.md) for the test approach and [docs/distribution.md](./docs/distribution.md) for the release pipeline.
+
+## License
+
+Apache 2.0.

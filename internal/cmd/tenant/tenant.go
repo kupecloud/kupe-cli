@@ -1,0 +1,70 @@
+// Package tenant wires the "kupe tenant" subcommand tree. For v1 the only
+// verb is `get` — the current tenant's full record including plan, phase,
+// resource pool, current-period usage, and member list. `update` (PATCH)
+// may land later; for now the authoritative write path is the console.
+package tenant
+
+import (
+	"io"
+
+	"github.com/spf13/cobra"
+
+	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
+)
+
+// NewCmd returns the parent tenant command.
+func NewCmd(f *cli.Factory) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tenant",
+		Short: "Inspect the current tenant",
+		Long: `Read full details for the tenant the current context targets: plan,
+phase, resource pool, current-period usage, and member list.
+
+Unlike "kupe auth whoami" — a quick identity check — this surfaces every
+field the API returns so billing, capacity, and membership questions can
+be answered in one call.`,
+	}
+	cmd.AddCommand(newGetCmd(f))
+	return cmd
+}
+
+func newGetCmd(f *cli.Factory) *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "get",
+		Short: "Show full details of the current tenant",
+		Example: `  kupe tenant get
+  kupe tenant get -o yaml
+  kupe tenant get -o json | jq .status.currentUsage`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			format, err := parsedFormat(f, output)
+			if err != nil {
+				return err
+			}
+			api, err := f.Client()
+			if err != nil {
+				return err
+			}
+			t, _, err := api.GetTenant(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, t)
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	return cmd
+}
+
+func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
+	if raw == "" {
+		raw = f.DefaultOutput()
+	}
+	return printer.MustParse(raw)
+}
+
+func renderOne(out io.Writer, colorEnabled bool, format *printer.Format, t *client.Tenant) error {
+	return printer.RenderOne(out, format, t, printer.TenantDetailColumns(colorEnabled), func(t *client.Tenant) string { return t.Name })
+}

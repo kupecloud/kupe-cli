@@ -1,0 +1,63 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go-lint:
+    uses: ./.github/workflows/go-lint.yaml
+
+  action-lint:
+    uses: ./.github/workflows/action-lint.yaml
+
+  unit-tests:
+    needs:
+      - go-lint
+      - action-lint
+    uses: ./.github/workflows/unit-tests.yaml
+
+  gosec:
+    needs:
+      - unit-tests
+    uses: ./.github/workflows/gosec.yaml
+
+  release:
+    needs:
+      - gosec
+    uses: kupecloud/github-workflows/.github/workflows/semantic-release.yaml@5f8c2a0126ce233053c56c04ca9a4d50f7f879b7
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      packages: write
+      id-token: write
+    secrets: inherit
+
+  # Goreleaser runs AFTER semantic-release and appends artifacts (archives,
+  # checksums, SBOMs, Cosign signatures) to the release it just created.
+  # Conditional on new_release_published so non-release commits skip this
+  # entirely.
+  publish:
+    needs:
+      - release
+    if: needs.release.outputs.new_release_published == 'true'
+    uses: ./.github/workflows/publish.yaml
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    with:
+      version: ${{ needs.release.outputs.new_release_version }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}

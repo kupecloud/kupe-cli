@@ -1,0 +1,29 @@
+# Build artifacts
+bin/
+dist/
+.tmp/
+
+# Test artifacts
+coverage.out
+coverage.html
+
+# goreleaser
+.goreleaser-snapshot/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+*.env
+.env.*
+
+# Local kupe config captured during dev (never check in tokens)
+.kupe-dev-config.yaml

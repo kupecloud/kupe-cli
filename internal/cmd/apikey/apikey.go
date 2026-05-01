@@ -13,8 +13,8 @@ import (
 func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apikey",
-		Short: "Mint, list, and revoke tenant-scoped API keys",
-		Long: `Manage API keys used for programmatic access to kupe-api.
+		Short: "Mint, list, and revoke API keys",
+		Long: `Manage API keys used for programmatic access to the Kupe API.
 
 Keys carry a role (admin or readonly) and optionally expire. The raw
 ` + "`kupe_...`" + ` token is only returned at creation time — store it

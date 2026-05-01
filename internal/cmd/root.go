@@ -46,9 +46,8 @@ func Execute(ctx context.Context) int {
 func newRootCmd(io *cli.IOStreams, flags *cli.GlobalFlags) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "kupe",
-		Short: "Official CLI for the Kupe managed Kubernetes platform",
-		Long: `kupe is the command-line interface for Kupe — managed Kubernetes
-clusters in seconds.
+		Short: "Official CLI for Kupe Cloud",
+		Long: `kupe is the command-line interface for Kupe Cloud.
 
 Run "kupe auth login" to get started, then "kupe cluster create NAME"
 to provision a cluster.

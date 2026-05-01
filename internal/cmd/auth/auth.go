@@ -14,7 +14,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Authenticate against Kupe and manage stored credentials",
-		Long: `auth manages the credentials the CLI uses to talk to kupe-api.
+		Long: `auth manages the credentials the CLI uses to talk to the Kupe API.
 
 Run "kupe auth login" to store a tenant-scoped API token for the current
 context. Tokens are stored in the OS keyring (Keychain on macOS, Secret

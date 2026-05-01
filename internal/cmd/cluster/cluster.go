@@ -23,8 +23,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster",
 		Short: "Manage Kupe clusters",
-		Long: `Create, list, inspect, update, and delete Kupe-managed virtual
-Kubernetes clusters.
+		Long: `Create, list, inspect, update, and delete Kupe clusters.
 
 Long-running operations (create / delete / update) wait for the terminal
 phase by default. Pass --wait=false to return as soon as the API accepts

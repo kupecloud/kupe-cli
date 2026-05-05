@@ -24,6 +24,14 @@ const Service = "cloud.kupe.cli"
 // depending on KUPE_STORAGE policy.
 var ErrKeyringUnavailable = errors.New("keyring unavailable")
 
+// ErrKeyringTooSmall is returned when the OS keyring rejects the value as
+// too large. macOS Keychain caps a single generic-password item at
+// ~3000 bytes (service + user + password combined), which OIDC token sets
+// can exceed when the JWT carries verbose custom claims. The Manager
+// treats this the same as ErrKeyringUnavailable and falls back to
+// plaintext, so users on macOS aren't dead-ended on a fresh OIDC login.
+var ErrKeyringTooSmall = errors.New("keyring rejected value as too large")
+
 // keyringAPI is the seam the real keyring library plugs into; tests replace
 // it with an in-memory implementation.
 type keyringAPI interface {
@@ -53,6 +61,9 @@ func (realKeyring) Set(service, user, password string) error {
 	if err := keyring.Set(service, user, password); err != nil {
 		if errors.Is(err, keyring.ErrUnsupportedPlatform) {
 			return ErrKeyringUnavailable
+		}
+		if errors.Is(err, keyring.ErrSetDataTooBig) {
+			return ErrKeyringTooSmall
 		}
 		return err
 	}

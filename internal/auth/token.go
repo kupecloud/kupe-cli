@@ -73,6 +73,12 @@ func (m *Manager) GetByRef(context, ref string) (string, error) {
 // Set stores the token for context, respecting the KUPE_STORAGE policy.
 // Returns the TokenRef that should be written into the context's config
 // entry.
+//
+// In the default policy, both an unavailable keyring (no secret service
+// at all) and a keyring that rejects the value as too large fall back
+// to the plaintext file. The size-rejection path matters in practice on
+// macOS where Keychain caps a single item at ~3KB and OIDC token sets
+// with verbose custom claims can exceed that.
 func (m *Manager) Set(context, token string) (ref string, err error) {
 	switch m.policy {
 	case "plaintext":
@@ -80,9 +86,8 @@ func (m *Manager) Set(context, token string) (ref string, err error) {
 	case "keyring":
 		return m.keyring.Kind(), m.keyring.Set(context, token)
 	default:
-		// Prefer keyring; fall back to plaintext on ErrKeyringUnavailable.
 		if err := m.keyring.Set(context, token); err != nil {
-			if errors.Is(err, ErrKeyringUnavailable) {
+			if errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringTooSmall) {
 				return m.plaintext.Kind(), m.plaintext.Set(context, token)
 			}
 			return "", err

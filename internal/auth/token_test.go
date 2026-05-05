@@ -13,6 +13,9 @@ type fakeStorage struct {
 	// unavailable makes Set/Get/Delete return ErrKeyringUnavailable. Used to
 	// exercise the keyring → plaintext fallback path.
 	unavailable bool
+	// tooSmall makes Set return ErrKeyringTooSmall, simulating macOS
+	// Keychain's per-item size cap.
+	tooSmall bool
 }
 
 func newFakeStorage(kind string) *fakeStorage {
@@ -33,6 +36,9 @@ func (s *fakeStorage) Get(context string) (string, error) {
 func (s *fakeStorage) Set(context, token string) error {
 	if s.unavailable {
 		return ErrKeyringUnavailable
+	}
+	if s.tooSmall {
+		return ErrKeyringTooSmall
 	}
 	s.tokens[context] = token
 	return nil
@@ -82,6 +88,24 @@ func TestManagerSetFallsBackToPlaintextOnKeyringUnavailable(t *testing.T) {
 		t.Fatalf("ref = %q; want plaintext", ref)
 	}
 	if pt.tokens["prod"] != "tok-2" {
+		t.Fatalf("plaintext did not receive fallback: %+v", pt.tokens)
+	}
+}
+
+func TestManagerSetFallsBackToPlaintextOnKeyringTooSmall(t *testing.T) {
+	kr := newFakeStorage("keyring")
+	kr.tooSmall = true
+	pt := newFakeStorage("plaintext")
+	m := newManagerWith(kr, pt, "")
+
+	ref, err := m.Set("prod", "value-too-big-for-keychain")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if ref != "plaintext" {
+		t.Fatalf("ref = %q; want plaintext", ref)
+	}
+	if pt.tokens["prod"] != "value-too-big-for-keychain" {
 		t.Fatalf("plaintext did not receive fallback: %+v", pt.tokens)
 	}
 }

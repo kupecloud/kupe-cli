@@ -18,10 +18,15 @@ import (
 // OIDCTokenSet is what the CLI persists for an OIDC-authenticated context.
 // It serialises as a JSON blob into the same keyring slot the apikey path
 // uses; IsOIDCBlob distinguishes the two on read.
+//
+// IDToken intentionally has json:"-" — it's only useful at login time
+// (we extract the email claim into Context.User) and persisting it would
+// blow past the macOS Keychain ~3KB per-item limit when the JWT carries
+// the kupe-tenants / kupe-groups custom claims.
 type OIDCTokenSet struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
-	IDToken      string    `json:"id_token,omitempty"`
+	IDToken      string    `json:"-"`
 	Expiry       time.Time `json:"expiry"`
 }
 

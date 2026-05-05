@@ -52,7 +52,7 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 	want := OIDCTokenSet{
 		AccessToken:  "access",
 		RefreshToken: "refresh",
-		IDToken:      "idtok",
+		IDToken:      "idtok-not-persisted",
 		Expiry:       time.Now().Add(time.Hour).Truncate(time.Second).UTC(),
 	}
 	s, err := want.Marshal()
@@ -62,12 +62,18 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 	if !IsOIDCBlob(s) {
 		t.Fatalf("marshalled output should be detected as OIDC blob: %q", s)
 	}
+	if strings.Contains(s, "idtok-not-persisted") {
+		t.Fatalf("id_token leaked into persisted blob: %q", s)
+	}
 	got, err := UnmarshalOIDC(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.AccessToken != want.AccessToken || got.RefreshToken != want.RefreshToken || got.IDToken != want.IDToken || !got.Expiry.Equal(want.Expiry) {
+	if got.AccessToken != want.AccessToken || got.RefreshToken != want.RefreshToken || !got.Expiry.Equal(want.Expiry) {
 		t.Fatalf("round-trip mismatch:\n got=%+v\nwant=%+v", got, want)
+	}
+	if got.IDToken != "" {
+		t.Errorf("IDToken should not survive round-trip; got %q", got.IDToken)
 	}
 }
 

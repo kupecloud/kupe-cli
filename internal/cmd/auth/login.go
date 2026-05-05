@@ -219,12 +219,9 @@ func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *con
 	if t.DisplayName != "" {
 		label = fmt.Sprintf("%s (%s)", t.DisplayName, tenant)
 	}
-	fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
-	fmt.Fprintf(io.ErrOut, "  Context %q saved (%s storage).", contextName, ref)
-	if cfg.CurrentContext == contextName {
-		fmt.Fprint(io.ErrOut, " Set as current.")
-	}
 	fmt.Fprintln(io.ErrOut)
+	fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
+	printPlaintextWarningIfFallback(f, ref)
 	return nil
 }
 
@@ -309,17 +306,32 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	if t.DisplayName != "" {
 		label = fmt.Sprintf("%s (%s)", t.DisplayName, tenant)
 	}
+	fmt.Fprintln(io.ErrOut)
 	if ctx.User != "" {
 		fmt.Fprintf(io.ErrOut, "Logged in to tenant %s as %s.\n", label, ctx.User)
 	} else {
 		fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
 	}
-	fmt.Fprintf(io.ErrOut, "  Context %q saved (%s storage, OIDC).", contextName, ref)
-	if cfg.CurrentContext == contextName {
-		fmt.Fprint(io.ErrOut, " Set as current.")
-	}
-	fmt.Fprintln(io.ErrOut)
+	printPlaintextWarningIfFallback(f, ref)
 	return nil
+}
+
+// printPlaintextWarningIfFallback emits a single-line note when token
+// storage fell back to the plaintext credentials file. Keyring is the
+// silent default; the warning only surfaces the fallback case because
+// users picking up a plaintext file without realising it is a security
+// concern they should see.
+func printPlaintextWarningIfFallback(f *cli.Factory, ref string) {
+	if ref != config.TokenRefPlaintext {
+		return
+	}
+	cfgPath, err := f.ConfigPath()
+	if err != nil {
+		fmt.Fprintln(f.IOStreams.ErrOut, "  Note: token saved to plaintext credentials file (OS keyring rejected the value).")
+		return
+	}
+	credsPath := auth.DefaultCredentialsPath(cfgPath)
+	fmt.Fprintf(f.IOStreams.ErrOut, "  Note: token saved to %s (OS keyring rejected the value).\n", credsPath)
 }
 
 // nonDefault returns v unless it equals the build-time default, in which

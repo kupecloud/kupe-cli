@@ -45,8 +45,10 @@ Pre-built binaries for darwin / linux / windows × amd64 / arm64 are attached to
 ## Quickstart
 
 ```bash
-# 1. Log in (paste your API token from app.kupe.cloud → Settings → API Keys)
-kupe auth login
+# 1. Log in. The default --method=oidc opens your browser to Authentik;
+#    use --method=token if you want to paste a long-lived API key from
+#    https://console.kupe.cloud/settings/api-keys (CI / scripts).
+kupe auth login --tenant acme-corp
 
 # 2. Create a cluster
 kupe cluster create dev --type shared

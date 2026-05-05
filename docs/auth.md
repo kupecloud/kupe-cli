@@ -155,7 +155,7 @@ Precedence is implemented in `internal/config/precedence.go` as a single `Resolv
 ```
 $ kupe auth login
 ? Tenant: acme-corp
-? Paste your API token (create at https://app.kupe.cloud/settings/api-keys):
+? Paste your API token (create at https://console.kupe.cloud/settings/api-keys):
   ****************************************
 ✓ Logged in as billy@acme.com (admin)
   Context "acme-corp" saved, set as current.

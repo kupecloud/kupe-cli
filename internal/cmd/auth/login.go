@@ -169,7 +169,7 @@ func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *con
 		if !io.PromptsEnabled {
 			return cli.MisuseError("--token is required in non-interactive mode")
 		}
-		got, err := promptSecret(io, "Paste your API token (create one at https://app.kupe.cloud/settings/api-keys):\n  ")
+		got, err := promptSecret(io, "Paste your API token (create one at https://console.kupe.cloud/settings/api-keys):\n  ")
 		if err != nil {
 			return err
 		}
@@ -351,7 +351,7 @@ func loginValidationError(err error, apiURL, tenant string) error {
 	switch {
 	case client.IsUnauthorized(err):
 		return cli.AuthError(fmt.Sprintf("invalid API token at %s (server returned 401)", apiURL)).
-			WithHint("verify the token at https://app.kupe.cloud/settings/api-keys")
+			WithHint("verify the token at https://console.kupe.cloud/settings/api-keys")
 	case client.IsForbidden(err):
 		return cli.AuthError(fmt.Sprintf("token does not grant access to tenant %q at %s (403)", tenant, apiURL)).
 			WithHint("check the tenant name and the token's role")

@@ -14,7 +14,7 @@ func ClusterColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "NAME", Get: func(v any) string { return cluster(v).Name }},
 		{Name: "TYPE", Get: func(v any) string { return cluster(v).Type }},
-		{Name: "VERSION", Get: func(v any) string { return cluster(v).Version }},
+		{Name: "VERSION", Get: func(v any) string { return clusterVersionDisplay(cluster(v)) }},
 		{Name: "PHASE", Get: func(v any) string {
 			return ux.ColorPhase(phaseOf(cluster(v)), colorEnabled)
 		}},
@@ -40,14 +40,7 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 			return cluster(v).Name
 		}},
 		{Name: "Type", Get: func(v any) string { return cluster(v).Type }},
-		{Name: "Version", Get: func(v any) string {
-			c := cluster(v)
-			running := statusOf(c).KubernetesVersion
-			if running != "" && running != c.Version {
-				return c.Version + " (running " + running + ")"
-			}
-			return c.Version
-		}},
+		{Name: "Version", Get: func(v any) string { return clusterVersionDisplay(cluster(v)) }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(phaseOf(cluster(v)), colorEnabled)
 		}},
@@ -91,6 +84,35 @@ func statusOf(c *client.Cluster) client.ClusterStatus {
 		return client.ClusterStatus{}
 	}
 	return *c.Status
+}
+
+// clusterVersionDisplay returns the most useful single string for the
+// Version column / detail field:
+//
+//   - both desired (spec) and running (status) set & equal: just the value
+//   - both set but differ (mid-upgrade or drift): "desired (running X)"
+//   - only running known (server-defaulted at create time, no spec.version):
+//     just the running value
+//   - only desired known (cluster still provisioning): just the desired
+//   - neither known: empty string
+//
+// The list and detail views share this helper so the rendering rule
+// stays single-sourced.
+func clusterVersionDisplay(c *client.Cluster) string {
+	if c == nil {
+		return ""
+	}
+	running := statusOf(c).KubernetesVersion
+	switch {
+	case c.Version == "" && running == "":
+		return ""
+	case c.Version == "":
+		return running
+	case running == "" || running == c.Version:
+		return c.Version
+	default:
+		return c.Version + " (running " + running + ")"
+	}
 }
 
 func resourceOf(c *client.Cluster) client.ClusterResource {

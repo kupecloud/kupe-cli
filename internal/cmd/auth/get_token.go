@@ -40,19 +40,26 @@ never call it directly.`,
 				f.Flags.Context = contextName
 			}
 
-			tok, err := f.Token()
+			tok, expiry, err := f.TokenWithExpiry()
 			if err != nil {
 				return cli.AuthError("no Kupe credentials available for this context")
 			}
 
+			status := &clientauthv1.ExecCredentialStatus{Token: tok}
+			// kubectl uses ExpirationTimestamp to cache the credential
+			// across requests. Apikey contexts (no expiry) leave it nil
+			// so kubectl re-invokes us each time — fine because that
+			// path is already a cheap keyring read.
+			if !expiry.IsZero() {
+				ts := metav1.NewTime(expiry)
+				status.ExpirationTimestamp = &ts
+			}
 			cred := clientauthv1.ExecCredential{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "client.authentication.k8s.io/v1",
 					Kind:       "ExecCredential",
 				},
-				Status: &clientauthv1.ExecCredentialStatus{
-					Token: tok,
-				},
+				Status: status,
 			}
 			enc := json.NewEncoder(f.IOStreams.Out)
 			enc.SetIndent("", "  ")

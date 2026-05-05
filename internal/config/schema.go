@@ -19,6 +19,14 @@ const (
 	TokenRefPlaintext = "plaintext"
 )
 
+// AuthMethod values written into Context.AuthMethod. An empty value is
+// treated as AuthMethodAPIKey for backwards compatibility with contexts
+// created before OIDC was wired in.
+const (
+	AuthMethodAPIKey = "apikey"
+	AuthMethodOIDC   = "oidc"
+)
+
 // DefaultAPIURL is the base URL used when nothing else resolves one.
 const DefaultAPIURL = "https://api.kupe.cloud"
 
@@ -40,6 +48,21 @@ type Context struct {
 	Tenant   string `yaml:"tenant"`
 	TokenRef string `yaml:"tokenRef,omitempty"`
 	User     string `yaml:"user,omitempty"`
+
+	// AuthMethod records how this context authenticates: "apikey" (a
+	// long-lived kupe_... bearer token) or "oidc" (Authentik auth-code +
+	// PKCE flow with refresh-token rotation). Empty == apikey, for
+	// back-compat with contexts created before OIDC landed.
+	AuthMethod string `yaml:"authMethod,omitempty"`
+
+	// OIDCIssuer overrides build.OIDCIssuer for this context. Set on
+	// dev/staging contexts pointing at the internal Authentik
+	// (e.g. https://auth.dev.int.kupe.cloud/application/o/kupe-cli/).
+	OIDCIssuer string `yaml:"oidcIssuer,omitempty"`
+
+	// OIDCClientID overrides build.OIDCClientID for this context. The
+	// public client_id registered in Authentik. Rarely changed.
+	OIDCClientID string `yaml:"oidcClientId,omitempty"`
 }
 
 // Preferences is a bag of global defaults applied to commands unless

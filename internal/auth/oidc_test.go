@@ -1,0 +1,198 @@
+package auth
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestOIDCTokenSetValid(t *testing.T) {
+	cases := []struct {
+		name string
+		ts   OIDCTokenSet
+		want bool
+	}{
+		{"empty", OIDCTokenSet{}, false},
+		{"expired", OIDCTokenSet{AccessToken: "x", Expiry: time.Now().Add(-time.Minute)}, false},
+		{"within skew", OIDCTokenSet{AccessToken: "x", Expiry: time.Now().Add(refreshSkew / 2)}, false},
+		{"fresh", OIDCTokenSet{AccessToken: "x", Expiry: time.Now().Add(time.Hour)}, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ts.Valid(); got != tt.want {
+				t.Errorf("Valid() = %v; want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsOIDCBlob(t *testing.T) {
+	cases := map[string]bool{
+		`{"access_token":"x"}`: true,
+		"  {":                  true,
+		"kupe_abc123":          false,
+		"":                     false,
+		"random":               false,
+	}
+	for in, want := range cases {
+		if got := IsOIDCBlob(in); got != want {
+			t.Errorf("IsOIDCBlob(%q) = %v; want %v", in, got, want)
+		}
+	}
+}
+
+func TestMarshalUnmarshalRoundTrip(t *testing.T) {
+	want := OIDCTokenSet{
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+		IDToken:      "idtok",
+		Expiry:       time.Now().Add(time.Hour).Truncate(time.Second).UTC(),
+	}
+	s, err := want.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsOIDCBlob(s) {
+		t.Fatalf("marshalled output should be detected as OIDC blob: %q", s)
+	}
+	got, err := UnmarshalOIDC(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != want.AccessToken || got.RefreshToken != want.RefreshToken || got.IDToken != want.IDToken || !got.Expiry.Equal(want.Expiry) {
+		t.Fatalf("round-trip mismatch:\n got=%+v\nwant=%+v", got, want)
+	}
+}
+
+func TestEmailFromIDToken(t *testing.T) {
+	mkJWT := func(claims map[string]any) string {
+		hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+		body, _ := json.Marshal(claims)
+		payload := base64.RawURLEncoding.EncodeToString(body)
+		return hdr + "." + payload + ".sig"
+	}
+	if got := EmailFromIDToken(mkJWT(map[string]any{"email": "user@example.com"})); got != "user@example.com" {
+		t.Fatalf("got %q", got)
+	}
+	if got := EmailFromIDToken("not-a-jwt"); got != "" {
+		t.Fatalf("expected empty for malformed token, got %q", got)
+	}
+	if got := EmailFromIDToken(mkJWT(map[string]any{"sub": "no-email-claim"})); got != "" {
+		t.Fatalf("expected empty for missing email, got %q", got)
+	}
+}
+
+func TestJoinIssuerPath(t *testing.T) {
+	cases := []struct {
+		issuer, segment, want string
+	}{
+		{"https://auth.kupe.cloud/application/o/kupe-cli/", "token", "https://auth.kupe.cloud/application/o/kupe-cli/token/"},
+		{"https://auth.kupe.cloud/application/o/kupe-cli", "authorize", "https://auth.kupe.cloud/application/o/kupe-cli/authorize/"},
+		{"https://auth.kupe.cloud/application/o/kupe-cli/", "/token/", "https://auth.kupe.cloud/application/o/kupe-cli/token/"},
+	}
+	for _, tt := range cases {
+		if got := JoinIssuerPath(tt.issuer, tt.segment); got != tt.want {
+			t.Errorf("JoinIssuerPath(%q, %q) = %q; want %q", tt.issuer, tt.segment, got, tt.want)
+		}
+	}
+}
+
+// TestRefreshSuccess simulates Authentik's /token endpoint returning a new
+// access + refresh token. The CLI must persist the rotated refresh token if
+// the server returns one.
+func TestRefreshSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/application/o/kupe-cli/token/" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Form.Get("grant_type"); got != "refresh_token" {
+			t.Errorf("grant_type = %q; want refresh_token", got)
+		}
+		if got := r.Form.Get("refresh_token"); got != "old-refresh" {
+			t.Errorf("refresh_token = %q; want old-refresh", got)
+		}
+		if got := r.Form.Get("client_id"); got != "kupe-cli" {
+			t.Errorf("client_id = %q; want kupe-cli", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600,"id_token":"new-id"}`)
+	}))
+	defer srv.Close()
+
+	current := OIDCTokenSet{
+		AccessToken:  "expired-access",
+		RefreshToken: "old-refresh",
+		IDToken:      "old-id",
+		Expiry:       time.Now().Add(-time.Minute),
+	}
+	got, err := Refresh(context.Background(), srv.URL+"/application/o/kupe-cli/", "kupe-cli", current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != "new-access" || got.RefreshToken != "new-refresh" || got.IDToken != "new-id" {
+		t.Fatalf("unexpected token set: %+v", got)
+	}
+	if got.Expiry.Before(time.Now()) {
+		t.Fatalf("expiry not in future: %v", got.Expiry)
+	}
+}
+
+// TestRefreshKeepsExistingRefreshTokenIfNotRotated covers Authentik's
+// behaviour when refresh_token rotation is disabled — the response omits
+// refresh_token, so we keep the previous one.
+func TestRefreshKeepsExistingRefreshTokenIfNotRotated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"access_token":"rotated-access","expires_in":3600}`)
+	}))
+	defer srv.Close()
+
+	got, err := Refresh(context.Background(), srv.URL+"/application/o/kupe-cli/", "kupe-cli",
+		OIDCTokenSet{RefreshToken: "stable-refresh", IDToken: "stable-id", Expiry: time.Now().Add(-time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RefreshToken != "stable-refresh" {
+		t.Fatalf("RefreshToken = %q; want stable-refresh", got.RefreshToken)
+	}
+	if got.IDToken != "stable-id" {
+		t.Fatalf("IDToken = %q; want stable-id (no id_token in response)", got.IDToken)
+	}
+}
+
+// TestRefreshInvalidGrantSurfacesErrRefreshFailed proves the refresh path
+// returns the sentinel error, so the factory can clear the stored blob.
+func TestRefreshInvalidGrantSurfacesErrRefreshFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, `{"error":"invalid_grant","error_description":"Token expired"}`)
+	}))
+	defer srv.Close()
+
+	_, err := Refresh(context.Background(), srv.URL+"/application/o/kupe-cli/", "kupe-cli",
+		OIDCTokenSet{RefreshToken: "old", Expiry: time.Now().Add(-time.Minute)})
+	if !errors.Is(err, ErrRefreshFailed) {
+		t.Fatalf("expected ErrRefreshFailed; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid_grant") {
+		t.Fatalf("error should mention invalid_grant; got %v", err)
+	}
+}
+
+func TestRefreshNoRefreshTokenIsErrRefreshFailed(t *testing.T) {
+	_, err := Refresh(context.Background(), "https://example.invalid/", "kupe-cli", OIDCTokenSet{})
+	if !errors.Is(err, ErrRefreshFailed) {
+		t.Fatalf("expected ErrRefreshFailed; got %v", err)
+	}
+}

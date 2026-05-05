@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/kupecloud/kupe-cli/internal/auth"
+	"github.com/kupecloud/kupe-cli/internal/build"
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/config"
@@ -20,16 +22,26 @@ import (
 // CLI calls GET /tenants/{tenant} after storing the token.
 var tenantNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,61}[a-z0-9]$`)
 
-// tokenPrefix is the API-key prefix kupe-api expects. OIDC tokens (Phase 1.5)
-// will also flow through this command but don't carry the prefix.
+// tokenPrefix is the API-key prefix kupe-api expects. OIDC access tokens
+// flow through the same login command but use the OIDC method path and
+// don't carry this prefix.
 const tokenPrefix = "kupe_"
 
+const (
+	methodOIDC   = "oidc"
+	methodToken  = "token"
+	methodAPIKey = "apikey" // alias for "token"
+)
+
 type loginOpts struct {
-	tenant     string
-	token      string
-	apiURL     string
-	context    string
-	setDefault bool
+	tenant       string
+	token        string
+	apiURL       string
+	context      string
+	method       string
+	oidcIssuer   string
+	oidcClientID string
+	setDefault   bool
 }
 
 func newLoginCmd(f *cli.Factory) *cobra.Command {
@@ -37,32 +49,47 @@ func newLoginCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate and store an API token for the current or a new context",
-		Long: `Authenticate against Kupe by supplying an API token.
+		Short: "Authenticate and store credentials for the current or a new context",
+		Long: `Authenticate against Kupe.
 
-Interactive (TTY):
-  Prompts for the tenant and token. Token input is hidden.
+Two methods are supported:
 
-Scripted:
-  Pass --tenant and --token explicitly. If KUPE_API_TOKEN is already set,
-  this command refuses to run — the env-var path is already authenticated
-  and a login would be a no-op.
+  --method oidc (default)
+    Opens your browser to Authentik, completes an OAuth2 authorization-code
+    flow with PKCE, and stores the resulting access + refresh tokens. The
+    refresh token rotates transparently on subsequent commands.
+
+  --method token
+    Reads a long-lived API key (format kupe_...) and stores it. Use this for
+    CI machines and automation; pair with --token / KUPE_API_TOKEN to skip
+    the prompt.
+
+If KUPE_API_TOKEN is already set, this command refuses to run — the env-var
+path is already authenticated and a login would be a no-op.
 
 Context name defaults to the tenant name. Use --context to override when you
 want more than one context per tenant (e.g., two API environments).`,
-		Example: `  # Interactive on your laptop
-  kupe auth login
+		Example: `  # Interactive OIDC login on your laptop
+  kupe auth login --tenant acme
 
-  # Scripted bootstrap for a CI machine
-  kupe auth login --tenant acme --token kupe_... --context prod --set-default`,
+  # Same, against a non-default Authentik (dev/staging override)
+  kupe auth login --tenant acme \
+      --api-url https://api.dev.int.kupe.cloud \
+      --oidc-issuer https://auth.dev.int.kupe.cloud/application/o/kupe-cli/
+
+  # Scripted bootstrap with a long-lived API key (CI)
+  kupe auth login --method token --tenant acme --token kupe_... --context prod --set-default`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLogin(cmd, f, opts)
 		},
 	}
 
 	cmd.Flags().StringVar(&opts.tenant, "tenant", "", "Tenant to authenticate against")
-	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). If unset, prompt on a TTY.")
+	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (browser, default) or token (long-lived API key)")
+	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). Required with --method=token in non-interactive mode.")
 	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context (default "+config.DefaultAPIURL+")")
+	cmd.Flags().StringVar(&opts.oidcIssuer, "oidc-issuer", "", "OIDC issuer URL for this context (default "+build.OIDCIssuer+")")
+	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (default "+build.OIDCClientID+")")
 	cmd.Flags().StringVar(&opts.context, "context", "", "Context name (default: tenant name)")
 	cmd.Flags().BoolVar(&opts.setDefault, "set-default", false, "Mark this context as the current one")
 
@@ -76,6 +103,14 @@ func runLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts) error {
 	// scripted auth and doesn't need a config file.
 	if os.Getenv("KUPE_API_TOKEN") != "" {
 		return cli.AuthError("KUPE_API_TOKEN is set; the CLI is already authenticated via the env var. Unset it if you want to store credentials via kupe auth login.")
+	}
+
+	method := strings.ToLower(strings.TrimSpace(opts.method))
+	if method == methodAPIKey {
+		method = methodToken
+	}
+	if method != methodOIDC && method != methodToken {
+		return cli.MisuseError(fmt.Sprintf("unknown --method %q (want oidc or token)", opts.method))
 	}
 
 	// Tenant: flag > prompt.
@@ -94,6 +129,40 @@ func runLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts) error {
 		return cli.MisuseError(fmt.Sprintf("invalid tenant name %q (must be lowercase DNS label, e.g. acme-corp)", tenant))
 	}
 
+	// Context name defaults to the tenant name.
+	contextName := opts.context
+	if contextName == "" {
+		contextName = tenant
+	}
+
+	// Load (or create empty) config — needed to inherit per-context overrides.
+	cfg, err := f.Config()
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "loading config", err)
+	}
+
+	apiURL := opts.apiURL
+	if apiURL == "" {
+		if existing := cfg.Context(contextName); existing != nil {
+			apiURL = existing.APIURL
+		}
+	}
+	effectiveAPIURL := apiURL
+	if effectiveAPIURL == "" {
+		effectiveAPIURL = config.DefaultAPIURL
+	}
+
+	switch method {
+	case methodOIDC:
+		return runOIDCLogin(cmd, f, opts, cfg, contextName, tenant, apiURL, effectiveAPIURL)
+	default:
+		return runTokenLogin(cmd, f, opts, cfg, contextName, tenant, apiURL, effectiveAPIURL)
+	}
+}
+
+func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *config.Config, contextName, tenant, apiURL, effectiveAPIURL string) error {
+	io := f.IOStreams
+
 	// Token: flag > prompt (hidden).
 	token := strings.TrimSpace(opts.token)
 	if token == "" {
@@ -107,48 +176,15 @@ func runLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts) error {
 		token = got
 	}
 	if !strings.HasPrefix(token, tokenPrefix) {
-		// Don't fail hard — OIDC JWTs are coming in Phase 1.5 and won't have
-		// the prefix. Warn on stderr so accidents are visible.
 		fmt.Fprintf(io.ErrOut, "warning: token does not start with %q; proceeding anyway\n", tokenPrefix)
 	}
 
-	// Context name defaults to the tenant name.
-	contextName := opts.context
-	if contextName == "" {
-		contextName = tenant
-	}
-
-	// Load (or create empty) config.
-	cfg, err := f.Config()
-	if err != nil {
-		return cli.Wrap(cli.ExitGeneral, "loading config", err)
-	}
-
-	apiURL := opts.apiURL
-	if apiURL == "" {
-		// Inherit from the existing context if present, else leave empty
-		// (Resolve will apply the default).
-		if existing := cfg.Context(contextName); existing != nil {
-			apiURL = existing.APIURL
-		}
-	}
-
-	// Resolve effective API URL once (defaulting kicks in here so we can
-	// validate against the correct endpoint before persisting).
-	effectiveAPIURL := apiURL
-	if effectiveAPIURL == "" {
-		effectiveAPIURL = config.DefaultAPIURL
-	}
-
-	// Validate the token before persisting anything. A bad token should not
-	// leave stale state on disk or in the keyring.
 	api := client.New(effectiveAPIURL, tenant, token, cli.UserAgent())
 	t, _, err := api.GetTenant(cmd.Context())
 	if err != nil {
 		return loginValidationError(err, effectiveAPIURL, tenant)
 	}
 
-	// Store the token only after server-side validation succeeded.
 	mgr, err := f.Auth()
 	if err != nil {
 		return cli.Wrap(cli.ExitGeneral, "initialising auth manager", err)
@@ -158,30 +194,25 @@ func runLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts) error {
 		return cli.Wrap(cli.ExitGeneral, "storing token", err)
 	}
 
-	// Update (or create) the context.
 	existing := cfg.Context(contextName)
 	ctx := config.Context{
-		Name:     contextName,
-		APIURL:   apiURL,
-		Tenant:   tenant,
-		TokenRef: ref,
+		Name:       contextName,
+		APIURL:     apiURL,
+		Tenant:     tenant,
+		TokenRef:   ref,
+		AuthMethod: config.AuthMethodAPIKey,
 	}
 	if existing != nil {
-		ctx.User = existing.User // preserved; OIDC phase populates this from JWT
+		ctx.User = existing.User
 	}
 	cfg.SetContext(ctx)
 
-	// Set currentContext when requested, or when this is the only context.
 	if opts.setDefault || len(cfg.Contexts) == 1 || cfg.CurrentContext == "" {
 		cfg.CurrentContext = contextName
 	}
 
-	path, err := f.ConfigPath()
-	if err != nil {
-		return cli.Wrap(cli.ExitGeneral, "resolving config path", err)
-	}
-	if err := cfg.Save(path); err != nil {
-		return cli.Wrap(cli.ExitGeneral, "saving config", err)
+	if err := saveConfig(f, cfg); err != nil {
+		return err
 	}
 
 	label := tenant
@@ -194,6 +225,120 @@ func runLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts) error {
 		fmt.Fprint(io.ErrOut, " Set as current.")
 	}
 	fmt.Fprintln(io.ErrOut)
+	return nil
+}
+
+func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *config.Config, contextName, tenant, apiURL, effectiveAPIURL string) error {
+	io := f.IOStreams
+
+	// Resolve OIDC parameters: flag > existing context > build default.
+	issuer := strings.TrimSpace(opts.oidcIssuer)
+	clientID := strings.TrimSpace(opts.oidcClientID)
+	if existing := cfg.Context(contextName); existing != nil {
+		if issuer == "" {
+			issuer = existing.OIDCIssuer
+		}
+		if clientID == "" {
+			clientID = existing.OIDCClientID
+		}
+	}
+	if issuer == "" {
+		issuer = build.OIDCIssuer
+	}
+	if clientID == "" {
+		clientID = build.OIDCClientID
+	}
+
+	fmt.Fprintf(io.ErrOut, "Opening your browser to %s\n", issuer)
+	fmt.Fprintln(io.ErrOut, "  If it doesn't open, copy the URL printed below into a browser:")
+
+	ts, err := auth.BrowserFlow(cmd.Context(), func(authURL string) {
+		fmt.Fprintf(io.ErrOut, "  %s\n", authURL)
+	}, issuer, clientID, build.OIDCScopes)
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "OIDC login", err)
+	}
+
+	// Validate against the API with the freshly-issued access token before
+	// persisting anything — same contract as the token path.
+	api := client.New(effectiveAPIURL, tenant, ts.AccessToken, cli.UserAgent())
+	t, _, err := api.GetTenant(cmd.Context())
+	if err != nil {
+		return loginValidationError(err, effectiveAPIURL, tenant)
+	}
+
+	blob, err := ts.Marshal()
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "encoding OIDC token set", err)
+	}
+	mgr, err := f.Auth()
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "initialising auth manager", err)
+	}
+	ref, err := mgr.Set(contextName, blob)
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "storing OIDC token set", err)
+	}
+
+	existing := cfg.Context(contextName)
+	ctx := config.Context{
+		Name:         contextName,
+		APIURL:       apiURL,
+		Tenant:       tenant,
+		TokenRef:     ref,
+		AuthMethod:   config.AuthMethodOIDC,
+		User:         auth.EmailFromIDToken(ts.IDToken),
+		OIDCIssuer:   nonDefault(issuer, build.OIDCIssuer),
+		OIDCClientID: nonDefault(clientID, build.OIDCClientID),
+	}
+	if existing != nil && ctx.User == "" {
+		ctx.User = existing.User
+	}
+	cfg.SetContext(ctx)
+
+	if opts.setDefault || len(cfg.Contexts) == 1 || cfg.CurrentContext == "" {
+		cfg.CurrentContext = contextName
+	}
+
+	if err := saveConfig(f, cfg); err != nil {
+		return err
+	}
+
+	label := tenant
+	if t.DisplayName != "" {
+		label = fmt.Sprintf("%s (%s)", t.DisplayName, tenant)
+	}
+	if ctx.User != "" {
+		fmt.Fprintf(io.ErrOut, "Logged in to tenant %s as %s.\n", label, ctx.User)
+	} else {
+		fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
+	}
+	fmt.Fprintf(io.ErrOut, "  Context %q saved (%s storage, OIDC).", contextName, ref)
+	if cfg.CurrentContext == contextName {
+		fmt.Fprint(io.ErrOut, " Set as current.")
+	}
+	fmt.Fprintln(io.ErrOut)
+	return nil
+}
+
+// nonDefault returns v unless it equals the build-time default, in which
+// case it returns "" — that keeps the config file uncluttered with values
+// users don't need to see.
+func nonDefault(v, def string) string {
+	if v == def {
+		return ""
+	}
+	return v
+}
+
+func saveConfig(f *cli.Factory, cfg *config.Config) error {
+	path, err := f.ConfigPath()
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "resolving config path", err)
+	}
+	if err := cfg.Save(path); err != nil {
+		return cli.Wrap(cli.ExitGeneral, "saving config", err)
+	}
 	return nil
 }
 

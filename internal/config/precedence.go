@@ -1,25 +1,33 @@
 package config
 
-import "os"
+import (
+	"os"
+
+	"github.com/kupecloud/kupe-cli/internal/build"
+)
 
 // Env collects the environment variables the CLI honours for config
 // resolution. Loaded once per invocation by LoadEnv.
 type Env struct {
-	APIURL  string
-	Token   string
-	Tenant  string
-	Context string
-	Config  string
+	APIURL       string
+	Token        string
+	Tenant       string
+	Context      string
+	Config       string
+	OIDCIssuer   string
+	OIDCClientID string
 }
 
 // LoadEnv reads the KUPE_* variables the CLI cares about.
 func LoadEnv() Env {
 	return Env{
-		APIURL:  os.Getenv("KUPE_API_URL"),
-		Token:   os.Getenv("KUPE_API_TOKEN"),
-		Tenant:  os.Getenv("KUPE_TENANT"),
-		Context: os.Getenv("KUPE_CONTEXT"),
-		Config:  os.Getenv("KUPE_CONFIG"),
+		APIURL:       os.Getenv("KUPE_API_URL"),
+		Token:        os.Getenv("KUPE_API_TOKEN"),
+		Tenant:       os.Getenv("KUPE_TENANT"),
+		Context:      os.Getenv("KUPE_CONTEXT"),
+		Config:       os.Getenv("KUPE_CONFIG"),
+		OIDCIssuer:   os.Getenv("KUPE_OIDC_ISSUER"),
+		OIDCClientID: os.Getenv("KUPE_OIDC_CLIENT_ID"),
 	}
 }
 
@@ -42,6 +50,16 @@ type Resolved struct {
 	// DirectToken is the flag/env-provided token (if any) that bypasses
 	// the keyring. Empty string means "look up by context".
 	DirectToken string
+	// AuthMethod is the resolved context's auth method (oidc or apikey).
+	// Empty when no context exists yet (first-time login).
+	AuthMethod string
+	// OIDCIssuer / OIDCClientID are the effective OIDC parameters for the
+	// resolved context. Precedence: env > context > build default. The
+	// flag-level overrides for these are login-time-only (they get
+	// persisted into the context) so they don't appear in the global
+	// Flags struct above.
+	OIDCIssuer   string
+	OIDCClientID string
 }
 
 // Resolve merges flags, env vars, and config-file context into the final
@@ -86,6 +104,25 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 	// DirectToken — flag and env bypass the keyring. If neither is set,
 	// callers must look up the token via the context's TokenRef.
 	r.DirectToken = firstNonEmpty(flags.Token, env.Token)
+
+	// OIDC parameters: env > context > build default.
+	if ctx != nil {
+		r.AuthMethod = ctx.AuthMethod
+	}
+	r.OIDCIssuer = env.OIDCIssuer
+	if r.OIDCIssuer == "" && ctx != nil {
+		r.OIDCIssuer = ctx.OIDCIssuer
+	}
+	if r.OIDCIssuer == "" {
+		r.OIDCIssuer = build.OIDCIssuer
+	}
+	r.OIDCClientID = env.OIDCClientID
+	if r.OIDCClientID == "" && ctx != nil {
+		r.OIDCClientID = ctx.OIDCClientID
+	}
+	if r.OIDCClientID == "" {
+		r.OIDCClientID = build.OIDCClientID
+	}
 
 	return r
 }

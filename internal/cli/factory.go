@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/kupecloud/kupe-cli/internal/auth"
 	"github.com/kupecloud/kupe-cli/internal/build"
@@ -43,6 +46,13 @@ type Factory struct {
 	// otherwise looked up via Auth using the resolved context's TokenRef.
 	// Returns auth.ErrNotFound if no source yields a token.
 	Token func() (string, error)
+
+	// TokenWithExpiry behaves like Token but also returns the access-token
+	// expiry when the context is OIDC. Apikey contexts and direct-token
+	// flag/env paths return a zero time.Time (no expiry hint). Used by
+	// the kubeconfig exec-plugin so kubectl can avoid re-invoking the
+	// CLI on every request.
+	TokenWithExpiry func() (string, time.Time, error)
 
 	// Client returns a production client.Interface scoped to the resolved
 	// API URL, tenant, and token. Memoised per invocation. Tests inject a
@@ -217,28 +227,64 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 		return pubCli, nil
 	}
 
-	f.Token = func() (string, error) {
+	resolveToken := func() (string, time.Time, error) {
 		r, err := f.Resolved()
 		if err != nil {
-			return "", err
+			return "", time.Time{}, err
 		}
 		if r.DirectToken != "" {
-			return r.DirectToken, nil
+			return r.DirectToken, time.Time{}, nil
 		}
 		c, err := f.Config()
 		if err != nil {
-			return "", err
+			return "", time.Time{}, err
 		}
 		ctx := c.Context(r.ContextName)
 		if ctx == nil || ctx.TokenRef == "" {
-			return "", auth.ErrNotFound
+			return "", time.Time{}, auth.ErrNotFound
 		}
 		m, err := f.Auth()
 		if err != nil {
-			return "", err
+			return "", time.Time{}, err
 		}
-		return m.GetByRef(r.ContextName, ctx.TokenRef)
+		stored, err := m.GetByRef(r.ContextName, ctx.TokenRef)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if !auth.IsOIDCBlob(stored) {
+			return stored, time.Time{}, nil
+		}
+		ts, err := auth.UnmarshalOIDC(stored)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if ts.Valid() {
+			return ts.AccessToken, ts.Expiry, nil
+		}
+		ctxBg := context.Background()
+		fresh, err := auth.Refresh(ctxBg, r.OIDCIssuer, r.OIDCClientID, ts)
+		if err != nil {
+			if errors.Is(err, auth.ErrRefreshFailed) {
+				_ = m.DeleteByRef(r.ContextName, ctx.TokenRef)
+				return "", time.Time{}, auth.ErrNotFound
+			}
+			return "", time.Time{}, err
+		}
+		blob, err := fresh.Marshal()
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if _, err := m.Set(r.ContextName, blob); err != nil {
+			return "", time.Time{}, err
+		}
+		return fresh.AccessToken, fresh.Expiry, nil
 	}
+
+	f.Token = func() (string, error) {
+		tok, _, err := resolveToken()
+		return tok, err
+	}
+	f.TokenWithExpiry = resolveToken
 
 	return f
 }

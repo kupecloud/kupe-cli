@@ -89,29 +89,83 @@ func TestEmailFromIDToken(t *testing.T) {
 	}
 }
 
-func TestJoinIssuerPath(t *testing.T) {
-	cases := []struct {
-		issuer, segment, want string
-	}{
-		{"https://auth.kupe.cloud/application/o/kupe-cli/", "token", "https://auth.kupe.cloud/application/o/kupe-cli/token/"},
-		{"https://auth.kupe.cloud/application/o/kupe-cli", "authorize", "https://auth.kupe.cloud/application/o/kupe-cli/authorize/"},
-		{"https://auth.kupe.cloud/application/o/kupe-cli/", "/token/", "https://auth.kupe.cloud/application/o/kupe-cli/token/"},
-	}
-	for _, tt := range cases {
-		if got := JoinIssuerPath(tt.issuer, tt.segment); got != tt.want {
-			t.Errorf("JoinIssuerPath(%q, %q) = %q; want %q", tt.issuer, tt.segment, got, tt.want)
+func TestDiscoverReturnsEndpoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/application/o/kupe-cli/.well-known/openid-configuration" {
+			t.Errorf("unexpected discovery path: %s", r.URL.Path)
 		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{
+            "issuer": "https://example/application/o/kupe-cli/",
+            "authorization_endpoint": "https://example/application/o/authorize/",
+            "token_endpoint": "https://example/application/o/token/",
+            "jwks_uri": "https://example/application/o/kupe-cli/jwks/"
+        }`)
+	}))
+	defer srv.Close()
+
+	d, err := Discover(context.Background(), srv.URL+"/application/o/kupe-cli/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.AuthorizationEndpoint != "https://example/application/o/authorize/" {
+		t.Errorf("AuthorizationEndpoint = %q", d.AuthorizationEndpoint)
+	}
+	if d.TokenEndpoint != "https://example/application/o/token/" {
+		t.Errorf("TokenEndpoint = %q", d.TokenEndpoint)
 	}
 }
 
-// TestRefreshSuccess simulates Authentik's /token endpoint returning a new
-// access + refresh token. The CLI must persist the rotated refresh token if
-// the server returns one.
+func TestDiscoverFailsOnMissingEndpoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"issuer":"https://example/application/o/kupe-cli/"}`)
+	}))
+	defer srv.Close()
+
+	_, err := Discover(context.Background(), srv.URL+"/application/o/kupe-cli/")
+	if err == nil {
+		t.Fatal("expected error on missing endpoints")
+	}
+}
+
+func TestDiscoverFailsOnNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, err := Discover(context.Background(), srv.URL+"/application/o/kupe-cli/")
+	if err == nil {
+		t.Fatal("expected error on 404")
+	}
+}
+
+// fakeAuthentik mounts a discovery doc at the standard well-known path
+// and a token handler at /application/o/token/, simulating just enough
+// of Authentik for Refresh's two HTTP calls.
+func fakeAuthentik(t *testing.T, tokenHandler http.HandlerFunc) (issuer string, srv *httptest.Server) {
+	t.Helper()
+	mux := http.NewServeMux()
+	srv = httptest.NewServer(mux)
+	mux.HandleFunc("/application/o/kupe-cli/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+            "issuer":"%s/application/o/kupe-cli/",
+            "authorization_endpoint":"%s/application/o/authorize/",
+            "token_endpoint":"%s/application/o/token/",
+            "jwks_uri":"%s/application/o/kupe-cli/jwks/"
+        }`, srv.URL, srv.URL, srv.URL, srv.URL)
+	})
+	mux.HandleFunc("/application/o/token/", tokenHandler)
+	return srv.URL + "/application/o/kupe-cli/", srv
+}
+
+// TestRefreshSuccess simulates Authentik's discovery + /token endpoints
+// returning a new access + refresh token. The CLI must persist the
+// rotated refresh token if the server returns one.
 func TestRefreshSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/application/o/kupe-cli/token/" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
+	issuer, srv := fakeAuthentik(t, func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +180,7 @@ func TestRefreshSuccess(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintln(w, `{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600,"id_token":"new-id"}`)
-	}))
+	})
 	defer srv.Close()
 
 	current := OIDCTokenSet{
@@ -135,7 +189,7 @@ func TestRefreshSuccess(t *testing.T) {
 		IDToken:      "old-id",
 		Expiry:       time.Now().Add(-time.Minute),
 	}
-	got, err := Refresh(context.Background(), srv.URL+"/application/o/kupe-cli/", "kupe-cli", current)
+	got, err := Refresh(context.Background(), issuer, "kupe-cli", current)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,13 +205,13 @@ func TestRefreshSuccess(t *testing.T) {
 // behaviour when refresh_token rotation is disabled — the response omits
 // refresh_token, so we keep the previous one.
 func TestRefreshKeepsExistingRefreshTokenIfNotRotated(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	issuer, srv := fakeAuthentik(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintln(w, `{"access_token":"rotated-access","expires_in":3600}`)
-	}))
+	})
 	defer srv.Close()
 
-	got, err := Refresh(context.Background(), srv.URL+"/application/o/kupe-cli/", "kupe-cli",
+	got, err := Refresh(context.Background(), issuer, "kupe-cli",
 		OIDCTokenSet{RefreshToken: "stable-refresh", IDToken: "stable-id", Expiry: time.Now().Add(-time.Minute)})
 	if err != nil {
 		t.Fatal(err)
@@ -173,14 +227,14 @@ func TestRefreshKeepsExistingRefreshTokenIfNotRotated(t *testing.T) {
 // TestRefreshInvalidGrantSurfacesErrRefreshFailed proves the refresh path
 // returns the sentinel error, so the factory can clear the stored blob.
 func TestRefreshInvalidGrantSurfacesErrRefreshFailed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	issuer, srv := fakeAuthentik(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintln(w, `{"error":"invalid_grant","error_description":"Token expired"}`)
-	}))
+	})
 	defer srv.Close()
 
-	_, err := Refresh(context.Background(), srv.URL+"/application/o/kupe-cli/", "kupe-cli",
+	_, err := Refresh(context.Background(), issuer, "kupe-cli",
 		OIDCTokenSet{RefreshToken: "old", Expiry: time.Now().Add(-time.Minute)})
 	if !errors.Is(err, ErrRefreshFailed) {
 		t.Fatalf("expected ErrRefreshFailed; got %v", err)

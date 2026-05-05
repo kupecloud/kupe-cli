@@ -27,10 +27,18 @@ func TestBrowserFlowHappyPath(t *testing.T) {
 	const wantCode = "test-auth-code"
 	var capturedVerifier string
 
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/application/o/kupe-cli/token/" {
-			t.Errorf("unexpected token path: %s", r.URL.Path)
-		}
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	mux.HandleFunc("/application/o/kupe-cli/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+            "issuer":"%s/application/o/kupe-cli/",
+            "authorization_endpoint":"%s/application/o/authorize/",
+            "token_endpoint":"%s/application/o/token/"
+        }`, srv.URL, srv.URL, srv.URL)
+	})
+	mux.HandleFunc("/application/o/token/", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatal(err)
 		}
@@ -52,10 +60,9 @@ func TestBrowserFlowHappyPath(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintln(w, `{"access_token":"acc","refresh_token":"ref","id_token":"id","expires_in":3600}`)
-	}))
-	defer tokenSrv.Close()
+	})
 
-	issuer := tokenSrv.URL + "/application/o/kupe-cli/"
+	issuer := srv.URL + "/application/o/kupe-cli/"
 
 	// PromptFn stands in for the user's browser — fire the callback
 	// straight at the localhost listener with a matching state.
@@ -106,12 +113,22 @@ func TestBrowserFlowHappyPath(t *testing.T) {
 func TestBrowserFlowStateMismatch(t *testing.T) {
 	t.Cleanup(SetBrowserOpenerForTest(func(string) error { return nil }))
 
-	tokenSrv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	mux.HandleFunc("/application/o/kupe-cli/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+            "issuer":"%s/application/o/kupe-cli/",
+            "authorization_endpoint":"%s/application/o/authorize/",
+            "token_endpoint":"%s/application/o/token/"
+        }`, srv.URL, srv.URL, srv.URL)
+	})
+	mux.HandleFunc("/application/o/token/", func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("/token must not be called when state mismatches")
-	}))
-	defer tokenSrv.Close()
+	})
 
-	issuer := tokenSrv.URL + "/application/o/kupe-cli/"
+	issuer := srv.URL + "/application/o/kupe-cli/"
 
 	prompt := func(authURL string) {
 		u, err := url.Parse(authURL)

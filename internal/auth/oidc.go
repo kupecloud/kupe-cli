@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -68,21 +70,72 @@ func UnmarshalOIDC(s string) (OIDCTokenSet, error) {
 // token and ask the user to log in again.
 var ErrRefreshFailed = errors.New("OIDC refresh token rejected")
 
+// Discovery is a minimal subset of the OIDC discovery document the CLI
+// needs to build the authorize and token URLs. We hit
+// {issuer}/.well-known/openid-configuration rather than hardcoding paths
+// so we stay correct against any compliant IdP — Authentik in particular
+// puts authorize/token at the realm level (/application/o/authorize/),
+// not under the application slug.
+type Discovery struct {
+	Issuer                string `json:"issuer"`
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	UserinfoEndpoint      string `json:"userinfo_endpoint,omitempty"`
+	JWKSURI               string `json:"jwks_uri,omitempty"`
+}
+
+// Discover fetches the OIDC discovery document at
+// {issuer}/.well-known/openid-configuration and returns the endpoints
+// the CLI uses. The issuer string here is the iss-claim URL (Authentik
+// app URL: {base}/application/o/{slug}/).
+func Discover(ctx context.Context, issuer string) (*Discovery, error) {
+	docURL, err := url.JoinPath(issuer, ".well-known/openid-configuration")
+	if err != nil {
+		return nil, fmt.Errorf("building discovery URL: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, docURL, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("building discovery request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching OIDC discovery: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("OIDC discovery at %s returned %d", docURL, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading OIDC discovery: %w", err)
+	}
+	var d Discovery
+	if err := json.Unmarshal(body, &d); err != nil {
+		return nil, fmt.Errorf("parsing OIDC discovery: %w", err)
+	}
+	if d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" {
+		return nil, fmt.Errorf("OIDC discovery missing authorization/token endpoint")
+	}
+	return &d, nil
+}
+
 // Refresh exchanges a refresh_token for a new token set against the
-// issuer's /token endpoint. The issuer URL is the Authentik application
-// URL, not the realm — Authentik exposes /token directly under the app.
-//
-// On invalid_grant the function returns ErrRefreshFailed wrapped with the
-// original; on transport or other errors it returns the raw error.
+// discovered token endpoint. On invalid_grant the function returns
+// ErrRefreshFailed; on transport or other errors it returns the raw error.
 func Refresh(ctx context.Context, issuer, clientID string, current OIDCTokenSet) (OIDCTokenSet, error) {
 	if current.RefreshToken == "" {
 		return OIDCTokenSet{}, fmt.Errorf("no refresh token stored: %w", ErrRefreshFailed)
 	}
 
+	disc, err := Discover(ctx, issuer)
+	if err != nil {
+		return OIDCTokenSet{}, fmt.Errorf("refreshing OIDC token: %w", err)
+	}
+
 	cfg := &oauth2.Config{
 		ClientID: clientID,
 		Endpoint: oauth2.Endpoint{
-			TokenURL:  strings.TrimRight(issuer, "/") + "/token/",
+			TokenURL:  disc.TokenEndpoint,
 			AuthStyle: oauth2.AuthStyleInParams, // public client, no secret
 		},
 	}
@@ -141,20 +194,4 @@ func EmailFromIDToken(idToken string) string {
 		return ""
 	}
 	return claims.Email
-}
-
-// JoinIssuerPath safely appends a trailing path segment to an Authentik
-// issuer URL. Authentik issuers conventionally end with a slash
-// (/application/o/kupe-cli/) and the OAuth endpoints live directly under
-// that path. Used by the auth-code flow to build /authorize/ and /token/.
-func JoinIssuerPath(issuer, segment string) string {
-	u, err := url.Parse(issuer)
-	if err != nil {
-		// url.Parse only fails on truly malformed input; fall back to
-		// string concat so the caller still gets a usable-looking URL
-		// for the error message it'll print.
-		return strings.TrimRight(issuer, "/") + "/" + strings.TrimLeft(segment, "/") + "/"
-	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.Trim(segment, "/") + "/"
-	return u.String()
 }

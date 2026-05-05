@@ -289,10 +289,18 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 	t.Setenv("KUPE_API_TOKEN", "")
 	const wantCode = "test-auth-code"
 
-	authentik := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/application/o/kupe-cli/token/" {
-			t.Fatalf("unexpected authentik path: %s", r.URL.Path)
-		}
+	authentikMux := http.NewServeMux()
+	authentik := httptest.NewServer(authentikMux)
+	t.Cleanup(authentik.Close)
+	authentikMux.HandleFunc("/application/o/kupe-cli/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+            "issuer":"%s/application/o/kupe-cli/",
+            "authorization_endpoint":"%s/application/o/authorize/",
+            "token_endpoint":"%s/application/o/token/"
+        }`, authentik.URL, authentik.URL, authentik.URL)
+	})
+	authentikMux.HandleFunc("/application/o/token/", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatal(err)
 		}
@@ -304,8 +312,7 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 		hdr := "eyJhbGciOiJub25lIn0"         // {"alg":"none"}
 		body := "eyJlbWFpbCI6InVAYS5jb20ifQ" // {"email":"u@a.com"}
 		fmt.Fprintf(w, `{"access_token":"oidc-access","refresh_token":"oidc-refresh","id_token":"%s.%s.sig","expires_in":3600}`, hdr, body)
-	}))
-	t.Cleanup(authentik.Close)
+	})
 
 	api := startFakeAPI(t, "acme-corp", "oidc-access")
 

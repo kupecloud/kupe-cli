@@ -29,6 +29,11 @@ import (
 // is anchored to "localhost", so we send "localhost" in the redirect_uri
 // while binding on 127.0.0.1 to avoid IPv6 surprises on dual-stack hosts.
 func BrowserFlow(ctx context.Context, prompt PromptFn, issuer, clientID, scopes string) (OIDCTokenSet, error) {
+	disc, err := Discover(ctx, issuer)
+	if err != nil {
+		return OIDCTokenSet{}, err
+	}
+
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return OIDCTokenSet{}, fmt.Errorf("binding localhost callback listener: %w", err)
@@ -48,8 +53,8 @@ func BrowserFlow(ctx context.Context, prompt PromptFn, issuer, clientID, scopes 
 		ClientID:    clientID,
 		RedirectURL: redirectURI,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:   JoinIssuerPath(issuer, "authorize"),
-			TokenURL:  JoinIssuerPath(issuer, "token"),
+			AuthURL:   disc.AuthorizationEndpoint,
+			TokenURL:  disc.TokenEndpoint,
 			AuthStyle: oauth2.AuthStyleInParams,
 		},
 		Scopes: strings.Fields(scopes),

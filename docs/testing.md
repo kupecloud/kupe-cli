@@ -175,7 +175,62 @@ func TestE2E_ClusterCreateWait(t *testing.T) {
 
 Runs always in CI. Any PR that changes HTTP plumbing may need cassettes re-recorded, which is itself a review signal.
 
-### Mode B — live `kupe-api` (on-demand)
+### Mode B — live `kupe-api` (`make test-live`, in repo)
+
+Lives at [`test/live/`](../test/live/). Mirrors the [kupe-api `test/live/` convention](../../kupe-api/test/live/) so engineers can move between repos without re-learning the layout. Go tests with the `//go:build live` tag, run by exec'ing the freshly-compiled `kupe` binary against a deployed API.
+
+```bash
+# Required:
+export KUPE_API_TOKEN=kupe_…           # admin key on the testing tenant,
+                                        # OR an OIDC JWT bearer
+# Optional (defaults shown):
+export KUPE_API_URL=https://api.dev.int.kupe.cloud
+export KUPE_TEST_TENANT=kupe-test
+# Slow lifecycle test (5-8 min); off by default:
+export KUPE_LIVE_CLUSTER=1
+
+make test-live
+```
+
+What runs:
+
+| File | Coverage |
+|------|----------|
+| `auth_test.go` | `auth whoami` + bad-token exit-3 path |
+| `tenant_test.go` | `tenant get` |
+| `plan_test.go` | `plan list/get` (unauthenticated) |
+| `apikey_test.go` | `apikey create/list/delete` round-trip |
+| `secret_test.go` | `secret create/list/get/update/delete` round-trip |
+| `member_test.go` | `member list` (no mutation — shared org state) |
+| `invoice_test.go` | `invoice list/get` |
+| `cluster_test.go` | full lifecycle gated on `KUPE_LIVE_CLUSTER=1` |
+
+Patterns to follow when adding a test:
+
+- One file per noun. Match the kupe-api naming.
+- Resources get `uniqueName(prefix)` so reruns and concurrent invocations don't collide.
+- Cleanup via `t.Cleanup` registered immediately after creation — survives test failures and is idempotent.
+- Use `runCLIJSON(t, &dst, args…)` for happy-path JSON parsing — it adds `-o json`, asserts exit 0, and runs the no-token-leak check.
+- Use `runCLI(t, args…)` when asserting on exit code, stderr, or non-JSON stdout.
+- Don't print or compare against `apiToken`; the helper does the leak check for you.
+
+**Auth-mode parity (OIDC vs apikey):** the same suite runs unmodified for either token type — the CLI's `--token` / `KUPE_API_TOKEN` path doesn't care if the bearer is a `kupe_…` API key or an OIDC JWT. To verify both auth paths work end-to-end, run `make test-live` twice: once with an apikey and once with a JWT minted via `kupe auth login --method oidc` (read it out of the keyring with `security find-generic-password -s cloud.kupe.cli -a kupe-test -w` on macOS).
+
+**Manual OIDC smoke test:** the auth-code+PKCE login itself can't be automated in `go test` — it needs a real browser and real Authentik. Test it interactively against dev:
+
+```bash
+unset KUPE_API_TOKEN
+./bin/kupe auth login \
+    --tenant kupe-test \
+    --api-url https://api.dev.int.kupe.cloud \
+    --oidc-issuer https://auth.dev.int.kupe.cloud/application/o/kupe-cli/
+./bin/kupe auth whoami        # should report your email + the tenant
+./bin/kupe cluster list       # any authenticated noun proves the JWT path
+```
+
+**Not wired into GitHub Actions** — intentional. Live tests need WireGuard for the private dev API, mutate state in the testing tenant, and would slow PR feedback. Promote to nightly only if/when the operations matter.
+
+### Mode C — aspirational live e2e (not yet built)
 
 Gated by `KUPE_E2E_URL` + `KUPE_E2E_TOKEN`. Runs against a dev instance of `kupe-api`:
 

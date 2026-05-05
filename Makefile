@@ -19,7 +19,7 @@ LDFLAGS := -s -w \
            -X github.com/kupecloud/kupe-cli/internal/build.Commit=$(GIT_COMMIT) \
            -X github.com/kupecloud/kupe-cli/internal/build.Date=$(BUILD_DATE)
 
-.PHONY: all build build-local test test-coverage test-update lint fmt gosec govulncheck clean vendor tidy version snapshot release-check help
+.PHONY: all build build-local test test-coverage test-update test-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check help
 
 all: build
 
@@ -55,6 +55,9 @@ test-coverage: ## Run tests with coverage report
 
 test-update: ## Update golden files
 	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) ./internal/... -update
+
+test-live: ## Run live tests against deployed kupe-api. Requires KUPE_API_TOKEN; KUPE_API_URL defaults to api.dev.int.kupe.cloud. See test/live/suite_test.go header.
+	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) -tags=live -timeout=20m -v ./test/live/...
 
 ## Linting
 

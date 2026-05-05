@@ -55,10 +55,11 @@ type Context struct {
 	// back-compat with contexts created before OIDC landed.
 	AuthMethod string `yaml:"authMethod,omitempty"`
 
-	// OIDCIssuer overrides build.OIDCIssuer for this context. Set on
+	// OIDCBaseURL overrides build.OIDCBaseURL for this context. Set on
 	// dev/staging contexts pointing at the internal Authentik
-	// (e.g. https://auth.dev.int.kupe.cloud/application/o/kupe-cli/).
-	OIDCIssuer string `yaml:"oidcIssuer,omitempty"`
+	// (e.g. https://auth.dev.int.kupe.cloud). The full issuer URL the
+	// CLI uses is {OIDCBaseURL}/application/o/{OIDCClientID}/.
+	OIDCBaseURL string `yaml:"oidcBaseUrl,omitempty"`
 
 	// OIDCClientID overrides build.OIDCClientID for this context. The
 	// public client_id registered in Authentik. Rarely changed.

@@ -92,3 +92,51 @@ func TestResolveWithNilConfig(t *testing.T) {
 		t.Fatalf("ContextName = %q; want empty when no config + no flag/env context", r.ContextName)
 	}
 }
+
+func TestBuildIssuerURL(t *testing.T) {
+	cases := []struct {
+		base, clientID, want string
+	}{
+		{"https://auth.kupe.cloud", "kupe-cli", "https://auth.kupe.cloud/application/o/kupe-cli/"},
+		{"https://auth.kupe.cloud/", "kupe-cli", "https://auth.kupe.cloud/application/o/kupe-cli/"},
+		{"https://auth.dev.int.kupe.cloud//", "other-app", "https://auth.dev.int.kupe.cloud/application/o/other-app/"},
+		{"", "kupe-cli", ""},
+		{"https://auth.kupe.cloud", "", ""},
+	}
+	for _, tt := range cases {
+		got := BuildIssuerURL(tt.base, tt.clientID)
+		if got != tt.want {
+			t.Errorf("BuildIssuerURL(%q, %q) = %q; want %q", tt.base, tt.clientID, got, tt.want)
+		}
+	}
+}
+
+func TestResolveComputesOIDCIssuerFromBase(t *testing.T) {
+	cfg := &Config{
+		CurrentContext: "dev",
+		Contexts: []Context{
+			{Name: "dev", APIURL: "https://api.dev.int.kupe.cloud", Tenant: "kupe-test",
+				OIDCBaseURL: "https://auth.dev.int.kupe.cloud"},
+		},
+	}
+	r := Resolve(Flags{}, Env{}, cfg)
+	if r.OIDCBaseURL != "https://auth.dev.int.kupe.cloud" {
+		t.Errorf("OIDCBaseURL = %q", r.OIDCBaseURL)
+	}
+	if r.OIDCIssuer != "https://auth.dev.int.kupe.cloud/application/o/kupe-cli/" {
+		t.Errorf("OIDCIssuer = %q", r.OIDCIssuer)
+	}
+}
+
+func TestResolveOIDCEnvOverridesContext(t *testing.T) {
+	cfg := &Config{
+		CurrentContext: "dev",
+		Contexts: []Context{
+			{Name: "dev", Tenant: "x", OIDCBaseURL: "https://ctx.example"},
+		},
+	}
+	r := Resolve(Flags{}, Env{OIDCBaseURL: "https://env.example", OIDCClientID: "alt-app"}, cfg)
+	if r.OIDCIssuer != "https://env.example/application/o/alt-app/" {
+		t.Fatalf("OIDCIssuer = %q; want env-derived", r.OIDCIssuer)
+	}
+}

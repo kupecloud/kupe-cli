@@ -223,10 +223,12 @@ unset KUPE_API_TOKEN
 ./bin/kupe auth login \
     --tenant kupe-test \
     --api-url https://api.dev.int.kupe.cloud \
-    --oidc-issuer https://auth.dev.int.kupe.cloud/application/o/kupe-cli/
+    --oidc-base-url https://auth.dev.int.kupe.cloud
 ./bin/kupe auth whoami        # should report your email + the tenant
 ./bin/kupe cluster list       # any authenticated noun proves the JWT path
 ```
+
+The CLI builds the full issuer URL as `{base}/application/o/{client-id}/` — only the base hostname varies between environments.
 
 **Not wired into GitHub Actions** — intentional. Live tests need WireGuard for the private dev API, mutate state in the testing tenant, and would slow PR feedback. Promote to nightly only if/when the operations matter.
 

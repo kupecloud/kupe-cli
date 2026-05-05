@@ -337,7 +337,7 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 		method:       methodOIDC,
 		tenant:       "acme-corp",
 		apiURL:       api,
-		oidcIssuer:   authentik.URL + "/application/o/kupe-cli/",
+		oidcBaseURL:  authentik.URL,
 		oidcClientID: "kupe-cli",
 	})
 	if err != nil {
@@ -358,8 +358,8 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 	if ctx.User != "u@a.com" {
 		t.Errorf("User=%q; want u@a.com (from id_token)", ctx.User)
 	}
-	if !strings.HasPrefix(ctx.OIDCIssuer, authentik.URL) {
-		t.Errorf("OIDCIssuer=%q; want it persisted to override default", ctx.OIDCIssuer)
+	if !strings.HasPrefix(ctx.OIDCBaseURL, authentik.URL) {
+		t.Errorf("OIDCBaseURL=%q; want it persisted to override default", ctx.OIDCBaseURL)
 	}
 
 	mgr, _ := f.Auth()

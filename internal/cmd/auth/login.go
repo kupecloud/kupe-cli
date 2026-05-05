@@ -39,7 +39,7 @@ type loginOpts struct {
 	apiURL       string
 	context      string
 	method       string
-	oidcIssuer   string
+	oidcBaseURL  string
 	oidcClientID string
 	setDefault   bool
 }
@@ -75,7 +75,7 @@ want more than one context per tenant (e.g., two API environments).`,
   # Same, against a non-default Authentik (dev/staging override)
   kupe auth login --tenant acme \
       --api-url https://api.dev.int.kupe.cloud \
-      --oidc-issuer https://auth.dev.int.kupe.cloud/application/o/kupe-cli/
+      --oidc-base-url https://auth.dev.int.kupe.cloud
 
   # Scripted bootstrap with a long-lived API key (CI)
   kupe auth login --method token --tenant acme --token kupe_... --context prod --set-default`,
@@ -88,7 +88,7 @@ want more than one context per tenant (e.g., two API environments).`,
 	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (browser, default) or token (long-lived API key)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). Required with --method=token in non-interactive mode.")
 	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context (default "+config.DefaultAPIURL+")")
-	cmd.Flags().StringVar(&opts.oidcIssuer, "oidc-issuer", "", "OIDC issuer URL for this context (default "+build.OIDCIssuer+")")
+	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL (default "+build.OIDCBaseURL+"). Issuer is built as {base}/application/o/{client-id}/.")
 	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (default "+build.OIDCClientID+")")
 	cmd.Flags().StringVar(&opts.context, "context", "", "Context name (default: tenant name)")
 	cmd.Flags().BoolVar(&opts.setDefault, "set-default", false, "Mark this context as the current one")
@@ -232,22 +232,23 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	io := f.IOStreams
 
 	// Resolve OIDC parameters: flag > existing context > build default.
-	issuer := strings.TrimSpace(opts.oidcIssuer)
+	baseURL := strings.TrimSpace(opts.oidcBaseURL)
 	clientID := strings.TrimSpace(opts.oidcClientID)
 	if existing := cfg.Context(contextName); existing != nil {
-		if issuer == "" {
-			issuer = existing.OIDCIssuer
+		if baseURL == "" {
+			baseURL = existing.OIDCBaseURL
 		}
 		if clientID == "" {
 			clientID = existing.OIDCClientID
 		}
 	}
-	if issuer == "" {
-		issuer = build.OIDCIssuer
+	if baseURL == "" {
+		baseURL = build.OIDCBaseURL
 	}
 	if clientID == "" {
 		clientID = build.OIDCClientID
 	}
+	issuer := config.BuildIssuerURL(baseURL, clientID)
 
 	fmt.Fprintf(io.ErrOut, "Opening your browser to %s\n", issuer)
 	fmt.Fprintln(io.ErrOut, "  If it doesn't open, copy the URL printed below into a browser:")
@@ -288,7 +289,7 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 		TokenRef:     ref,
 		AuthMethod:   config.AuthMethodOIDC,
 		User:         auth.EmailFromIDToken(ts.IDToken),
-		OIDCIssuer:   nonDefault(issuer, build.OIDCIssuer),
+		OIDCBaseURL:  nonDefault(baseURL, build.OIDCBaseURL),
 		OIDCClientID: nonDefault(clientID, build.OIDCClientID),
 	}
 	if existing != nil && ctx.User == "" {

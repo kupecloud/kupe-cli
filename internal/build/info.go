@@ -10,15 +10,18 @@ var (
 	Commit  = "none"
 	Date    = "unknown"
 
-	// OIDCIssuer is the default Authentik OIDC issuer URL the CLI hits
-	// when the user runs `kupe auth login --method oidc` without an
-	// override. Dev users override per-context (--oidc-issuer flag at
-	// login or KUPE_OIDC_ISSUER env var) since dev is staff-only behind
-	// the internal LB.
-	OIDCIssuer = "https://auth.kupe.cloud/application/o/kupe-cli/"
+	// OIDCBaseURL is the default Authentik base URL the CLI hits when
+	// the user runs `kupe auth login --method oidc` without an override.
+	// The full issuer URL is built as
+	// {OIDCBaseURL}/application/o/{OIDCClientID}/ at runtime — see
+	// auth.BuildIssuerURL. Dev users override per-context (--oidc-base-url
+	// flag at login or KUPE_OIDC_BASE_URL env var) since dev is staff-only
+	// behind the internal LB.
+	OIDCBaseURL = "https://auth.kupe.cloud"
 
 	// OIDCClientID is the public OAuth2 client_id registered in
-	// Authentik for the CLI. See kupe/authentik/templates/configmap-blueprints.yaml.
+	// Authentik for the CLI, and is also the application slug used in
+	// the issuer URL path. See kupe/authentik/templates/configmap-blueprints.yaml.
 	OIDCClientID = "kupe-cli"
 
 	// OIDCScopes are the scopes requested during the auth-code+PKCE flow.

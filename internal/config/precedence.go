@@ -14,7 +14,7 @@ type Env struct {
 	Tenant       string
 	Context      string
 	Config       string
-	OIDCIssuer   string
+	OIDCBaseURL  string
 	OIDCClientID string
 }
 
@@ -26,7 +26,7 @@ func LoadEnv() Env {
 		Tenant:       os.Getenv("KUPE_TENANT"),
 		Context:      os.Getenv("KUPE_CONTEXT"),
 		Config:       os.Getenv("KUPE_CONFIG"),
-		OIDCIssuer:   os.Getenv("KUPE_OIDC_ISSUER"),
+		OIDCBaseURL:  os.Getenv("KUPE_OIDC_BASE_URL"),
 		OIDCClientID: os.Getenv("KUPE_OIDC_CLIENT_ID"),
 	}
 }
@@ -53,13 +53,19 @@ type Resolved struct {
 	// AuthMethod is the resolved context's auth method (oidc or apikey).
 	// Empty when no context exists yet (first-time login).
 	AuthMethod string
-	// OIDCIssuer / OIDCClientID are the effective OIDC parameters for the
-	// resolved context. Precedence: env > context > build default. The
-	// flag-level overrides for these are login-time-only (they get
+	// OIDCBaseURL / OIDCClientID are the effective OIDC parameters for
+	// the resolved context. Precedence: env > context > build default.
+	// The flag-level overrides for these are login-time-only (they get
 	// persisted into the context) so they don't appear in the global
 	// Flags struct above.
-	OIDCIssuer   string
+	//
+	// OIDCIssuer is the computed full issuer URL — the CLI never
+	// accepts a full issuer from a user; it composes one from base+clientID.
+	// Stored here so consumers (auth.Refresh, auth.BrowserFlow) can
+	// pass it without recomputing.
+	OIDCBaseURL  string
 	OIDCClientID string
+	OIDCIssuer   string
 }
 
 // Resolve merges flags, env vars, and config-file context into the final
@@ -109,12 +115,12 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 	if ctx != nil {
 		r.AuthMethod = ctx.AuthMethod
 	}
-	r.OIDCIssuer = env.OIDCIssuer
-	if r.OIDCIssuer == "" && ctx != nil {
-		r.OIDCIssuer = ctx.OIDCIssuer
+	r.OIDCBaseURL = env.OIDCBaseURL
+	if r.OIDCBaseURL == "" && ctx != nil {
+		r.OIDCBaseURL = ctx.OIDCBaseURL
 	}
-	if r.OIDCIssuer == "" {
-		r.OIDCIssuer = build.OIDCIssuer
+	if r.OIDCBaseURL == "" {
+		r.OIDCBaseURL = build.OIDCBaseURL
 	}
 	r.OIDCClientID = env.OIDCClientID
 	if r.OIDCClientID == "" && ctx != nil {
@@ -123,8 +129,29 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 	if r.OIDCClientID == "" {
 		r.OIDCClientID = build.OIDCClientID
 	}
+	r.OIDCIssuer = BuildIssuerURL(r.OIDCBaseURL, r.OIDCClientID)
 
 	return r
+}
+
+// BuildIssuerURL composes the full Authentik OIDC issuer URL the CLI
+// uses for OAuth2 endpoints and JWT issuer validation. The kupe-cli
+// Authentik application's slug equals its client_id by convention (see
+// kupe/authentik/templates/configmap-blueprints.yaml), so the issuer is
+// always {baseURL}/application/o/{clientID}/.
+//
+// Lives in the config package rather than internal/auth so that the
+// resolver can populate Resolved.OIDCIssuer eagerly without dragging the
+// auth package into the import graph of every callsite.
+func BuildIssuerURL(baseURL, clientID string) string {
+	if baseURL == "" || clientID == "" {
+		return ""
+	}
+	trimmed := baseURL
+	for trimmed != "" && trimmed[len(trimmed)-1] == '/' {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return trimmed + "/application/o/" + clientID + "/"
 }
 
 func firstNonEmpty(values ...string) string {

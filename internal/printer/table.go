@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"text/tabwriter"
+	"strings"
+	"unicode/utf8"
 )
 
 // Column is one column in a per-resource table spec. Get receives each row's
@@ -37,34 +38,98 @@ func (cs Columns) Filter(wide bool) Columns {
 // PrintTable renders items — which must be a slice — as a column-aligned
 // table with the given columns. Header row is always rendered; zero items
 // produces just the header (kubectl convention).
+//
+// Column widths are computed using *visible* width — ANSI escape
+// sequences (e.g. lipgloss colour codes around the PHASE cell) are
+// excluded from width measurement so the colours don't push later
+// columns out of alignment. text/tabwriter's escape support is unfit
+// for this because it counts escaped content toward width and only
+// excludes the markers themselves.
 func PrintTable(w io.Writer, items any, cols Columns, wide bool) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	defer tw.Flush() //nolint:errcheck // stdout writes can't meaningfully fail
-
 	active := cols.Filter(wide)
-	for i, c := range active {
-		if i > 0 {
-			fmt.Fprint(tw, "\t")
-		}
-		fmt.Fprint(tw, c.Name)
+	if len(active) == 0 {
+		return nil
 	}
-	fmt.Fprintln(tw)
 
 	v := reflect.ValueOf(items)
 	if v.Kind() != reflect.Slice {
 		return fmt.Errorf("PrintTable: expected a slice, got %s", v.Kind())
 	}
+
+	rows := make([][]string, 0, v.Len()+1)
+	header := make([]string, len(active))
+	for i, c := range active {
+		header[i] = c.Name
+	}
+	rows = append(rows, header)
 	for i := 0; i < v.Len(); i++ {
 		row := v.Index(i).Interface()
+		cells := make([]string, len(active))
 		for j, c := range active {
-			if j > 0 {
-				fmt.Fprint(tw, "\t")
-			}
-			fmt.Fprint(tw, c.Get(row))
+			cells[j] = c.Get(row)
 		}
-		fmt.Fprintln(tw)
+		rows = append(rows, cells)
+	}
+
+	widths := make([]int, len(active))
+	for _, r := range rows {
+		for j, cell := range r {
+			if vw := visibleWidth(cell); vw > widths[j] {
+				widths[j] = vw
+			}
+		}
+	}
+
+	const padding = 2
+	for _, r := range rows {
+		for j, cell := range r {
+			if _, err := io.WriteString(w, cell); err != nil {
+				return err
+			}
+			if j == len(r)-1 {
+				continue
+			}
+			gap := widths[j] - visibleWidth(cell) + padding
+			if _, err := io.WriteString(w, strings.Repeat(" ", gap)); err != nil {
+				return err
+			}
+		}
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// visibleWidth returns the rune count of s with SGR-style ANSI escape
+// sequences excluded — the count a terminal renders, not the byte (or
+// raw-rune) count. Used by PrintTable for column-width measurement.
+func visibleWidth(s string) int {
+	if !strings.ContainsRune(s, '\x1b') {
+		return utf8.RuneCountInString(s)
+	}
+	w := 0
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && !isASCIILetter(s[j]) {
+				j++
+			}
+			if j < len(s) {
+				j++ // include terminating letter
+			}
+			i = j
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		w++
+		i += size
+	}
+	return w
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // PrintDetails renders a single item as a list of "Field: value" lines.

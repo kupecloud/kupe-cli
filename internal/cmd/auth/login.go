@@ -78,10 +78,11 @@ want more than one context per tenant (e.g., two API environments).`,
 		Example: `  # Interactive OIDC login on your laptop
   kupe auth login --tenant acme
 
-  # Same, against a non-default Authentik (dev/staging override)
+  # Same, against a non-default Authentik (dev/staging override).
+  # Bare hostnames are fine — the CLI prepends https:// when missing.
   kupe auth login --tenant acme \
-      --api-url https://api.dev.int.kupe.cloud \
-      --oidc-base-url https://auth.dev.int.kupe.cloud
+      --api-url api.dev.int.kupe.cloud \
+      --oidc-base-url auth.dev.int.kupe.cloud
 
   # Scripted bootstrap with a long-lived API key (CI)
   kupe auth login --method token --tenant acme --token kupe_... --context prod --set-default`,
@@ -93,8 +94,8 @@ want more than one context per tenant (e.g., two API environments).`,
 	cmd.Flags().StringVar(&opts.tenant, "tenant", "", "Tenant to authenticate against")
 	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (device flow, default) or token (long-lived API key)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). Required with --method=token in non-interactive mode.")
-	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context (default "+config.DefaultAPIURL+")")
-	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL (default "+build.OIDCBaseURL+"). Issuer is built as {base}/application/o/{client-id}/.")
+	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context, with or without scheme (default "+strings.TrimPrefix(config.DefaultAPIURL, "https://")+")")
+	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL, with or without scheme (default "+strings.TrimPrefix(build.OIDCBaseURL, "https://")+"). Issuer is built as {base}/application/o/{client-id}/.")
 	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (default "+build.OIDCClientID+")")
 	cmd.Flags().StringVar(&opts.context, "context", "", "Context name (default: tenant name)")
 	cmd.Flags().BoolVar(&opts.setDefault, "set-default", false, "Mark this context as the current one")

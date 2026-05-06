@@ -51,7 +51,7 @@ builds:
       - -s -w
       - -X github.com/kupecloud/kupe-cli/internal/build.Version={{.Version}}
       - -X github.com/kupecloud/kupe-cli/internal/build.Commit={{.ShortCommit}}
-      - -X github.com/kupecloud/kupe-cli/internal/build.Date={{.Date}}
+      - -X github.com/kupecloud/kupe-cli/internal/build.Date={{.CommitDate}}
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
 ```
@@ -65,7 +65,7 @@ builds:
 ## `.goreleaser.yaml` outline
 
 ```yaml
-project_name: kupe-cli
+project_name: kupe   # binary + Homebrew formula name (`brew install kupecloud/tap/kupe`)
 
 before:
   hooks:
@@ -295,7 +295,7 @@ chore: bump go to 1.26.2
 
 Goreleaser writes `buildDate` from the commit author date (`{{ .CommitDate }}`), not wall-clock time. Combined with fixed Go version, vendored deps, and `-trimpath` in ldflags, two builds from the same commit produce byte-identical binaries.
 
-Verified by an optional `make verify-reproducible` target that checks out the latest tag, rebuilds, and diffs against the published archive.
+Verifiable by checking out a release tag and re-running goreleaser locally — the resulting `dist/kupe_<ver>_<os>_<arch>.tar.gz` should match the published archive's sha256 in `kupe_<ver>_checksums.txt`. (No dedicated `make` target yet; if reproducibility ever needs CI enforcement, add one then.)
 
 ## Uninstalling
 

@@ -1,9 +1,9 @@
 version: 2
 
-# project_name drives artifact naming, the Homebrew cask/Scoop manifest
-# filenames, and the `binary` line inside the generated Cask. Use the same
-# short name users will type (`brew install kupecloud/tap/kupe`) rather than
-# the repo name (`kupe-cli`).
+# project_name drives artifact naming, the Homebrew formula / Scoop manifest
+# filenames, and the `bin.install` line inside the generated formula. Use
+# the same short name users will type (`brew install kupecloud/tap/kupe`)
+# rather than the repo name (`kupe-cli`).
 project_name: kupe
 
 before:
@@ -66,7 +66,15 @@ sboms:
     documents:
       - "{{ .ArtifactName }}.sbom.spdx.json"
 
-homebrew_casks:
+# Homebrew formula (NOT cask). A formula installs on macOS *and* Linux Homebrew;
+# a cask is macOS-only and historically for GUI apps. Cobra-style CLIs ship
+# as formulae. `generate_completions_from_executable` runs the installed
+# binary at brew-install time to emit shell completions for bash/zsh/fish —
+# that avoids having to ship the completion files in the archive.
+#
+# (Goreleaser v2 keeps the legacy key `brews:` for formulae; only casks got
+# the `homebrew_*` prefix.)
+brews:
   - repository:
       owner: kupecloud
       name: homebrew-tap
@@ -77,10 +85,11 @@ homebrew_casks:
     commit_author:
       name: kupecloud-bot
       email: bot@kupe.cloud
-    completions:
-      bash: "kupe-bash-completion"
-      zsh: "_kupe"
-      fish: "kupe.fish"
+    install: |
+      bin.install "kupe"
+      generate_completions_from_executable(bin/"kupe", "completion")
+    test: |
+      assert_match "kupe version", shell_output("#{bin}/kupe version")
 
 scoops:
   - repository:

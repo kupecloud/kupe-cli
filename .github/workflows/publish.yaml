@@ -1,6 +1,7 @@
 name: Publish
 
 on:
+  # Normal path: called by main.yaml after semantic-release tags a release.
   workflow_call:
     inputs:
       version:
@@ -12,6 +13,16 @@ on:
         required: true
       SCOOP_BUCKET_TOKEN:
         required: true
+  # Hotfix path: a human cuts a tag manually (e.g. when semantic-release is
+  # unavailable, or a release needs to be re-attempted). Run this from the
+  # Actions tab on the desired branch with the version of the existing tag
+  # — the job checks out `v<version>` and runs goreleaser the same way.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing tag's version without the leading v (e.g. "0.1.0").
+        required: true
+        type: string
 
 permissions:
   contents: write

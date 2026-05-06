@@ -21,12 +21,21 @@ type versionInfo struct {
 }
 
 func newVersionCmd(io *cli.IOStreams) *cobra.Command {
-	var output string
+	var (
+		output string
+		short  bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print build, commit, and platform information",
-		Long:  "Print the kupe CLI version, git commit, build date, and Go runtime information.",
+		Long: `Print the kupe CLI version, git commit, build date, and Go runtime information.
+
+For CI scripts, use --short for a bare semver value (e.g. "0.1.0") or
+-o json for a structured payload.`,
+		Example: `  kupe version              # human-readable line
+  kupe version --short      # 0.1.0   (useful as $(kupe version --short))
+  kupe version -o json      # {"version": "0.1.0", ...}`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			info := versionInfo{
 				Version:   build.Version,
@@ -34,6 +43,14 @@ func newVersionCmd(io *cli.IOStreams) *cobra.Command {
 				BuildDate: build.Date,
 				GoVersion: runtime.Version(),
 				Platform:  runtime.GOOS + "/" + runtime.GOARCH,
+			}
+
+			if short && output != "" {
+				return cli.MisuseError("--short and --output are mutually exclusive")
+			}
+			if short {
+				_, err := fmt.Fprintln(io.Out, info.Version)
+				return err
 			}
 
 			switch output {
@@ -54,5 +71,6 @@ func newVersionCmd(io *cli.IOStreams) *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpToggle)
+	cmd.Flags().BoolVar(&short, "short", false, "Print only the version (e.g. 0.1.0) — useful in shell scripts")
 	return cmd
 }

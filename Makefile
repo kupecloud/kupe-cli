@@ -19,7 +19,7 @@ LDFLAGS := -s -w \
            -X github.com/kupecloud/kupe-cli/internal/build.Commit=$(GIT_COMMIT) \
            -X github.com/kupecloud/kupe-cli/internal/build.Date=$(BUILD_DATE)
 
-.PHONY: all build build-local test test-coverage test-update test-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check help
+.PHONY: all build build-local test test-coverage test-update test-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check manpages help
 
 all: build
 
@@ -81,6 +81,9 @@ snapshot: ## Build a local goreleaser snapshot (no publish, no sign/sbom)
 
 release-check: ## Validate .goreleaser.yaml
 	GOCACHE="$(GOCACHE)" GOWORK=off $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) check
+
+manpages: ## Generate man(1) pages into man/man1/ — used by goreleaser before-hook for distro packaging
+	GOCACHE="$(GOCACHE)" CGO_ENABLED=0 $(GO) run $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/kupe man man/man1
 
 ## Cleanup
 

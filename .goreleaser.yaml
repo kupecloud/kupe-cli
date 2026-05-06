@@ -10,6 +10,12 @@ before:
   hooks:
     - go mod vendor
     - go test ./...
+    # Generate man pages BEFORE the cross-platform builds run so they're
+    # available for archives.files. `kupe man` is a hidden subcommand that
+    # walks the cobra tree and emits man(1) into man/man1/. Distro packagers
+    # (Homebrew/.deb/.rpm) install these from the archive.
+    - mkdir -p man/man1
+    - go run -mod=vendor ./cmd/kupe man man/man1
 
 builds:
   - id: kupe
@@ -45,6 +51,9 @@ archives:
     files:
       - README.md
       - LICENSE
+      - src: man/man1/*.1
+        dst: man/man1
+        strip_parent: true
 
 checksum:
   name_template: "kupe_{{ .Version }}_checksums.txt"
@@ -88,6 +97,7 @@ brews:
     install: |
       bin.install "kupe"
       generate_completions_from_executable(bin/"kupe", "completion")
+      man1.install Dir["man/man1/*.1"]
     test: |
       assert_match "kupe version", shell_output("#{bin}/kupe version")
 

@@ -77,6 +77,7 @@ Full reference: https://docs.kupe.cloud/cli`,
 
 	root.AddCommand(newVersionCmd(io))
 	root.AddCommand(newCompletionCmd())
+	root.AddCommand(newManCmd(io))
 	root.AddCommand(authcmd.NewCmd(factory))
 	root.AddCommand(configcmd.NewCmd(factory))
 	root.AddCommand(clustercmd.NewCmd(factory))

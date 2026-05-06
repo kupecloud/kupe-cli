@@ -92,7 +92,7 @@ func runKubeconfig(cmd *cobra.Command, f *cli.Factory, name string, opts *kubeco
 		if err != nil {
 			return cli.Wrap(cli.ExitGeneral, "resolving kubeconfig path", err)
 		}
-		mergeOpts := kubeconfig.MergeOptions{Force: opts.force, ForceOverwrite: opts.forceOverwrite}
+		mergeOpts := kubeconfig.MergeOptions{Force: opts.force, ForceOverwrite: opts.forceOverwrite, Warn: f.IOStreams.ErrOut}
 		if err := kubeconfig.Merge(target, built, mergeOpts); err != nil {
 			if isCollision(err) {
 				return cli.ConflictError(err.Error()).WithHint("re-run with --force to overwrite")

@@ -3,6 +3,7 @@ package kubeconfig
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -68,6 +69,13 @@ type MergeOptions struct {
 	// because the risk profile is different: Force loses a single entry;
 	// ForceOverwrite loses every other context in the file.
 	ForceOverwrite bool
+
+	// Warn is where merge-time warnings (currently only the
+	// ForceOverwrite-on-corrupt path) are written. Pass IOStreams.ErrOut
+	// from the calling command so the warning is unit-testable. nil
+	// silently drops the warning — only set in tests that don't care
+	// about it; production callers should always set this.
+	Warn io.Writer
 }
 
 // Merge inserts the cluster/authinfo/context entries from `incoming` into
@@ -91,7 +99,9 @@ func Merge(path string, incoming *clientcmdapi.Config, opts MergeOptions) error 
 		if !opts.ForceOverwrite {
 			return fmt.Errorf("%w: %w", ErrCorrupt, err)
 		}
-		warnf("warning: existing kubeconfig at %s could not be parsed (%v); --force-overwrite set, starting from empty", path, err)
+		if opts.Warn != nil {
+			fmt.Fprintf(opts.Warn, "warning: existing kubeconfig at %s could not be parsed (%v); --force-overwrite set, starting from empty\n", path, err)
+		}
 		base = clientcmdapi.NewConfig()
 	}
 	if base == nil {
@@ -167,12 +177,6 @@ func loadExisting(path string) (*clientcmdapi.Config, error) {
 		return nil, errors.New("kubeconfig parsed to nil — treating as corrupt")
 	}
 	return cfg, nil
-}
-
-// warnf is swappable in tests; defaults to stderr. Not a logger — the CLI's
-// warning channel for merge-time surprises that aren't fatal.
-var warnf = func(format string, args ...any) {
-	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
 // clusterEqual reports whether two *clientcmdapi.Cluster entries describe

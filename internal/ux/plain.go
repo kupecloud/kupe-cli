@@ -27,7 +27,7 @@ func runPlain(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error {
 			lastPhase = phase
 		}
 		if done {
-			fmt.Fprintf(io.ErrOut, "[%s] %s ready\n", humaniseElapsed(time.Since(started)), opts.Label)
+			fmt.Fprintf(io.ErrOut, "[%s] %s %s\n", humaniseElapsed(time.Since(started)), opts.Label, opts.DoneVerb)
 			return nil
 		}
 

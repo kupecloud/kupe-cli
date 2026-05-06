@@ -23,9 +23,14 @@ type PollFunc func(ctx context.Context) (phase string, done bool, err error)
 
 // WaitForOpts controls a wait run.
 type WaitForOpts struct {
-	// Label is the human-readable noun shown in progress text, e.g.,
-	// "cluster prod" or "cluster prod to be deleted".
+	// Label is the human-readable noun shown in progress text, e.g.
+	// "cluster prod". Renderers append DoneVerb on success ("cluster
+	// prod ready" / "cluster prod deleted").
 	Label string
+	// DoneVerb is the past-participle verb appended to Label on the
+	// success line. Defaults to "ready" (used by create/update). Pass
+	// "deleted" for a delete waiter so the line reads naturally.
+	DoneVerb string
 	// Poll is called once per tick.
 	Poll PollFunc
 	// Initial polling interval. Doubles each tick up to Max.
@@ -43,6 +48,9 @@ func (o *WaitForOpts) Defaults() {
 	}
 	if o.Max == 0 {
 		o.Max = 10 * time.Second
+	}
+	if o.DoneVerb == "" {
+		o.DoneVerb = "ready"
 	}
 }
 

@@ -145,7 +145,7 @@ func runSpinner(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error 
 	// Print a final status line so the user keeps a record on scrollback.
 	fmt.Fprintf(io.ErrOut, "%s %s\n",
 		DefaultPalette.Success.Render("✓"),
-		fmt.Sprintf("%s ready (%s)", opts.Label, humaniseElapsed(time.Since(final.started))),
+		fmt.Sprintf("%s %s (%s)", opts.Label, opts.DoneVerb, humaniseElapsed(time.Since(final.started))),
 	)
 	return nil
 }

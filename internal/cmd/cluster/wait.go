@@ -41,7 +41,7 @@ degraded, terminating, or deleted (waits for the cluster to disappear).`,
 			normalised := normalizePhase(opts.forPhase)
 			switch normalised {
 			case "Deleted":
-				if err := waitForGone(cmd.Context(), f.IOStreams, api, name, "cluster "+name+" to be deleted", opts.timeout); err != nil {
+				if err := waitForGone(cmd.Context(), f.IOStreams, api, name, "cluster "+name, opts.timeout); err != nil {
 					return mapWaitErr(err)
 				}
 				fmt.Fprintf(f.IOStreams.Out, "cluster/%s deleted\n", name)

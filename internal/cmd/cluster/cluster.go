@@ -145,22 +145,26 @@ func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api cli
 }
 
 // waitForGone polls until the cluster returns 404 (or Terminating flips to
-// gone). Used by `cluster delete --wait`.
+// gone). Used by `cluster delete --wait`. Reports "Deleting" while the
+// cluster still exists (regardless of underlying phase — the API uses
+// "Terminating" but "Deleting" is friendlier on the user-facing line),
+// and "Deleted" when GetCluster 404s.
 func waitForGone(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, label string, timeout time.Duration) error {
 	poll := func(ctx context.Context) (string, bool, error) {
-		c, _, err := api.GetCluster(ctx, name)
+		_, _, err := api.GetCluster(ctx, name)
 		if err != nil {
 			if client.IsNotFound(err) {
 				return "Deleted", true, nil
 			}
 			return "", false, err
 		}
-		return phaseOf(c), false, nil
+		return "Deleting", false, nil
 	}
 	return ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:   label,
-		Poll:    poll,
-		Timeout: timeout,
+		Label:    label,
+		DoneVerb: "deleted",
+		Poll:     poll,
+		Timeout:  timeout,
 	})
 }
 

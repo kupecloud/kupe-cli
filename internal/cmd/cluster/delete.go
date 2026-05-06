@@ -51,10 +51,12 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 				return nil
 			}
 
-			if err := waitForGone(cmd.Context(), io, api, name, "cluster "+name+" to be deleted", opts.waitTimeout); err != nil {
+			if err := waitForGone(cmd.Context(), io, api, name, "cluster "+name, opts.waitTimeout); err != nil {
 				return mapWaitErr(err)
 			}
-			fmt.Fprintf(io.Out, "cluster/%s deleted\n", name)
+			// No additional stdout line — the spinner/plain renderer's
+			// "✓ cluster <name> deleted (00:12)" success line is the
+			// single source of truth on the wait path.
 			return nil
 		},
 	}

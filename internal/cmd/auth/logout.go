@@ -1,11 +1,16 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/kupecloud/kupe-cli/internal/auth"
+	"github.com/kupecloud/kupe-cli/internal/build"
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/config"
 )
 
 type logoutOpts struct {
@@ -83,6 +88,14 @@ func runLogout(f *cli.Factory, opts *logoutOpts) error {
 		if ctx == nil {
 			continue
 		}
+		// For OIDC contexts, best-effort revoke the refresh token at the
+		// IdP before deleting local state. Failures (network, IdP without
+		// a revocation endpoint, already-revoked tokens) print a warning
+		// but never block local logout — the user expects `auth logout`
+		// to always succeed locally.
+		if ctx.AuthMethod == config.AuthMethodOIDC {
+			revokeOIDCRefreshToken(io, mgr, ctx)
+		}
 		if err := mgr.DeleteByRef(name, ctx.TokenRef); err != nil {
 			return cli.Wrap(cli.ExitGeneral, fmt.Sprintf("removing token for %q", name), err)
 		}
@@ -98,4 +111,36 @@ func runLogout(f *cli.Factory, opts *logoutOpts) error {
 		return cli.Wrap(cli.ExitGeneral, "saving config", err)
 	}
 	return nil
+}
+
+// revokeOIDCRefreshToken loads the stored OIDC blob, calls the IdP's
+// revocation endpoint (RFC 7009), and prints a warning on failure. Always
+// returns nil to the caller — local logout proceeds regardless.
+func revokeOIDCRefreshToken(io *cli.IOStreams, mgr *auth.Manager, ctx *config.Context) {
+	stored, err := mgr.GetByRef(ctx.Name, ctx.TokenRef)
+	if err != nil {
+		// Token already gone (e.g. keyring deleted manually) — nothing to
+		// revoke. Silent.
+		return
+	}
+	if !auth.IsOIDCBlob(stored) {
+		// Defensive: AuthMethod says oidc but storage isn't an OIDC blob.
+		// Skip revoke; local cleanup will still happen.
+		return
+	}
+	ts, err := auth.UnmarshalOIDC(stored)
+	if err != nil || ts.RefreshToken == "" {
+		return
+	}
+
+	baseURL := config.FirstNonEmpty(ctx.OIDCBaseURL, build.OIDCBaseURL)
+	clientID := config.FirstNonEmpty(ctx.OIDCClientID, build.OIDCClientID)
+	issuer := config.BuildIssuerURL(baseURL, clientID)
+
+	// Bound the revocation call so a slow IdP doesn't hang logout.
+	rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := auth.Revoke(rctx, issuer, clientID, ts.RefreshToken, "refresh_token"); err != nil {
+		fmt.Fprintf(io.ErrOut, "  Note: refresh token revocation at %s failed (%v) — local logout proceeds.\n", issuer, err)
+	}
 }

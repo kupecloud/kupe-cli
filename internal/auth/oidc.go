@@ -86,6 +86,7 @@ type Discovery struct {
 	AuthorizationEndpoint       string `json:"authorization_endpoint"`
 	TokenEndpoint               string `json:"token_endpoint"`
 	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint,omitempty"`
+	RevocationEndpoint          string `json:"revocation_endpoint,omitempty"`
 	UserinfoEndpoint            string `json:"userinfo_endpoint,omitempty"`
 	JWKSURI                     string `json:"jwks_uri,omitempty"`
 }
@@ -171,6 +172,57 @@ func Refresh(ctx context.Context, issuer, clientID string, current OIDCTokenSet)
 		out.IDToken = current.IDToken
 	}
 	return out, nil
+}
+
+// Revoke calls the issuer's RFC 7009 revocation_endpoint with the given
+// refresh_token so logout actually invalidates the credential at the IdP
+// (not just locally). Best-effort: returns nil if the IdP doesn't advertise
+// a revocation_endpoint in discovery, or if the token has already been
+// revoked. Network or 5xx errors are returned for the caller to surface as
+// a non-fatal warning — the local credential is still cleared.
+//
+// hint is the OAuth 2.0 token_type_hint value (typically "refresh_token").
+// Authentik treats it as advisory.
+func Revoke(ctx context.Context, issuer, clientID, token, hint string) error {
+	if token == "" {
+		return nil
+	}
+	disc, err := Discover(ctx, issuer)
+	if err != nil {
+		return fmt.Errorf("revocation discovery: %w", err)
+	}
+	if disc.RevocationEndpoint == "" {
+		// IdP doesn't support revocation — local-only logout is the best
+		// we can do. Not an error.
+		return nil
+	}
+	form := url.Values{}
+	form.Set("token", token)
+	if hint != "" {
+		form.Set("token_type_hint", hint)
+	}
+	form.Set("client_id", clientID) // public client — no secret
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, disc.RevocationEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("building revocation request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("calling revocation endpoint: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	// RFC 7009: 200 means success. Some IdPs return 200 even for unknown
+	// tokens (intentional — leaks no info about token validity). Anything
+	// 4xx/5xx we surface so callers can warn.
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return fmt.Errorf("revocation endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 // EmailFromIDToken parses the JWT payload and returns the "email" claim.

@@ -79,7 +79,7 @@ func TestDeviceFlowHappyPath(t *testing.T) {
 	issuer := srv.URL + "/application/o/kupe-cli/"
 
 	var gotCode, gotURI, gotComplete string
-	prompt := func(userCode, verificationURI, verificationURIComplete string) {
+	prompt := func(userCode, verificationURI, verificationURIComplete string, _ time.Duration) {
 		gotCode = userCode
 		gotURI = verificationURI
 		gotComplete = verificationURIComplete

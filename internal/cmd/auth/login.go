@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -95,8 +96,8 @@ want more than one context per tenant (e.g., two API environments).`,
 	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (device flow, default) or token (long-lived API key)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). Required with --method=token in non-interactive mode.")
 	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context, with or without scheme (default "+strings.TrimPrefix(config.DefaultAPIURL, "https://")+")")
-	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL, with or without scheme (default "+strings.TrimPrefix(build.OIDCBaseURL, "https://")+"). Issuer is built as {base}/application/o/{client-id}/.")
-	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (default "+build.OIDCClientID+")")
+	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL, with or without scheme (env: KUPE_OIDC_BASE_URL, default "+strings.TrimPrefix(build.OIDCBaseURL, "https://")+"). Issuer is built as {base}/application/o/{client-id}/.")
+	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (env: KUPE_OIDC_CLIENT_ID, default "+build.OIDCClientID+")")
 	cmd.Flags().StringVar(&opts.context, "context", "", "Context name (default: tenant name)")
 	cmd.Flags().BoolVar(&opts.setDefault, "set-default", false, "Mark this context as the current one")
 
@@ -253,7 +254,7 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	}
 	issuer := config.BuildIssuerURL(baseURL, clientID)
 
-	prompt := func(userCode, verificationURI, verificationURIComplete string) {
+	prompt := func(userCode, verificationURI, verificationURIComplete string, expiresIn time.Duration) {
 		fmt.Fprintln(io.ErrOut, "To finish signing in, open the following URL in any browser:")
 		fmt.Fprintf(io.ErrOut, "\n    %s\n\n", verificationURI)
 		fmt.Fprintln(io.ErrOut, "and enter this code:")
@@ -262,7 +263,11 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 			fmt.Fprintln(io.ErrOut, "(or open this URL — it has the code pre-filled:)")
 			fmt.Fprintf(io.ErrOut, "    %s\n\n", verificationURIComplete)
 		}
-		fmt.Fprintln(io.ErrOut, "Waiting for approval...")
+		if expiresIn > 0 {
+			fmt.Fprintf(io.ErrOut, "Waiting for approval (code expires in %s)...\n", expiresIn)
+		} else {
+			fmt.Fprintln(io.ErrOut, "Waiting for approval...")
+		}
 	}
 
 	ts, err := auth.DeviceFlow(cmd.Context(), prompt, issuer, clientID, build.OIDCScopes)
@@ -329,22 +334,26 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	return nil
 }
 
-// printPlaintextWarningIfFallback emits a single-line note when token
-// storage fell back to the plaintext credentials file. Keyring is the
-// silent default; the warning only surfaces the fallback case because
-// users picking up a plaintext file without realising it is a security
-// concern they should see.
+// printPlaintextWarningIfFallback emits a multi-line warning banner when
+// token storage fell back to the plaintext credentials file. Keyring is
+// the silent default; this warning only surfaces the fallback case —
+// keeping it visually distinct (blank line + WARNING prefix + indented
+// guidance) because a plaintext token on disk is a security concern users
+// must see, not skim past in normal output.
 func printPlaintextWarningIfFallback(f *cli.Factory, ref string) {
 	if ref != config.TokenRefPlaintext {
 		return
 	}
-	cfgPath, err := f.ConfigPath()
-	if err != nil {
-		fmt.Fprintln(f.IOStreams.ErrOut, "  Note: token saved to plaintext credentials file (OS keyring rejected the value).")
-		return
+	credsPath := "the plaintext credentials file" //#nosec G101 -- a static fallback label for the warning text, not a credential.
+	if cfgPath, err := f.ConfigPath(); err == nil {
+		credsPath = auth.DefaultCredentialsPath(cfgPath)
 	}
-	credsPath := auth.DefaultCredentialsPath(cfgPath)
-	fmt.Fprintf(f.IOStreams.ErrOut, "  Note: token saved to %s (OS keyring rejected the value).\n", credsPath)
+	out := f.IOStreams.ErrOut
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "WARNING: OS keyring rejected the credential — fell back to a plaintext file.")
+	fmt.Fprintf(out, "         Token written to %s (mode 0600).\n", credsPath)
+	fmt.Fprintln(out, "         Investigate the keyring failure (`security` / `secret-tool` / `wincred`)")
+	fmt.Fprintln(out, "         OR set KUPE_STORAGE=plaintext to silence this warning if intentional (e.g. CI).")
 }
 
 // nonDefault returns v unless it equals the build-time default, in which

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -53,7 +54,11 @@ func DeviceFlow(ctx context.Context, prompt DevicePrompt, issuer, clientID, scop
 	}
 
 	if prompt != nil {
-		prompt(da.UserCode, da.VerificationURI, da.VerificationURIComplete)
+		// time.Until rounded to the nearest second — the prompt typically
+		// formats this as "10m" / "9m30s", and sub-second precision is
+		// noise.
+		expiresIn := time.Until(da.Expiry).Round(time.Second)
+		prompt(da.UserCode, da.VerificationURI, da.VerificationURIComplete, expiresIn)
 	}
 
 	// Best-effort browser launch. verification_uri_complete embeds the
@@ -84,18 +89,24 @@ func DeviceFlow(ctx context.Context, prompt DevicePrompt, issuer, clientID, scop
 
 // DevicePrompt is invoked once when the device authorization response
 // arrives. The caller (typically login.go) formats this into the
-// user-facing message:
+// user-facing message, e.g.:
 //
 //	To finish signing in, visit:
 //	  https://auth.kupe.cloud/device
-//	And enter the code:
-//	    A1B2-C3D4
+//	and enter the code:
+//	  A1B2-C3D4
+//	Waiting for approval (code expires in 10m)…
 //
 // verificationURIComplete is the IdP's URL with the code already
 // embedded as a query param — preferred for the best-effort browser
 // launch, but the textual prompt should still show the bare URI + code
 // so users on a different device can type them.
-type DevicePrompt func(userCode, verificationURI, verificationURIComplete string)
+//
+// expiresIn is da.Expiry - time.Now() rounded to the nearest second; the
+// prompt should surface it because the CLI's polling context terminates
+// at this deadline and a user who AFKs past the window only sees
+// "context deadline exceeded" otherwise.
+type DevicePrompt func(userCode, verificationURI, verificationURIComplete string, expiresIn time.Duration)
 
 // browserOpener is the function DeviceFlow calls to launch the user's
 // default browser. Production wires it to openBrowser; tests swap in a

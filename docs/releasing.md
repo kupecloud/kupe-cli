@@ -1,7 +1,7 @@
-# RELEASING.md — cutting a kupe-cli release
+# Releasing — cutting a kupe-cli release
 
 This document is the runbook for shipping the CLI. Read
-[docs/distribution.md](./docs/distribution.md) for the design rationale;
+[distribution.md](./distribution.md) for the design rationale;
 this file is the operational "what do I click / run".
 
 ## One-time setup
@@ -83,7 +83,7 @@ The commit message drives the version bump via
 |--------|------|---------|
 | `feat:` | minor | `feat: add kupe secret rotate` |
 | `fix:` / `perf:` / `refactor:` | patch | `fix: retry 429 once with Retry-After` |
-| `docs:` / `chore:` / `ci:` / `test:` / `style:` | none | `docs: update RELEASING.md` |
+| `docs:` / `chore:` / `ci:` / `test:` / `style:` | none | `docs: update releasing.md` |
 | `BREAKING CHANGE:` in body | major | add footer `BREAKING CHANGE: -o json shape changed` |
 
 ### 2. Merge to main

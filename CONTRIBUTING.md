@@ -1,8 +1,19 @@
 # Contributing to kupe-cli
 
-Thanks for taking the time to contribute. This file is the short version —
-[CLAUDE.md](./CLAUDE.md) is the source of truth for code conventions, the
-[docs/](./docs/) directory for design and architecture.
+Thanks for taking the time to contribute. This file covers conventions and
+the day-to-day workflow. Detailed reference material lives in [docs/](./docs/):
+
+- **[docs/architecture.md](./docs/architecture.md)** — runtime model, package
+  layout, request lifecycle, async-operation behavior.
+- **[docs/design.md](./docs/design.md)** — UX principles, exit codes, output
+  contract (read this before adding a new command).
+- **[docs/auth.md](./docs/auth.md)** — token lifecycle, config precedence,
+  storage backends.
+- **[docs/api-client.md](./docs/api-client.md)** — HTTP client conventions.
+- **[docs/output.md](./docs/output.md)** — TTY vs CI rendering rules.
+- **[docs/testing.md](./docs/testing.md)** — unit, golden, and live-test
+  patterns.
+- **[docs/releasing.md](./docs/releasing.md)** — release pipeline runbook.
 
 ## Before you start
 
@@ -51,24 +62,44 @@ For OIDC end-to-end testing, see [docs/testing.md](./docs/testing.md).
   and `markdownlint`. Set up `pre-commit` to catch issues locally before CI
   does.
 
-## Code conventions (the short list)
+## Command + UX conventions
+
+- **Noun-verb command order.** `kupe cluster create`, not `kupe create
+  cluster`. Matches `gh`, `fly`, `hcloud`.
+- **Positional arg for the resource name.** `kupe cluster get NAME`, never
+  `--name`.
+- **Exit codes.** `0` success, `1` general, `2` misuse, `3` auth, `4` not-
+  found, `5` conflict, `6` rate-limited, `7` unavailable. Defined in
+  [internal/cli/exit.go](./internal/cli/exit.go) and surveyed in
+  [docs/design.md](./docs/design.md).
+- **Structured stderr errors.** `Error: message\n  (request-id: abc123)\n`
+  — request ID surfaced for support tracing.
+- **Data → stdout, status/progress/prompts → stderr.** `-o json` always
+  produces parseable stdout.
+- **No telemetry.** Period.
+
+## Code conventions / things not to do
 
 - **Don't write to `os.Stdout`/`os.Stderr` directly.** Always go through
   `factory.IOStreams` so commands stay unit-testable.
-- **Don't hand-roll YAML surgery on kubeconfigs.** Use `clientcmd.Merge`.
+- **Don't print spinners or progress without checking
+  `iostreams.SpinnersEnabled`.** They must auto-disable on non-TTY, in CI,
+  with `-q`/`-o json`/`NO_COLOR`.
+- **Don't hand-roll YAML surgery on kubeconfigs.** Use `clientcmd.Merge`
+  via `internal/kubeconfig.Merge`.
 - **Don't skip error wrapping.** `fmt.Errorf("…: %w", err)` always.
-- **Don't leak tokens** to logs, error messages, or `-v` output. The HTTP
-  middleware strips `Authorization` headers before logging — verify any new
-  tracing you add does the same.
+- **Don't leak tokens** to logs, error messages, or `-v`/`--verbose`
+  output. The HTTP middleware strips `Authorization` headers before
+  logging — any new tracing must do the same.
 - **Don't import Viper.** We use a hand-written YAML loader and the
   precedence helper in `internal/config`.
-
-The full list lives in [CLAUDE.md](./CLAUDE.md#donts).
+- **Don't add a command without updating [docs/commands.md](./docs/commands.md).**
 
 ## Releasing
 
-See [RELEASING.md](./RELEASING.md). TL;DR: `main` is always shippable;
-semantic-release tags releases on green CI, goreleaser attaches artifacts.
+See [docs/releasing.md](./docs/releasing.md). TL;DR: `main` is always
+shippable; semantic-release tags releases on green CI, goreleaser attaches
+artifacts.
 
 ## Code of Conduct
 

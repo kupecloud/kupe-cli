@@ -105,11 +105,20 @@ All settings can be overridden by flags or `KUPE_*` environment variables. See [
 ## Documentation
 
 - [docs/architecture.md](./docs/architecture.md) — runtime model and package layout
-- [docs/design.md](./docs/design.md) — UX principles and command grammar
+- [docs/design.md](./docs/design.md) — UX principles, exit codes, command grammar
 - [docs/commands.md](./docs/commands.md) — full command reference
 - [docs/auth.md](./docs/auth.md) — authentication, config, and token storage
+- [docs/api-client.md](./docs/api-client.md) — HTTP client conventions
 - [docs/output.md](./docs/output.md) — `-o` formats and TTY behavior
+- [docs/testing.md](./docs/testing.md) — unit, golden, and live-test patterns
+- [docs/distribution.md](./docs/distribution.md) — release pipeline design
+- [docs/releasing.md](./docs/releasing.md) — release runbook
 - [docs/tui.md](./docs/tui.md) — planned k9s-like TUI mode
+
+## Contributing
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — workflow, commit/PR rules, code conventions
+- [SECURITY.md](./SECURITY.md) — vulnerability disclosure policy
 
 ## Development
 
@@ -118,9 +127,17 @@ make build       # Build the binary into ./bin/kupe
 make test        # Unit tests
 make lint        # golangci-lint
 make snapshot    # Build a release locally (no publish)
+make manpages    # Generate man(1) pages into man/man1/
 ```
 
-See [docs/testing.md](./docs/testing.md) for the test approach and [docs/distribution.md](./docs/distribution.md) for the release pipeline.
+Hit a live development environment:
+
+```bash
+export KUPE_API_TOKEN=kupe_…
+export KUPE_API_URL=https://api.dev.int.kupe.cloud
+export KUPE_TENANT=kupe-test
+go run ./cmd/kupe cluster list
+```
 
 ## License
 

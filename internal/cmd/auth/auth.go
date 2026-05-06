@@ -1,5 +1,5 @@
 // Package auth wires the "kupe auth" subcommand tree: login, logout,
-// whoami (Phase 2), get-token (Phase 4).
+// whoami, get-token.
 package auth
 
 import (
@@ -8,8 +8,8 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 )
 
-// NewCmd returns the parent auth command with login and logout wired in.
-// whoami and get-token land in later phases (see IMPLEMENTATION.md).
+// NewCmd returns the parent auth command with login, logout, whoami, and
+// get-token wired in.
 func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",

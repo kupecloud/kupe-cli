@@ -369,20 +369,22 @@ Tracked in [RELEASING.md](./RELEASING.md) — each of these is a human action:
 
 ---
 
-## Phase 1.5 — OIDC device flow ⚪ (parallel to Phase 6)
+## Phase 1.5 — OIDC device flow 🟢 (shipped)
 
-Deferred from Phase 1. Unblocks `kupe auth login --method oidc` and makes
-`--exec` kubeconfig the default (token refresh without re-running login).
+`kupe auth login --method oidc` runs the RFC 8628 device-code flow against
+Authentik's `kupe-cli` public client. Refresh tokens rotate transparently;
+the `--exec` kubeconfig path triggers an in-process refresh on each kubectl
+call when the access token is near expiry.
 
-**Prerequisite:** Authentik exposes `/device/code` and `/token` with
-`urn:ietf:params:oauth:grant-type:device_code`. Verify before starting.
-
-- `internal/auth/oidc.go` — device-code flow, token refresh.
-- Extend `internal/cmd/auth/login.go` with `--method oidc`.
-- Extend `internal/cmd/auth/get_token.go` to refresh when the access token is
-  near expiry and a refresh token is available.
-- Switch `internal/cmd/cluster/kubeconfig.go` default from embed-token to
-  exec-plugin mode.
+- [x] `internal/auth/oidc.go` — discovery, refresh, id_token email extraction.
+- [x] `internal/auth/oidc_device.go` — RFC 8628 device flow via
+      `golang.org/x/oauth2.DeviceAuth` + `DeviceAccessToken`.
+- [x] `internal/cmd/auth/login.go` — `--method oidc` (default), prompt prints
+      user code + verification URL, best-effort opens browser.
+- [x] `internal/cmd/auth/get_token.go` — refreshes when within `refreshSkew`
+      of expiry; clears stored token + asks for re-login on `invalid_grant`.
+- [x] Authentik blueprint — `kupe-cli` provider as public client; brand
+      `flow_device_code` set; `access_code_validity: 10m`.
 
 ---
 

@@ -64,7 +64,7 @@ type Resolved struct {
 	//
 	// OIDCIssuer is the computed full issuer URL — the CLI never
 	// accepts a full issuer from a user; it composes one from base+clientID.
-	// Stored here so consumers (auth.Refresh, auth.BrowserFlow) can
+	// Stored here so consumers (auth.Refresh, auth.DeviceFlow) can
 	// pass it without recomputing.
 	OIDCBaseURL  string
 	OIDCClientID string

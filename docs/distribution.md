@@ -105,42 +105,51 @@ sboms:
     documents:
       - "{{ .ArtifactName }}.sbom.spdx.json"
 
-brews:
-  - tap:
+brews:                                  # NOT homebrew_casks — formula installs on macOS *and* Linux
+  - repository:
       owner: kupecloud
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://kupe.cloud"
     description: "Official CLI for Kupe managed Kubernetes clusters"
     license: "Apache-2.0"
-    test: |
-      system "#{bin}/kupe", "version"
+    commit_author:
+      name: kupecloud-bot
+      email: bot@kupe.cloud
     install: |
       bin.install "kupe"
+      generate_completions_from_executable(bin/"kupe", "completion")
+    test: |
+      assert_match "kupe version", shell_output("#{bin}/kupe version")
 
 scoops:
-  - bucket:
+  - repository:
       owner: kupecloud
       name: scoop-bucket
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
     homepage: "https://kupe.cloud"
     description: "Official CLI for Kupe managed Kubernetes clusters"
-    license: "Apache-2.0"
+    license: Apache-2.0
+    commit_author:
+      name: kupecloud-bot
+      email: bot@kupe.cloud
 
 release:
   github:
     owner: kupecloud
     name: kupe-cli
+  mode: append                          # semantic-release creates the release; goreleaser only attaches artifacts
   draft: false
   prerelease: auto
   footer: |
     ## Install
 
     ```bash
-    brew install kupecloud/tap/kupe
-    # or
+    brew tap kupecloud/tap
+    brew install kupe
+    # or, one-liner:
     curl -fsSL https://get.kupe.cloud | sh
     ```
-
-    Full changelog: https://github.com/kupecloud/kupe-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 changelog:
   use: github
@@ -150,6 +159,8 @@ changelog:
       - "^docs:"
       - "^chore:"
       - "^test:"
+      - "^ci:"
+      - "^style:"
 ```
 
 ## Signing

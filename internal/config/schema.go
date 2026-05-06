@@ -50,9 +50,9 @@ type Context struct {
 	User     string `yaml:"user,omitempty"`
 
 	// AuthMethod records how this context authenticates: "apikey" (a
-	// long-lived kupe_... bearer token) or "oidc" (Authentik auth-code +
-	// PKCE flow with refresh-token rotation). Empty == apikey, for
-	// back-compat with contexts created before OIDC landed.
+	// long-lived kupe_... bearer token) or "oidc" (Authentik device-code
+	// flow with refresh-token rotation). Empty == apikey, for back-compat
+	// with contexts created before OIDC landed.
 	AuthMethod string `yaml:"authMethod,omitempty"`
 
 	// OIDCBaseURL overrides build.OIDCBaseURL for this context. Set on

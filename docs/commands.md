@@ -788,6 +788,3 @@ These commands are not in v1 and will land in later phases:
   are piped in or templated — likely `--from-file=-` reading stdin, matching
   `kubectl create configmap`.
 - `kupe tui` — k9s-like interactive view. See [tui.md](./tui.md).
-- `kupe auth login --method oidc` — device-code flow. Waiting on Authentik
-  device-grant endpoint and `ENABLE_OIDC_AUTH=true` in production kupe-api
-  deployments (Phase 1.5).

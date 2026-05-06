@@ -216,7 +216,7 @@ Patterns to follow when adding a test:
 
 **Auth-mode parity (OIDC vs apikey):** the same suite runs unmodified for either token type — the CLI's `--token` / `KUPE_API_TOKEN` path doesn't care if the bearer is a `kupe_…` API key or an OIDC JWT. To verify both auth paths work end-to-end, run `make test-live` twice: once with an apikey and once with a JWT minted via `kupe auth login --method oidc` (read it out of the keyring with `security find-generic-password -s cloud.kupe.cli -a kupe-test -w` on macOS).
 
-**Manual OIDC smoke test:** the auth-code+PKCE login itself can't be automated in `go test` — it needs a real browser and real Authentik. Test it interactively against dev:
+**Manual OIDC smoke test:** the device-code login itself can't be automated in `go test` — it needs a real Authentik to issue a code and a real human to approve. Test it interactively against dev:
 
 ```bash
 unset KUPE_API_TOKEN

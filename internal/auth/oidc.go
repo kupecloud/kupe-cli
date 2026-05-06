@@ -82,11 +82,12 @@ var ErrRefreshFailed = errors.New("OIDC refresh token rejected")
 // puts authorize/token at the realm level (/application/o/authorize/),
 // not under the application slug.
 type Discovery struct {
-	Issuer                string `json:"issuer"`
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	UserinfoEndpoint      string `json:"userinfo_endpoint,omitempty"`
-	JWKSURI               string `json:"jwks_uri,omitempty"`
+	Issuer                      string `json:"issuer"`
+	AuthorizationEndpoint       string `json:"authorization_endpoint"`
+	TokenEndpoint               string `json:"token_endpoint"`
+	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint,omitempty"`
+	UserinfoEndpoint            string `json:"userinfo_endpoint,omitempty"`
+	JWKSURI                     string `json:"jwks_uri,omitempty"`
 }
 
 // Discover fetches the OIDC discovery document at

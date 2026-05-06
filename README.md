@@ -45,8 +45,11 @@ Pre-built binaries for darwin / linux / windows × amd64 / arm64 are attached to
 ## Quickstart
 
 ```bash
-# 1. Log in. The default --method=oidc opens your browser to Authentik;
-#    use --method=token if you want to paste a long-lived API key from
+# 1. Log in. The default --method=oidc runs an OAuth2 device-code flow:
+#    the CLI prints a short user code and a verification URL, opens your
+#    browser (best-effort), and waits for you to approve. Works on a
+#    laptop, an SSH session, or a CI runner — no localhost listener.
+#    Use --method=token to paste a long-lived API key from
 #    https://console.kupe.cloud/settings/api-keys (CI / scripts).
 kupe auth login --tenant acme-corp
 

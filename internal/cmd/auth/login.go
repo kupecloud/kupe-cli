@@ -55,9 +55,15 @@ func newLoginCmd(f *cli.Factory) *cobra.Command {
 Two methods are supported:
 
   --method oidc (default)
-    Opens your browser to Authentik, completes an OAuth2 authorization-code
-    flow with PKCE, and stores the resulting access + refresh tokens. The
-    refresh token rotates transparently on subsequent commands.
+    Runs an OAuth 2.0 Device Authorization (RFC 8628) flow against Authentik.
+    The CLI prints a short user code and a verification URL; you open the
+    URL on any device with a browser (your laptop tries to open it for you
+    automatically) and approve. The CLI stores the resulting access and
+    refresh tokens; the refresh token rotates transparently on subsequent
+    commands.
+
+    Works identically on a laptop, an SSH session, a CI runner, or a remote
+    dev container — no localhost listener is required.
 
   --method token
     Reads a long-lived API key (format kupe_...) and stores it. Use this for
@@ -85,7 +91,7 @@ want more than one context per tenant (e.g., two API environments).`,
 	}
 
 	cmd.Flags().StringVar(&opts.tenant, "tenant", "", "Tenant to authenticate against")
-	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (browser, default) or token (long-lived API key)")
+	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (device flow, default) or token (long-lived API key)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). Required with --method=token in non-interactive mode.")
 	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context (default "+config.DefaultAPIURL+")")
 	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL (default "+build.OIDCBaseURL+"). Issuer is built as {base}/application/o/{client-id}/.")
@@ -246,12 +252,19 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	}
 	issuer := config.BuildIssuerURL(baseURL, clientID)
 
-	fmt.Fprintf(io.ErrOut, "Opening your browser to %s\n", issuer)
-	fmt.Fprintln(io.ErrOut, "  If it doesn't open, copy the URL printed below into a browser:")
+	prompt := func(userCode, verificationURI, verificationURIComplete string) {
+		fmt.Fprintln(io.ErrOut, "To finish signing in, open the following URL in any browser:")
+		fmt.Fprintf(io.ErrOut, "\n    %s\n\n", verificationURI)
+		fmt.Fprintln(io.ErrOut, "and enter this code:")
+		fmt.Fprintf(io.ErrOut, "\n    %s\n\n", userCode)
+		if verificationURIComplete != "" && verificationURIComplete != verificationURI {
+			fmt.Fprintln(io.ErrOut, "(or open this URL — it has the code pre-filled:)")
+			fmt.Fprintf(io.ErrOut, "    %s\n\n", verificationURIComplete)
+		}
+		fmt.Fprintln(io.ErrOut, "Waiting for approval...")
+	}
 
-	ts, err := auth.BrowserFlow(cmd.Context(), func(authURL string) {
-		fmt.Fprintf(io.ErrOut, "  %s\n", authURL)
-	}, issuer, clientID, build.OIDCScopes)
+	ts, err := auth.DeviceFlow(cmd.Context(), prompt, issuer, clientID, build.OIDCScopes)
 	if err != nil {
 		return cli.Wrap(cli.ExitGeneral, "OIDC login", err)
 	}

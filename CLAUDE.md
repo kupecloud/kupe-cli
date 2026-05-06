@@ -101,9 +101,11 @@ See [docs/auth.md](./docs/auth.md) for full details.
 
 ## Authentication
 
-- **v1 login**: API key only. User pastes a token from the console; CLI validates via `GET /api/v1/tenants/{tenant}` and stores in the OS keyring.
-- **Env var `KUPE_API_TOKEN`** is the CI short-circuit — when set, the config file is bypassed entirely.
-- **OIDC device flow** is Phase 1.5, pending Authentik device-code endpoint.
+- **`--method oidc` (default)**: OAuth 2.0 Device Authorization (RFC 8628) against the Authentik `kupe-cli` public client. CLI prints user code + verification URL, best-effort opens the browser, and polls until approved. See `internal/auth/oidc_device.go`. Works identically on laptop, SSH, CI, and remote dev containers — no localhost listener.
+- **`--method token`** (escape hatch): API key (`kupe_...`). User pastes a token from the console; CLI validates via `GET /api/v1/tenants/{tenant}` and stores it. Use this on CI machines where even device-flow's "approve once" is too interactive.
+- **Env var `KUPE_API_TOKEN`** is the CI short-circuit — when set, the config file is bypassed entirely and `kupe auth login` refuses to run.
+- **Storage**: OS keyring by default (Keychain / libsecret / DPAPI), with a one-line warning + plaintext fallback when the keyring rejects the value. `KUPE_STORAGE=plaintext` forces the fallback.
+- **Refresh**: OIDC refresh tokens rotate transparently on subsequent commands via `internal/auth/oidc.go:Refresh`. On `invalid_grant` the CLI returns `ErrRefreshFailed` so callers prompt re-login.
 - **Exec-plugin kubeconfig**: `kupe cluster kubeconfig NAME --exec` emits a kubeconfig that shells back to `kupe auth get-token`, returning an `ExecCredential` per `client.authentication.k8s.io/v1`.
 
 ## API Client

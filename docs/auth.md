@@ -15,7 +15,7 @@ Every token is an API key minted against a specific tenant. Format: `kupe_<keyID
 
 Two roles exist: `admin` (read-write) and `readonly`. The role is a property of the key, not the user — a tenant member can create keys in either role as long as their own role allows it.
 
-OIDC JWTs are **not supported in v1**. OIDC device flow is Phase 1.5, pending Authentik exposing a device-code grant (see [Open questions](#open-questions)).
+Two login methods are supported. `--method oidc` (default) runs an OAuth 2.0 Device Authorization Grant ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)) against the Authentik `kupe-cli` public client, returning an access + refresh token pair the CLI persists and rotates on subsequent commands. `--method token` reads a long-lived API key (`kupe_...`) and stores that instead — primary path for CI machines and automation. Both store credentials through the same keyring/plaintext storage layer described below.
 
 ## Config file
 
@@ -261,7 +261,7 @@ This pattern lets the kubeconfig be committed to a team repo (no secrets in the 
 
 Exec-plugin kubeconfigs require `kupe` to be on the target machine's `$PATH`. That's fine for developers but wrong for throwaway kubeconfigs dropped into a container for a single `kubectl apply`. The default (`--exec` off) embeds the bearer token directly — works everywhere, but the kubeconfig becomes a secret.
 
-When OIDC device flow lands (Phase 1.5), `--exec` becomes the default for long-lived local use because it lets the CLI refresh expired tokens transparently.
+For OIDC contexts, `--exec` is recommended for long-lived local use because the exec plugin shells back into `kupe auth get-token` on every API call, letting the CLI refresh expired access tokens transparently. For API-key contexts, the embedded-token form is fine because there's nothing to rotate.
 
 ## Rotation
 
@@ -293,6 +293,5 @@ No auto-reminder on expiry in v1. Server logs `lastUsedAt` on the key and the co
 
 Tracked separately from the implementation plan:
 
-1. **OIDC device flow** — pending Authentik exposing `/device/code` and `/token` with `urn:ietf:params:oauth:grant-type:device_code`. When ready, `kupe auth login --method oidc` is added; `--exec` kubeconfig becomes the default to take advantage of refresh.
-2. **Short-lived machine tokens via OIDC client credentials** — useful for GitHub Actions OIDC federation. Deferred.
-3. **Audit log surfacing** — a `kupe auth events` subcommand that shows recent logins for the current tenant (via `GET /api/v1/tenants/{tenant}/events`, not yet in kupe-api). Deferred.
+1. **Short-lived machine tokens via OIDC client credentials** — useful for GitHub Actions OIDC federation. Deferred.
+2. **Audit log surfacing** — a `kupe auth events` subcommand that shows recent logins for the current tenant (via `GET /api/v1/tenants/{tenant}/events`, not yet in kupe-api). Deferred.

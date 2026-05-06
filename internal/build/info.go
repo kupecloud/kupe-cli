@@ -24,7 +24,7 @@ var (
 	// the issuer URL path. See kupe/authentik/templates/configmap-blueprints.yaml.
 	OIDCClientID = "kupe-cli"
 
-	// OIDCScopes are the scopes requested during the auth-code+PKCE flow.
+	// OIDCScopes are the scopes requested during the device-code flow.
 	// offline_access is required for the refresh_token grant; the rest
 	// match the kupe-cli Authentik application's property mappings
 	// (openid, email, profile, kupe-groups, kupe-tenants).

@@ -222,7 +222,10 @@ func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *con
 	if t.DisplayName != "" {
 		label = fmt.Sprintf("%s (%s)", t.DisplayName, tenant)
 	}
-	fmt.Fprintln(io.ErrOut)
+	// promptSecret already prints a trailing newline after the hidden
+	// password input, so we don't add another blank here. The OIDC path
+	// does need an explicit one because its URL line doesn't end with
+	// blank space.
 	fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
 	printPlaintextWarningIfFallback(f, ref)
 	return nil

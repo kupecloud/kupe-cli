@@ -58,14 +58,16 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 func newGetCmd(f *cli.Factory) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
-		Use:   "get PERIOD",
-		Short: "Show one invoice for a given billing period",
-		Long: `Show a single invoice. PERIOD is the billing month in YYYY-MM form
-(e.g. 2026-03 for March 2026). Use "kupe invoice list" to see available
-periods.`,
+		Use:   "get NAME",
+		Short: "Show one invoice by name",
+		Long: `Show a single invoice. NAME is the invoice identifier as it appears in
+"kupe invoice list" — e.g. "kupe-test-20260301" for the period starting
+1 March 2026. Always run "kupe invoice list" first to find the exact
+name; the format is server-controlled and not meant to be guessed.`,
 		Args: cobra.ExactArgs(1),
-		Example: `  kupe invoice get 2026-03
-  kupe invoice get 2026-03 -o json`,
+		Example: `  kupe invoice list                              # find the name
+  kupe invoice get kupe-test-20260301
+  kupe invoice get kupe-test-20260301 -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := printer.Resolve(f, output)
 			if err != nil {

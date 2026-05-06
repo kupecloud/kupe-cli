@@ -81,8 +81,12 @@ sboms:
 # binary at brew-install time to emit shell completions for bash/zsh/fish —
 # that avoids having to ship the completion files in the archive.
 #
-# (Goreleaser v2 keeps the legacy key `brews:` for formulae; only casks got
-# the `homebrew_*` prefix.)
+# Goreleaser deprecated `brews:` in v2.10 in favour of `homebrew_casks:` —
+# DO NOT follow that suggestion. Casks are macOS-only; switching would
+# break Linux users (`brew install kupecloud/tap/kupe` on Linux requires
+# a formula). Same reason gh/flyctl/doctl all stay on `brews:`. There is
+# no announced removal version, so the deprecation warning is noise we
+# accept.
 brews:
   - repository:
       owner: kupecloud

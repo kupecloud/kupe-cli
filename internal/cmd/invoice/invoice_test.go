@@ -58,7 +58,7 @@ func TestInvoiceList(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.IOStreams.Out.(interface{ String() string }).String()
-	for _, want := range []string{"PERIOD", "PHASE", "2026-03", "100.00", "GBP"} {
+	for _, want := range []string{"NAME", "PHASE", "2026-03", "100.00", "GBP"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list missing %q:\n%s", want, out)
 		}

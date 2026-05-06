@@ -5,10 +5,12 @@ import "github.com/kupecloud/kupe-cli/internal/client"
 // InvoiceColumns is the table view for `kupe invoice list`.
 func InvoiceColumns() Columns {
 	return Columns{
-		{Name: "PERIOD", Get: func(v any) string { return invoice(v).Name }},
+		{Name: "NAME", Get: func(v any) string { return invoice(v).Name }},
 		{Name: "PHASE", Get: func(v any) string { return invoice(v).Status.Phase }},
+		{Name: "ISSUED", Get: func(v any) string { return invoice(v).Status.IssuedAt }},
 		{Name: "SUBTOTAL", Get: func(v any) string { return invoice(v).Status.Subtotal }},
 		{Name: "CREDITS", Get: func(v any) string { return invoice(v).Status.CreditsApplied }},
+		{Name: "TAX", Wide: true, Get: func(v any) string { return invoice(v).Status.Tax }},
 		{Name: "TOTAL", Get: func(v any) string { return invoice(v).Status.Total }},
 		{Name: "CURRENCY", Get: func(v any) string { return invoice(v).Status.Currency }},
 		{Name: "START", Wide: true, Get: func(v any) string {
@@ -31,22 +33,25 @@ func InvoiceColumns() Columns {
 // them use -o json / -o yaml.
 func InvoiceDetailColumns() Columns {
 	return Columns{
-		{Name: "Period", Get: func(v any) string { return invoice(v).Name }},
+		{Name: "Name", Get: func(v any) string { return invoice(v).Name }},
 		{Name: "Phase", Get: func(v any) string { return invoice(v).Status.Phase }},
-		{Name: "Start", Get: func(v any) string {
+		{Name: "Issued", Get: func(v any) string { return invoice(v).Status.IssuedAt }},
+		{Name: "Period Start", Get: func(v any) string {
 			if p := invoice(v).BillingPeriod; p != nil {
 				return p.Start
 			}
 			return ""
 		}},
-		{Name: "End", Get: func(v any) string {
+		{Name: "Period End", Get: func(v any) string {
 			if p := invoice(v).BillingPeriod; p != nil {
 				return p.End
 			}
 			return ""
 		}},
+		{Name: "Billed Until", Get: func(v any) string { return invoice(v).Status.BilledUntil }},
 		{Name: "Subtotal", Get: func(v any) string { return invoice(v).Status.Subtotal }},
 		{Name: "Credits Applied", Get: func(v any) string { return invoice(v).Status.CreditsApplied }},
+		{Name: "Tax", Get: func(v any) string { return invoice(v).Status.Tax }},
 		{Name: "Total", Get: func(v any) string {
 			inv := invoice(v)
 			if inv.Status.Total == "" {

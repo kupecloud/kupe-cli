@@ -5,10 +5,11 @@ import (
 	"net/http"
 )
 
-// Invoice mirrors kupe-api's invoiceResponse. Name is typically the
-// billing period in YYYY-MM form (e.g. "2026-03"). Status carries the
-// totals + line items for consumption by the CLI's invoice printer and
-// by downstream scripts via -o json.
+// Invoice mirrors kupe-api's invoiceResponse. Name follows the operator's
+// convention "{tenant}-{YYYYMMDD}" (e.g. "acme-20260301") — not a guessable
+// format; users should always look up the actual name via ListInvoices.
+// Status carries the totals + line items for consumption by the CLI's
+// invoice printer and by downstream scripts via -o json.
 type Invoice struct {
 	Name            string         `json:"name" yaml:"name"`
 	BillingPeriod   *BillingPeriod `json:"billingPeriod,omitempty" yaml:"billingPeriod,omitempty"`
@@ -24,12 +25,19 @@ type BillingPeriod struct {
 }
 
 // InvoiceStatus holds the totals and the line-item breakdown. Phase
-// values: Open, Finalised, Paid, Void.
+// values mirror the operator: Draft, Billed, Paid, PastDue, Canceled.
+//
+// Operator-internal status fields (chargeState, chargeSubmittedAt,
+// creditsDeducted, lastWebhookEventID, isFinal) are intentionally NOT
+// exposed by kupe-api so they don't appear here either.
 type InvoiceStatus struct {
 	Phase          string           `json:"phase,omitempty" yaml:"phase,omitempty"`
+	IssuedAt       string           `json:"issuedAt,omitempty" yaml:"issuedAt,omitempty"`
+	BilledUntil    string           `json:"billedUntil,omitempty" yaml:"billedUntil,omitempty"`
 	LineItems      []map[string]any `json:"lineItems,omitempty" yaml:"lineItems,omitempty"`
 	Subtotal       string           `json:"subtotal,omitempty" yaml:"subtotal,omitempty"`
 	CreditsApplied string           `json:"creditsApplied,omitempty" yaml:"creditsApplied,omitempty"`
+	Tax            string           `json:"tax,omitempty" yaml:"tax,omitempty"`
 	Total          string           `json:"total,omitempty" yaml:"total,omitempty"`
 	Currency       string           `json:"currency,omitempty" yaml:"currency,omitempty"`
 }

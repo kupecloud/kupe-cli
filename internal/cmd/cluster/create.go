@@ -8,6 +8,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type createOpts struct {
@@ -40,7 +41,7 @@ the resource name — useful in scripts that spin up many clusters in parallel.`
     --type shared --version 1.32 --cpu 2 --memory 8Gi --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			fmt, err := parsedFormat(f, opts.output)
+			fmt, err := printer.Resolve(f, opts.output)
 			if err != nil {
 				return err
 			}
@@ -88,13 +89,13 @@ the resource name — useful in scripts that spin up many clusters in parallel.`
 
 	cmd.Flags().StringVar(&opts.typ, "type", "shared", "Cluster type: shared or dedicated")
 	cmd.Flags().StringVar(&opts.displayName, "display-name", "", "Human-readable display name (defaults to NAME)")
-	cmd.Flags().StringVar(&opts.version, "version", "", "Target Kubernetes version (server default applies if unset)")
-	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "CPU limit (e.g. 2, 500m)")
-	cmd.Flags().StringVar(&opts.memory, "memory", "", "Memory limit (e.g. 8Gi, 512Mi)")
-	cmd.Flags().StringVar(&opts.storage, "storage", "", "Storage (etcd PVC) size (e.g. 100Gi)")
+	cmd.Flags().StringVar(&opts.version, "version", "", "Kubernetes minor version (e.g. 1.32). Defaults to the platform default if unset.")
+	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "CPU limit for the cluster (e.g. 2, 500m)")
+	cmd.Flags().StringVar(&opts.memory, "memory", "", "Memory limit for the cluster (e.g. 8Gi, 512Mi)")
+	cmd.Flags().StringVar(&opts.storage, "storage", "", "Control-plane storage size (e.g. 100Gi)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to reach Running before returning")
-	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up after this long; exits 8 on timeout")
-	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up after this long")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }
 

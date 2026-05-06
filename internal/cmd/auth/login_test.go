@@ -116,8 +116,11 @@ func fireCallback(t *testing.T, authURL, code string) {
 
 // testFactory wires a Factory using plaintext storage and a temp-directory
 // config — tests never touch the real keyring or the user's home directory.
+// Also relaxes the kupe.cloud URL validator so httptest.NewServer's
+// 127.0.0.1 URLs pass; the strict validator is restored at test end.
 func testFactory(t *testing.T) (*cli.Factory, string) {
 	t.Helper()
+	t.Cleanup(config.SetURLValidatorForTest(func(string) error { return nil }))
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 

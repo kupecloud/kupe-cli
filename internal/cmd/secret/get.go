@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 func newGetCmd(f *cli.Factory) *cobra.Command {
@@ -14,7 +15,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		Short: "Show details of a single managed secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -30,6 +31,6 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }

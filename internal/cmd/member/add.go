@@ -7,6 +7,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type addOpts struct {
@@ -25,7 +26,7 @@ func newAddCmd(f *cli.Factory) *cobra.Command {
   kupe member add bob@acme.com                         # defaults to readonly`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := args[0]
-			format, err := parsedFormat(f, opts.output)
+			format, err := printer.Resolve(f, opts.output)
 			if err != nil {
 				return err
 			}
@@ -46,6 +47,6 @@ func newAddCmd(f *cli.Factory) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.role, "role", client.RoleReadonly, "Role: admin or readonly")
-	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }

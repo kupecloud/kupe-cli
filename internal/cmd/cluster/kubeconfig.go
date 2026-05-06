@@ -61,7 +61,7 @@ Two user-entry modes:
 	cmd.Flags().StringVar(&opts.contextName, "context-name", "", "Context name in the generated kubeconfig (default: kupe-<tenant>-<cluster>)")
 	cmd.Flags().StringVar(&opts.userName, "user-name", "", "User entry name (default: same as context-name)")
 	cmd.Flags().StringVar(&opts.clusterName, "cluster-name", "", "Cluster entry name (default: same as context-name)")
-	cmd.Flags().BoolVar(&opts.exec, "exec", false, "Emit an exec-plugin kubeconfig that shells back to `kupe auth get-token`")
+	cmd.Flags().BoolVar(&opts.exec, "exec", false, "Produce a kubeconfig with no embedded token — kubectl shells back to 'kupe auth get-token' each time it needs one (safe to commit)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Overwrite colliding entries on --merge")
 	cmd.Flags().BoolVar(&opts.forceOverwrite, "force-overwrite", false, "If the existing kubeconfig is corrupt, discard it and start fresh (data-loss operation — use with care)")
 	return cmd

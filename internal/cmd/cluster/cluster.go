@@ -177,13 +177,3 @@ func mapWaitErr(err error) error {
 	}
 	return err
 }
-
-// parsedFormat parses the user's -o flag, falling back to
-// preferences.output from the config file when the flag is empty.
-// Delegates to printer.MustParse which wraps errors as cli.MisuseError.
-func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
-	if raw == "" {
-		raw = f.DefaultOutput()
-	}
-	return printer.MustParse(raw)
-}

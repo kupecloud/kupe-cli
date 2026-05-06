@@ -5,6 +5,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type createOpts struct {
@@ -19,12 +20,14 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create NAME",
 		Short: "Create a new managed secret",
-		Long: `Create a new ManagedSecret pointing at a Vault path. Optionally specify
-one or more sync targets — clusters and namespaces where the operator
-will mirror the secret into a Kubernetes Secret.
+		Long: `Register a managed secret. The CLI does NOT carry the secret value —
+it only registers a pointer to a path in the platform secret store, and
+optionally one or more sync targets (cluster + namespace pairs where the
+operator will mirror the secret into a Kubernetes Secret).
 
-Values themselves are NOT passed through the CLI — seed them into OpenBao
-out-of-band via "kupe vault" (not yet implemented) or the OpenBao UI.`,
+Seed the value at the referenced path through the platform's secret-store
+UI before adding sync targets, otherwise the mirrored Secrets will sit in
+the Pending phase until the value exists.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Path only, no sync targets (seed values later)
   kupe secret create mydb-password --path kv/acme/mydb-password
@@ -39,7 +42,7 @@ out-of-band via "kupe vault" (not yet implemented) or the OpenBao UI.`,
     --sync staging:default:upstream-api-key`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			format, err := parsedFormat(f, opts.output)
+			format, err := printer.Resolve(f, opts.output)
 			if err != nil {
 				return err
 			}
@@ -66,8 +69,8 @@ out-of-band via "kupe vault" (not yet implemented) or the OpenBao UI.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.path, "path", "", "Vault/OpenBao KV path where the secret value lives (required)")
+	cmd.Flags().StringVar(&opts.path, "path", "", "Path in the platform secret store where the value lives, e.g. kv/acme/db-password (required)")
 	cmd.Flags().StringArrayVar(&opts.sync, "sync", nil, "Sync target as cluster:namespace[:secretName]; repeatable")
-	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }

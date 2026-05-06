@@ -37,7 +37,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 		Short:   "List platform plans",
 		Example: `  kupe plan list`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -52,19 +52,22 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 			return renderList(f.IOStreams.Out, format, list)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|wide|json|yaml|name|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpList)
 	return cmd
 }
 
 func newGetCmd(f *cli.Factory) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
-		Use:     "get NAME",
-		Short:   "Show one plan (e.g. starter, pro, business)",
+		Use:   "get NAME",
+		Short: "Show one plan by name",
+		Long: `Show a single plan's resource limits, pricing, and feature flags.
+NAME is the plan slug (e.g. starter, pro, business). Run
+"kupe plan list" to see available plan names.`,
 		Args:    cobra.ExactArgs(1),
 		Example: `  kupe plan get pro`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -79,15 +82,8 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			return renderOne(f.IOStreams.Out, format, p)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
-}
-
-func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
-	if raw == "" {
-		raw = f.DefaultOutput()
-	}
-	return printer.MustParse(raw)
 }
 
 func renderOne(out io.Writer, format *printer.Format, p *client.Plan) error {

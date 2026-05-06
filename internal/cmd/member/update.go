@@ -7,6 +7,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type updateOpts struct {
@@ -24,7 +25,7 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 		Example: `  kupe member update alice@acme.com --role admin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := args[0]
-			format, err := parsedFormat(f, opts.output)
+			format, err := printer.Resolve(f, opts.output)
 			if err != nil {
 				return err
 			}
@@ -45,7 +46,7 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.role, "role", "", "New role: admin or readonly (required)")
-	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	_ = cmd.MarkFlagRequired("role")
 	return cmd
 }

@@ -140,3 +140,47 @@ func TestResolveOIDCEnvOverridesContext(t *testing.T) {
 		t.Fatalf("OIDCIssuer = %q; want env-derived", r.OIDCIssuer)
 	}
 }
+
+func TestNormalizeURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"  ", ""},
+		{"api.kupe.cloud", "https://api.kupe.cloud"},
+		{"https://api.kupe.cloud", "https://api.kupe.cloud"},
+		{"http://localhost:8080", "http://localhost:8080"},
+		{"api.kupe.cloud:8443", "https://api.kupe.cloud:8443"},
+	}
+	for _, tt := range cases {
+		if got := NormalizeURL(tt.in); got != tt.want {
+			t.Errorf("NormalizeURL(%q) = %q; want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestValidateKupeURL(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{"empty accepted", "", false},
+		{"prod api", "https://api.kupe.cloud", false},
+		{"dev internal", "https://api.dev.int.kupe.cloud", false},
+		{"bare kupe.cloud", "https://kupe.cloud", false},
+		{"http scheme on kupe.cloud", "http://api.kupe.cloud", false},
+		{"with port", "https://api.kupe.cloud:8443", false},
+		{"localhost rejected", "http://localhost:8080", true},
+		{"127.0.0.1 rejected", "http://127.0.0.1:8080", true},
+		{"foreign domain rejected", "https://api.evil.com", true},
+		{"typo rejected", "https://api.kup.cloud", true},
+		{"sub of foreign rejected", "https://kupe.cloud.evil.com", true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateKupeURL(tt.in)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateKupeURL(%q) err=%v wantErr=%v", tt.in, err, tt.wantErr)
+			}
+		})
+	}
+}

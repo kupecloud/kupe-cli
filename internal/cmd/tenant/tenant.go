@@ -39,7 +39,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
   kupe tenant get -o yaml
   kupe tenant get -o json | jq .status.currentUsage`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -54,15 +54,8 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, t)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
-}
-
-func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
-	if raw == "" {
-		raw = f.DefaultOutput()
-	}
-	return printer.MustParse(raw)
 }
 
 func renderOne(out io.Writer, colorEnabled bool, format *printer.Format, t *client.Tenant) error {

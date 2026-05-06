@@ -84,15 +84,6 @@ func renderList(out io.Writer, colorEnabled bool, format *printer.Format, ss []c
 	return fmt.Errorf("unhandled output kind %v", format.Kind)
 }
 
-// parsedFormat parses -o, falling back to preferences.output when the
-// flag is empty.
-func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
-	if raw == "" {
-		raw = f.DefaultOutput()
-	}
-	return printer.MustParse(raw)
-}
-
 // parseSyncTargets turns a slice of --sync flag values into SyncTargets.
 // Accepted forms (colon-separated):
 //

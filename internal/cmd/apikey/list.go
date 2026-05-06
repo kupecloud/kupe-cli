@@ -38,7 +38,7 @@ in the response — only metadata (ID, name, role, last-used, age).`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|wide|json|yaml|name|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpList)
 	return cmd
 }
 

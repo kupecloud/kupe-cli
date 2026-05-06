@@ -11,6 +11,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 // createResponse is the v1 JSON schema for `kupe apikey create -o json`.
@@ -45,8 +46,10 @@ On a TTY, key metadata (ID, role, expiry) is additionally printed on
 stderr. In non-interactive mode (pipe, CI), only the raw token appears on
 stdout so "TOKEN=$(kupe apikey create ...)" works cleanly.
 
---expires-at accepts a relative duration (` + "`7d`, `30d`, `90d`, `24h`" + `)
-or an absolute RFC3339 timestamp. Omit for no expiry.`,
+--expires-at accepts either a duration from now (any number followed by
+d for days, h for hours, or m for minutes — e.g. 90d, 24h, 30m) or an
+absolute date-time in ISO 8601 form (e.g. 2026-12-31T23:59:59Z). Omit
+the flag entirely for a key that never expires.`,
 		Example: `  # Interactive — metadata to stderr, token to stdout
   kupe apikey create --name "CI Pipeline" --role admin --expires-at 90d
 
@@ -62,8 +65,8 @@ or an absolute RFC3339 timestamp. Omit for no expiry.`,
 
 	cmd.Flags().StringVar(&opts.name, "name", "", "Human-readable display name (required)")
 	cmd.Flags().StringVar(&opts.role, "role", client.RoleReadonly, "Role: admin or readonly")
-	cmd.Flags().StringVar(&opts.expiresAt, "expires-at", "", "Expiration: duration (7d, 24h) or RFC3339 (default: never)")
-	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Output format: text (default) or json")
+	cmd.Flags().StringVar(&opts.expiresAt, "expires-at", "", "When the key expires: a duration from now (90d, 24h, 30m) or absolute date-time (2026-12-31T23:59:59Z). Omit for never.")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpToggle)
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }

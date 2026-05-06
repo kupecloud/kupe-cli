@@ -9,6 +9,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/build"
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type versionInfo struct {
@@ -52,6 +53,6 @@ func newVersionCmd(io *cli.IOStreams) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: text (default) or json")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpToggle)
 	return cmd
 }

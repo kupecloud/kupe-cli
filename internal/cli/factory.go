@@ -190,6 +190,10 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 				clientErr = err
 				return
 			}
+			if err := config.ValidateKupeURL(r.APIURL); err != nil {
+				clientErr = MisuseError(err.Error())
+				return
+			}
 			if r.Tenant == "" {
 				clientErr = AuthError("no tenant set; pass --tenant, set KUPE_TENANT, or run kupe auth login")
 				return

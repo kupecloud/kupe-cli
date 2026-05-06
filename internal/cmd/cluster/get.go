@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 func newGetCmd(f *cli.Factory) *cobra.Command {
@@ -16,7 +17,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		Example: `  kupe cluster get prod
   kupe cluster get prod -o yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt, err := parsedFormat(f, output)
+			fmt, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -32,6 +33,6 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|go-template=...|jsonpath=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }

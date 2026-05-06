@@ -40,15 +40,6 @@ func renderList(out io.Writer, format *printer.Format, ms []client.Member) error
 	return printer.RenderList(out, format, ms, printer.MemberColumns(), func(m client.Member) string { return m.Email })
 }
 
-// parsedFormat parses -o, falling back to preferences.output when the
-// flag is empty.
-func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
-	if raw == "" {
-		raw = f.DefaultOutput()
-	}
-	return printer.MustParse(raw)
-}
-
 // validRole reports whether a role string is one the API accepts.
 func validRole(role string) bool {
 	return role == client.RoleAdmin || role == client.RoleReadonly

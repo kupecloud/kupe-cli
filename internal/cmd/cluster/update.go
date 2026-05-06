@@ -7,6 +7,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type updateOpts struct {
@@ -31,9 +32,10 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 --memory / --storage should be provided; combining several mutations in a
 single request is supported but unusual.
 
-Uses ETag-based optimistic locking (GET → mutate → PATCH with If-Match) by
-default and retries once on a 412 mismatch. Pass --force to skip the check
-— rarely the right answer.`,
+By default the CLI checks the cluster hasn't changed since you last
+read it (read-modify-write with a server-side version check) and retries
+once on a concurrent-update collision. Pass --force to skip the check —
+rarely the right answer outside of disaster recovery.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe cluster update prod --version 1.33
   kupe cluster update prod --cpu 4 --memory 16Gi`,
@@ -47,7 +49,7 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu, --memory, --storage")
 			}
 
-			fmtp, err := parsedFormat(f, opts.output)
+			fmtp, err := printer.Resolve(f, opts.output)
 			if err != nil {
 				return err
 			}
@@ -123,15 +125,15 @@ default and retries once on a 412 mismatch. Pass --force to skip the check
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.version, "version", "", "New Kubernetes version")
-	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "New CPU limit")
-	cmd.Flags().StringVar(&opts.memory, "memory", "", "New memory limit")
-	cmd.Flags().StringVar(&opts.storage, "storage", "", "New storage size")
-	cmd.Flags().StringVar(&opts.ifMatch, "if-match", "", "Require a specific ETag; exits 5 on mismatch")
-	cmd.Flags().BoolVar(&opts.force, "force", false, "Skip ETag optimistic-locking (advanced; risk of lost writes)")
+	cmd.Flags().StringVar(&opts.version, "version", "", "New Kubernetes minor version (e.g. 1.32). Run \"kupe plan list\" to see what's offered.")
+	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "New CPU limit (e.g. 4, 500m)")
+	cmd.Flags().StringVar(&opts.memory, "memory", "", "New memory limit (e.g. 16Gi, 512Mi)")
+	cmd.Flags().StringVar(&opts.storage, "storage", "", "New control-plane storage size (e.g. 100Gi)")
+	cmd.Flags().StringVar(&opts.ifMatch, "if-match", "", "Only update if the cluster's resourceVersion still matches this value; aborts otherwise (advanced)")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "Skip the resourceVersion check; may overwrite a concurrent update from another client (advanced)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to return to Running before returning")
-	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up after this long; exits 8 on timeout")
-	cmd.Flags().StringVarP(&opts.output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up after this long")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }
 

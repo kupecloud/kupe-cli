@@ -61,6 +61,6 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 
 	cmd.Flags().BoolVarP(&opts.yes, "yes", "y", false, "Skip interactive confirmation")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to disappear before returning")
-	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 10*time.Minute, "Give up after this long; exits 8 on timeout")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 10*time.Minute, "Give up after this long")
 	return cmd
 }

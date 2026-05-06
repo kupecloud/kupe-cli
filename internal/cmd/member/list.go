@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 func newListCmd(f *cli.Factory) *cobra.Command {
@@ -15,7 +16,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 		Example: `  kupe member list
   kupe member list -o json`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -31,6 +32,6 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|name|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpList)
 	return cmd
 }

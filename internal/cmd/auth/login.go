@@ -141,11 +141,14 @@ func runLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts) error {
 		return cli.Wrap(cli.ExitGeneral, "loading config", err)
 	}
 
-	apiURL := opts.apiURL
+	apiURL := config.NormalizeURL(opts.apiURL)
 	if apiURL == "" {
 		if existing := cfg.Context(contextName); existing != nil {
 			apiURL = existing.APIURL
 		}
+	}
+	if err := config.ValidateKupeURL(apiURL); err != nil {
+		return cli.MisuseError(err.Error())
 	}
 	effectiveAPIURL := apiURL
 	if effectiveAPIURL == "" {
@@ -229,21 +232,14 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	io := f.IOStreams
 
 	// Resolve OIDC parameters: flag > existing context > build default.
-	baseURL := strings.TrimSpace(opts.oidcBaseURL)
-	clientID := strings.TrimSpace(opts.oidcClientID)
+	var ctxBase, ctxClient string
 	if existing := cfg.Context(contextName); existing != nil {
-		if baseURL == "" {
-			baseURL = existing.OIDCBaseURL
-		}
-		if clientID == "" {
-			clientID = existing.OIDCClientID
-		}
+		ctxBase, ctxClient = existing.OIDCBaseURL, existing.OIDCClientID
 	}
-	if baseURL == "" {
-		baseURL = build.OIDCBaseURL
-	}
-	if clientID == "" {
-		clientID = build.OIDCClientID
+	baseURL := config.FirstNonEmpty(config.NormalizeURL(opts.oidcBaseURL), ctxBase, build.OIDCBaseURL)
+	clientID := config.FirstNonEmpty(strings.TrimSpace(opts.oidcClientID), ctxClient, build.OIDCClientID)
+	if err := config.ValidateKupeURL(baseURL); err != nil {
+		return cli.MisuseError(err.Error())
 	}
 	issuer := config.BuildIssuerURL(baseURL, clientID)
 

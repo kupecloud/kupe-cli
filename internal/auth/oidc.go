@@ -158,8 +158,11 @@ func Refresh(ctx context.Context, issuer, clientID string, current OIDCTokenSet)
 
 	out := OIDCTokenSet{
 		AccessToken:  tok.AccessToken,
-		RefreshToken: firstNonEmpty(tok.RefreshToken, current.RefreshToken),
+		RefreshToken: current.RefreshToken,
 		Expiry:       tok.Expiry,
+	}
+	if tok.RefreshToken != "" {
+		out.RefreshToken = tok.RefreshToken // server rotated; persist the new one
 	}
 	if idTok, ok := tok.Extra("id_token").(string); ok && idTok != "" {
 		out.IDToken = idTok
@@ -167,15 +170,6 @@ func Refresh(ctx context.Context, issuer, clientID string, current OIDCTokenSet)
 		out.IDToken = current.IDToken
 	}
 	return out, nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // EmailFromIDToken parses the JWT payload and returns the "email" claim.

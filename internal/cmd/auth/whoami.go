@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 type whoamiOutput struct {
@@ -25,12 +26,10 @@ func newWhoamiCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "whoami",
 		Short: "Show the authenticated tenant and context",
-		Long: `Contact kupe-api to confirm the current credentials work and render the
-resolved identity. Exits 3 if the token is missing or rejected, 4 if the
-tenant does not exist.
-
-Role information is not yet surfaced — it lands alongside the apikey
-commands in a later phase.`,
+		Long: `Confirm the stored credentials work and print the resolved identity
+(user, tenant, context, API URL, where the token is stored). Exits with
+an auth error if the token is missing or rejected, or not-found if the
+tenant doesn't exist.`,
 		Example: `  kupe auth whoami
   kupe auth whoami -o json`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -38,7 +37,7 @@ commands in a later phase.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: text (default) or json")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpToggle)
 	return cmd
 }
 

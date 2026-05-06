@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 func newListCmd(f *cli.Factory) *cobra.Command {
@@ -22,7 +23,7 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
   kupe cluster list -o name | xargs -I{} kupe cluster delete {} --yes
   kupe cluster list --phase Running`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt, err := parsedFormat(f, output)
+			fmt, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -49,7 +50,7 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|wide|json|yaml|name|go-template=...|jsonpath=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpList)
 	cmd.Flags().StringVar(&phase, "phase", "", "Filter to clusters in this phase (client-side)")
 	return cmd
 }

@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/build"
 )
@@ -82,7 +85,7 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 
 	// Context name first — the context (if any) provides defaults for the
 	// rest.
-	r.ContextName = firstNonEmpty(flags.Context, env.Context)
+	r.ContextName = FirstNonEmpty(flags.Context, env.Context)
 	if r.ContextName == "" && cfg != nil {
 		r.ContextName = cfg.CurrentContext
 	}
@@ -93,23 +96,24 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 	}
 
 	// APIURL
-	r.APIURL = firstNonEmpty(flags.APIURL, env.APIURL)
+	r.APIURL = FirstNonEmpty(flags.APIURL, env.APIURL)
 	if r.APIURL == "" && ctx != nil {
 		r.APIURL = ctx.APIURL
 	}
 	if r.APIURL == "" {
 		r.APIURL = DefaultAPIURL
 	}
+	r.APIURL = NormalizeURL(r.APIURL)
 
 	// Tenant
-	r.Tenant = firstNonEmpty(flags.Tenant, env.Tenant)
+	r.Tenant = FirstNonEmpty(flags.Tenant, env.Tenant)
 	if r.Tenant == "" && ctx != nil {
 		r.Tenant = ctx.Tenant
 	}
 
 	// DirectToken — flag and env bypass the keyring. If neither is set,
 	// callers must look up the token via the context's TokenRef.
-	r.DirectToken = firstNonEmpty(flags.Token, env.Token)
+	r.DirectToken = FirstNonEmpty(flags.Token, env.Token)
 
 	// OIDC parameters: env > context > build default.
 	if ctx != nil {
@@ -122,6 +126,7 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 	if r.OIDCBaseURL == "" {
 		r.OIDCBaseURL = build.OIDCBaseURL
 	}
+	r.OIDCBaseURL = NormalizeURL(r.OIDCBaseURL)
 	r.OIDCClientID = env.OIDCClientID
 	if r.OIDCClientID == "" && ctx != nil {
 		r.OIDCClientID = ctx.OIDCClientID
@@ -132,6 +137,65 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 	r.OIDCIssuer = BuildIssuerURL(r.OIDCBaseURL, r.OIDCClientID)
 
 	return r
+}
+
+// NormalizeURL prepends https:// to a bare host[:port] value so users
+// can pass URL-typed flags (--api-url, --oidc-base-url) without the
+// scheme. An explicit http:// is preserved (dev local), any non-empty
+// value already containing "://" is returned unchanged, and empty input
+// returns empty so callers can decide what default applies.
+func NormalizeURL(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, "://") {
+		return s
+	}
+	return "https://" + s
+}
+
+// ValidateKupeURL ensures a URL points at a kupe.cloud host. Returns
+// nil for accepted hostnames, a descriptive error otherwise. Empty
+// input is accepted (callers handle "unset" elsewhere). Apply
+// NormalizeURL first so a bare host[:port] value gets a scheme.
+//
+// Strict: hostname must be exactly "kupe.cloud" or end in ".kupe.cloud".
+// This prevents users typing wrong hostnames (api.kup.cloud, evil.com)
+// or being phished into sending tokens to attacker-controlled hosts.
+//
+// Indirected through a package-level var so tests using httptest
+// (random localhost ports) can swap in a permissive validator via
+// SetURLValidatorForTest.
+var ValidateKupeURL = strictKupeURL
+
+// SetURLValidatorForTest replaces ValidateKupeURL and returns a
+// restorer. Test-only: production code never calls this. Used by
+// httptest-driven tests that need to point the CLI at a localhost
+// fake server.
+func SetURLValidatorForTest(fn func(string) error) func() {
+	prev := ValidateKupeURL
+	ValidateKupeURL = fn
+	return func() { ValidateKupeURL = prev }
+}
+
+func strictKupeURL(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", s, err)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL %q has no host", s)
+	}
+	if host == "kupe.cloud" || strings.HasSuffix(host, ".kupe.cloud") {
+		return nil
+	}
+	return fmt.Errorf("URL %q is not a Kupe endpoint (host must be kupe.cloud or *.kupe.cloud)", s)
 }
 
 // BuildIssuerURL composes the full Authentik OIDC issuer URL the CLI
@@ -154,7 +218,10 @@ func BuildIssuerURL(baseURL, clientID string) string {
 	return trimmed + "/application/o/" + clientID + "/"
 }
 
-func firstNonEmpty(values ...string) string {
+// FirstNonEmpty returns the first non-empty string in values, or empty
+// when all are empty. Used by Resolve and by login flows to express
+// flag > env > context > default precedence chains compactly.
+func FirstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {
 			return v

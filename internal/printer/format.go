@@ -54,6 +54,33 @@ func MustParse(flag string) (*Format, error) {
 	return f, nil
 }
 
+// Resolve picks the effective output format for a command: the user's
+// raw -o value if set, otherwise the preferences default from the
+// factory. Returns a parsed Format ready for the render dispatchers,
+// or a cli.MisuseError on an unrecognised value. Replaces a copy of
+// the same six-line helper that previously lived in every cmd/<noun>
+// package.
+func Resolve(f *cli.Factory, raw string) (*Format, error) {
+	if raw == "" {
+		raw = f.DefaultOutput()
+	}
+	return MustParse(raw)
+}
+
+// Output flag descriptions used in --help. Keep these as the single
+// source of truth so every command surfaces the same wording for the
+// same set of supported formats. Pick the constant that matches the
+// command's actual capability:
+//
+//	OutputHelpList   — list commands (table, wide, json, yaml, name, ...)
+//	OutputHelpGet    — single-resource get commands (table, json, yaml, ...)
+//	OutputHelpToggle — commands with text-or-json toggle (whoami, get-token-style)
+const (
+	OutputHelpList   = "Output format: table | wide | json | yaml | name | go-template=... | jsonpath=..."
+	OutputHelpGet    = "Output format: table | json | yaml | go-template=... | jsonpath=..."
+	OutputHelpToggle = "Output format: text (default) or json"
+)
+
 // Parse converts the raw -o flag value into a Format. Empty string → Table.
 // Returns an error the command can surface to the user for unrecognised values.
 func Parse(flag string) (*Format, error) {

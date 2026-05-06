@@ -36,7 +36,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
   kupe invoice list -o wide
   kupe invoice list -o json | jq '.[] | select(.status.phase=="Open")'`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -51,7 +51,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 			return renderList(f.IOStreams.Out, format, list)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|wide|json|yaml|name|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpList)
 	return cmd
 }
 
@@ -59,12 +59,15 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "get PERIOD",
-		Short: "Show one invoice (billing period, e.g. 2026-03)",
-		Args:  cobra.ExactArgs(1),
+		Short: "Show one invoice for a given billing period",
+		Long: `Show a single invoice. PERIOD is the billing month in YYYY-MM form
+(e.g. 2026-03 for March 2026). Use "kupe invoice list" to see available
+periods.`,
+		Args: cobra.ExactArgs(1),
 		Example: `  kupe invoice get 2026-03
-  kupe invoice get 2026-03 -o json | jq .status.lineItems`,
+  kupe invoice get 2026-03 -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			format, err := parsedFormat(f, output)
+			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -79,15 +82,8 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			return renderOne(f.IOStreams.Out, format, inv)
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format: table|json|yaml|go-template=...")
+	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
-}
-
-func parsedFormat(f *cli.Factory, raw string) (*printer.Format, error) {
-	if raw == "" {
-		raw = f.DefaultOutput()
-	}
-	return printer.MustParse(raw)
 }
 
 func renderOne(out io.Writer, format *printer.Format, inv *client.Invoice) error {

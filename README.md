@@ -16,7 +16,7 @@ kubectl get pods
 curl -fsSL https://raw.githubusercontent.com/kupecloud/kupe-cli/main/scripts/install.sh | sh
 ```
 
-(`https://get.kupe.cloud` will redirect to the same script once that endpoint is wired up.) Detects your OS + architecture, downloads the matching release archive, verifies the sha256 against `checksums.txt`, and installs to `/usr/local/bin/kupe` (or `~/.local/bin/kupe` with `--user`).
+Detects your OS + architecture, downloads the matching release archive, verifies the sha256 against `checksums.txt`, and installs to `~/.local/bin/kupe` — no sudo. For a system-wide install, pass `--install-dir /usr/local/bin` (the script will sudo when it has to). On macOS, where `~/.local/bin` is NOT on `PATH` by default, the script prints shell-specific one-liners to add it.
 
 ### macOS / Linux (Homebrew)
 

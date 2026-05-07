@@ -5,11 +5,14 @@
 #
 #     curl -fsSL https://get.kupe.cloud | sh
 #
+# By default installs to ~/.local/bin (no sudo). For a system-wide install,
+# pass --install-dir /usr/local/bin (will sudo).
+#
 # Flags:
 #   --version X.Y.Z        Pin a specific release (default: latest).
-#   --install-dir PATH     Install directory (default: /usr/local/bin, or
-#                          ~/.local/bin with --user).
-#   --user                 Install into ~/.local/bin without sudo.
+#   --install-dir PATH     Install directory (default: ~/.local/bin).
+#                          Pass /usr/local/bin or similar for a system-wide
+#                          install — the script will sudo if needed.
 #   --help                 Print this help.
 #
 # Environment overrides (all optional):
@@ -25,7 +28,6 @@ set -eu
 REPO=${KUPE_REPO:-kupecloud/kupe-cli}
 VERSION=${KUPE_VERSION:-}
 INSTALL_DIR=${KUPE_INSTALL_DIR:-}
-USER_INSTALL=0
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -81,7 +83,10 @@ while [ $# -gt 0 ]; do
     --version=*)     VERSION="${1#*=}"; shift ;;
     --install-dir)   INSTALL_DIR="$2"; shift 2 ;;
     --install-dir=*) INSTALL_DIR="${1#*=}"; shift ;;
-    --user)          USER_INSTALL=1; shift ;;
+    # --user is now the default; accept and ignore for backwards compat
+    # so anyone with `... | sh -s -- --user` in their docs/scripts keeps
+    # working without surprise. Quiet enough that nobody notices.
+    --user)          shift ;;
     -h|--help)       usage ;;
     *) err "unknown argument: $1" ;;
   esac
@@ -102,11 +107,7 @@ VERSION=${VERSION#v}  # strip any leading v
 [ -n "$VERSION" ] || err "version is empty"
 
 if [ -z "$INSTALL_DIR" ]; then
-  if [ "$USER_INSTALL" = 1 ]; then
-    INSTALL_DIR="${HOME}/.local/bin"
-  else
-    INSTALL_DIR="/usr/local/bin"
-  fi
+  INSTALL_DIR="${HOME}/.local/bin"
 fi
 
 # ---------------------------------------------------------------------------
@@ -172,11 +173,24 @@ if [ "$OS" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
   xattr -dr com.apple.quarantine "${INSTALL_DIR}/kupe" 2>/dev/null || true
 fi
 
-log "verifying..."
-"${INSTALL_DIR}/kupe" version || true
-
-# PATH hint — only when the install dir isn't on $PATH already.
+# PATH hint — only when the install dir isn't on $PATH already. We default
+# to ~/.local/bin which is on PATH out-of-the-box on most modern Linux
+# distros (Ubuntu since 18.04 picks it up via ~/.profile) but NOT on macOS,
+# so Mac users will typically see this on first run.
 case ":${PATH}:" in
-  *":${INSTALL_DIR}:"*) ;;
-  *) log ""; log "note: ${INSTALL_DIR} is not on your PATH — add:"; log "  export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+  *":${INSTALL_DIR}:"*)
+    log "verifying..."
+    "${INSTALL_DIR}/kupe" version || true
+    ;;
+  *)
+    log ""
+    log "Almost done — ${INSTALL_DIR} is not on your PATH yet."
+    log "Add it by running ONE of these (matching your shell):"
+    log ""
+    log "  bash:  echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+    log "  zsh:   echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc  && source ~/.zshrc"
+    log "  fish:  fish_add_path ${INSTALL_DIR}"
+    log ""
+    log "Then verify: kupe version"
+    ;;
 esac

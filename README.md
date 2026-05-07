@@ -10,36 +10,64 @@ kubectl get pods
 
 ## Install
 
-### macOS / Linux — install script (recommended during alpha)
+### macOS
+
+Install script (no prerequisites, no sudo):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kupecloud/kupe-cli/main/scripts/install.sh | sh
+curl -fsSL https://get.kupe.cloud | sh
 ```
 
-Detects your OS + architecture, downloads the matching release archive, verifies the sha256 against `checksums.txt`, and installs to `~/.local/bin/kupe` — no sudo. For a system-wide install, pass `--install-dir /usr/local/bin` (the script will sudo when it has to). On macOS, where `~/.local/bin` is NOT on `PATH` by default, the script prints shell-specific one-liners to add it.
+Installs to `~/.local/bin/kupe`. macOS doesn't have `~/.local/bin` on `PATH` by default; the script prints shell-specific one-liners to add it.
 
-### macOS / Linux (Homebrew)
+Or via Homebrew (auto-updates + completions + man page):
 
 ```bash
 brew install kupecloud/tap/kupe
 ```
 
-### Windows (Scoop)
+### Linux
+
+Install script (no prerequisites, no sudo):
 
 ```bash
+curl -fsSL https://get.kupe.cloud | sh
+```
+
+Installs to `~/.local/bin/kupe`. On most modern distros (Ubuntu since 18.04, Fedora, etc.) `~/.local/bin` is already on `PATH`.
+
+Or via Homebrew (Linuxbrew):
+
+```bash
+brew install kupecloud/tap/kupe
+```
+
+### Windows
+
+```powershell
 scoop bucket add kupe https://github.com/kupecloud/scoop-bucket
 scoop install kupe
 ```
 
-### From source
+### Other ways (any platform)
+
+From source (requires Go 1.26+):
 
 ```bash
 go install github.com/kupecloud/kupe-cli/cmd/kupe@latest
 ```
 
-### Binary release
+Direct download — pre-built binaries for darwin/linux/windows × amd64/arm64 are attached to each [GitHub release](https://github.com/kupecloud/kupe-cli/releases). Each release also ships a Cosign-signed `checksums.txt` and SBOMs (SPDX JSON) per archive.
 
-Pre-built binaries for darwin / linux / windows × amd64 / arm64 are attached to each [GitHub release](https://github.com/kupecloud/kupe-cli/releases). Each release also ships a Cosign-signed `checksums.txt` and SBOMs (SPDX JSON) per archive.
+### Install script — flags
+
+```bash
+# Pin a version (default: latest)
+curl -fsSL https://get.kupe.cloud | sh -s -- --version 1.1.3
+
+# System-wide install instead of ~/.local/bin (will sudo)
+curl -fsSL https://get.kupe.cloud | sh -s -- --install-dir /usr/local/bin
+```
 
 ## Known issues during alpha
 

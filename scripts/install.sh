@@ -60,6 +60,77 @@ detect_arch() {
   esac
 }
 
+# download_with_spinner downloads $1 to $2 while showing an animated braille
+# spinner on stderr (`⠋ <label>...`), then prints a check-mark line with the
+# downloaded size on completion (`✓ <label> (5.6 MB)`).
+#
+# Falls back to a plain "downloading <label>..." message when stderr isn't a
+# TTY (CI, captured output, log redirection) — spinners would just spam such
+# environments with control codes.
+#
+# Curl is intentionally invoked with `-fsSL` (no progress bar) because the
+# spinner replaces curl's progress UI entirely. POSIX-portable: no bash-isms,
+# no fractional sleep required (degrades to 1s ticks if sleep 0.1 is rejected).
+download_with_spinner() {
+  _url=$1
+  _out=$2
+  _label=$3
+
+  if [ ! -t 2 ]; then
+    log "downloading ${_label}..."
+    curl -fsSL -o "$_out" "$_url"
+    return $?
+  fi
+
+  curl -fsSL -o "$_out" "$_url" &
+  _pid=$!
+  # Ctrl-C during download should kill curl and exit cleanly, not leave a
+  # half-downloaded file or a runaway curl background process.
+  trap 'kill "$_pid" 2>/dev/null; printf "\n" >&2; exit 130' INT TERM
+
+  _i=0
+  while kill -0 "$_pid" 2>/dev/null; do
+    case $((_i % 10)) in
+      0) _f='⠋' ;;
+      1) _f='⠙' ;;
+      2) _f='⠹' ;;
+      3) _f='⠸' ;;
+      4) _f='⠼' ;;
+      5) _f='⠴' ;;
+      6) _f='⠦' ;;
+      7) _f='⠧' ;;
+      8) _f='⠇' ;;
+      9) _f='⠏' ;;
+    esac
+    printf '\r%s %s' "$_f" "$_label" >&2
+    sleep 0.1 2>/dev/null || sleep 1
+    _i=$((_i + 1))
+  done
+
+  if wait "$_pid"; then
+    _rc=0
+  else
+    _rc=$?
+  fi
+  trap - INT TERM
+
+  # \r returns to col 0; \033[K clears to end of line — wipes the spinner row
+  # before printing the checkmark line so we don't leave half a glyph behind.
+  printf '\r\033[K' >&2
+
+  if [ "$_rc" -eq 0 ]; then
+    _bytes=$(wc -c < "$_out" 2>/dev/null | tr -d ' ')
+    if [ -n "$_bytes" ] && [ "$_bytes" -gt 0 ]; then
+      _human=$(awk -v b="$_bytes" 'BEGIN { printf "%.1f MB", b / 1024 / 1024 }')
+      printf '✓ %s (%s)\n' "$_label" "$_human" >&2
+    else
+      printf '✓ %s\n' "$_label" >&2
+    fi
+  fi
+
+  return $_rc
+}
+
 # latest_version asks the GitHub API for the most recent non-prerelease tag.
 # Falls back to scraping the release HTML if jq isn't around.
 latest_version() {
@@ -120,8 +191,7 @@ CHECKSUMS_URL="https://github.com/${REPO}/releases/download/v${VERSION}/kupe_${V
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t kupe-install)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-log "downloading kupe ${VERSION} for ${OS}/${ARCH}..."
-if ! curl -fSL --progress-bar -o "${tmp}/${ARCHIVE}" "$URL"; then
+if ! download_with_spinner "$URL" "${tmp}/${ARCHIVE}" "kupe ${VERSION} for ${OS}/${ARCH}"; then
   err "download failed: $URL"
 fi
 

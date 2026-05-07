@@ -87,7 +87,10 @@ homebrew_casks:
       owner: kupecloud
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: "https://kupe.cloud"
+    # Trailing slash matters: brew audit's HomepageUrlStyling rule rejects
+    # bare-domain homepages (e.g. https://kupe.cloud) — must be an absolute
+    # path including at least the slash.
+    homepage: "https://kupe.cloud/"
     description: "Official CLI for Kupe Cloud"
     license: "Apache-2.0"
     commit_author:

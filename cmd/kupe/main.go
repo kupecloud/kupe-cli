@@ -1,5 +1,5 @@
-// Binary kupe is the command-line interface for the Kupe managed Kubernetes
-// platform. See https://kupe.cloud and the internal docs under docs/ for usage.
+// Binary kupe is the official command-line interface for Kupe Cloud.
+// See https://kupe.cloud and the internal docs under docs/ for usage.
 package main
 
 import (

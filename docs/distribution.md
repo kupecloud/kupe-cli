@@ -111,7 +111,7 @@ brews:                                  # NOT homebrew_casks — formula install
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://kupe.cloud"
-    description: "Official CLI for Kupe managed Kubernetes clusters"
+    description: "Official CLI for Kupe Cloud"
     license: "Apache-2.0"
     commit_author:
       name: kupecloud-bot
@@ -128,7 +128,7 @@ scoops:
       name: scoop-bucket
       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
     homepage: "https://kupe.cloud"
-    description: "Official CLI for Kupe managed Kubernetes clusters"
+    description: "Official CLI for Kupe Cloud"
     license: Apache-2.0
     commit_author:
       name: kupecloud-bot

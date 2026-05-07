@@ -82,8 +82,8 @@ snapshot: ## Build a local goreleaser snapshot (no publish, no sign/sbom)
 release-check: ## Validate .goreleaser.yaml
 	GOCACHE="$(GOCACHE)" GOWORK=off $(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) check
 
-manpages: ## Generate man(1) pages into man/man1/ — used by goreleaser before-hook for distro packaging
-	GOCACHE="$(GOCACHE)" CGO_ENABLED=0 $(GO) run $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/kupe man man/man1
+manpages: ## Generate shell completions + man(1) pages into ./completions/ and ./manpages/ — same script the goreleaser before-hook runs
+	VERSION="$(VERSION)" COMMIT="$(GIT_COMMIT)" DATE="$(BUILD_DATE)" ./scripts/completions-and-manpages.sh
 
 ## Cleanup
 

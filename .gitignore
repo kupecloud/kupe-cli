@@ -2,7 +2,8 @@
 bin/
 dist/
 .tmp/
-man/man1/
+completions/
+manpages/
 
 # Test artifacts
 coverage.out

@@ -10,26 +10,25 @@ kubectl get pods
 
 ## Install
 
+### macOS / Linux — install script (recommended during alpha)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kupecloud/kupe-cli/main/scripts/install.sh | sh
+```
+
+(`https://get.kupe.cloud` will redirect to the same script once that endpoint is wired up.) Detects your OS + architecture, downloads the matching release archive, verifies the sha256 against `checksums.txt`, and installs to `/usr/local/bin/kupe` (or `~/.local/bin/kupe` with `--user`).
+
 ### macOS / Linux (Homebrew)
 
 ```bash
-brew tap kupecloud/tap
-brew install kupe
+brew install kupecloud/tap/kupe
 ```
-
-(Or, as a one-liner: `brew install kupecloud/tap/kupe`.)
 
 ### Windows (Scoop)
 
 ```bash
 scoop bucket add kupe https://github.com/kupecloud/scoop-bucket
 scoop install kupe
-```
-
-### Install script
-
-```bash
-curl -fsSL https://get.kupe.cloud | sh
 ```
 
 ### From source
@@ -40,7 +39,13 @@ go install github.com/kupecloud/kupe-cli/cmd/kupe@latest
 
 ### Binary release
 
-Pre-built binaries for darwin / linux / windows × amd64 / arm64 are attached to each [GitHub release](https://github.com/kupecloud/kupe-cli/releases).
+Pre-built binaries for darwin / linux / windows × amd64 / arm64 are attached to each [GitHub release](https://github.com/kupecloud/kupe-cli/releases). Each release also ships a Cosign-signed `checksums.txt` and SBOMs (SPDX JSON) per archive.
+
+## Known issues during alpha
+
+- **macOS Gatekeeper warning** — the binary isn't yet Apple-notarized (planned for v1.0 GA). The install script and Homebrew cask both strip the `com.apple.quarantine` attribute automatically, so installs from those paths don't trigger the warning. If you downloaded a binary directly from a release page and hit the warning, run once: `xattr -dr com.apple.quarantine "$(which kupe)"`.
+- **Windows SmartScreen warning** — same root cause (no Authenticode signing yet). On first run, Windows shows "Windows protected your PC". Click **More info → Run anyway**. Will be fixed by Azure Trusted Signing post-alpha.
+- **Linux** — no warning. Binaries are checksum-verified by the install script and via Cosign keyless signing on `checksums.txt` for users who want to verify manually (`cosign verify-blob …`).
 
 ## Quickstart
 

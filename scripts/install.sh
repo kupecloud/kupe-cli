@@ -162,6 +162,16 @@ else
 fi
 
 log "installed: ${INSTALL_DIR}/kupe"
+
+# macOS Gatekeeper: curl tags downloads with com.apple.quarantine, which
+# triggers a "could not verify is free of malware" dialog on first run for
+# unsigned binaries. We strip the attribute here. The proper fix is Apple
+# Developer ID notarization (planned post-alpha); until then, this is the
+# documented Homebrew-style workaround. No-op on Linux.
+if [ "$OS" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
+  xattr -dr com.apple.quarantine "${INSTALL_DIR}/kupe" 2>/dev/null || true
+fi
+
 log "verifying..."
 "${INSTALL_DIR}/kupe" version || true
 

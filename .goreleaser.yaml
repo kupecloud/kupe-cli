@@ -95,6 +95,18 @@ homebrew_casks:
       email: bot@kupe.cloud
     binaries:
       - kupe
+    # macOS Gatekeeper workaround for unsigned binaries. Homebrew downloads
+    # the cask tarball via curl, which sets com.apple.quarantine on the
+    # extracted file → "could not verify is free of malware" dialog on
+    # first run. Stripping the xattr post-install bypasses the dialog
+    # without code signing. Remove this block once we add Apple Developer
+    # ID notarization via the top-level `notarize:` config.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/kupe"]
+          end
     # Only the root manpage is referenced — the archive ships the full
     # per-subcommand tree for distro packagers (deb/rpm) but Homebrew
     # users get `man kupe` for the top-level help, then `kupe foo --help`

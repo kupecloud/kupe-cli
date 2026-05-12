@@ -28,9 +28,9 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update NAME",
 		Short: "Update a cluster's version or resources",
-		Long: `Update a mutable field on a cluster. Exactly one of --version / --cpu /
---memory / --storage should be provided; combining several mutations in a
-single request is supported but unusual.
+		Long: `Update a mutable field on a cluster. Exactly one of --version,
+--cpu-limit, --memory-limit, or --storage-limit should be provided; combining
+several mutations in a single request is supported but unusual.
 
 By default the CLI checks the cluster hasn't changed since you last
 read it (read-modify-write with a server-side version check) and retries
@@ -38,7 +38,7 @@ once on a concurrent-update collision. Pass --force to skip the check —
 rarely the right answer outside of disaster recovery.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe cluster update prod --version 1.33
-  kupe cluster update prod --cpu 4 --memory 16Gi`,
+  kupe cluster update prod --cpu-limit 4 --memory-limit 16Gi`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			// kupe-api rejects empty PATCH bodies (handler_cluster.go:244
@@ -46,7 +46,10 @@ rarely the right answer outside of disaster recovery.`,
 			// misconfigured CI pipelines don't silently report success on
 			// a no-op invocation.
 			if opts.version == "" && opts.cpu == "" && opts.memory == "" && opts.storage == "" {
-				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu, --memory, --storage")
+				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu-limit, --memory-limit, --storage-limit")
+			}
+			if err := validateUpdateOpts(opts); err != nil {
+				return err
 			}
 
 			fmtp, err := printer.Resolve(f, opts.output)
@@ -80,13 +83,13 @@ rarely the right answer outside of disaster recovery.`,
 			case opts.force:
 				u, _, uerr := api.UpdateCluster(cmd.Context(), name, "", *patch)
 				if uerr != nil {
-					return uerr
+					return translateClusterErr(uerr)
 				}
 				updated = u
 			case opts.ifMatch != "":
 				u, _, uerr := api.UpdateCluster(cmd.Context(), name, opts.ifMatch, *patch)
 				if uerr != nil {
-					return uerr
+					return translateClusterErr(uerr)
 				}
 				updated = u
 			default:
@@ -100,7 +103,7 @@ rarely the right answer outside of disaster recovery.`,
 					})
 				}
 				if uerr != nil {
-					return uerr
+					return translateClusterErr(uerr)
 				}
 				updated = u
 			}
@@ -116,7 +119,7 @@ rarely the right answer outside of disaster recovery.`,
 				cmd.Context(), f.IOStreams, api, name, "cluster "+name, opts.waitTimeout,
 			)
 			if werr != nil {
-				return mapWaitErr(werr)
+				return mapWaitErr(werr, name, "update")
 			}
 			if final == nil {
 				final = updated
@@ -126,15 +129,33 @@ rarely the right answer outside of disaster recovery.`,
 	}
 
 	cmd.Flags().StringVar(&opts.version, "version", "", "New Kubernetes minor version (e.g. 1.32). Run \"kupe plan list\" to see what's offered.")
-	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "New CPU limit (e.g. 4, 500m)")
-	cmd.Flags().StringVar(&opts.memory, "memory", "", "New memory limit (e.g. 16Gi, 512Mi)")
-	cmd.Flags().StringVar(&opts.storage, "storage", "", "New control-plane storage size (e.g. 100Gi)")
+	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "New CPU limit (e.g. 4, 500m)")
+	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "New memory limit (e.g. 16Gi, 512Mi)")
+	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "New storage limit (e.g. 100Gi)")
 	cmd.Flags().StringVar(&opts.ifMatch, "if-match", "", "Only update if the cluster's resourceVersion still matches this value; aborts otherwise (advanced)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Skip the resourceVersion check; may overwrite a concurrent update from another client (advanced)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to return to Running before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
+}
+
+// validateUpdateOpts mirrors the format checks in validateCreateOpts. Each
+// flag is optional on update — but if supplied, must be well-formed.
+func validateUpdateOpts(opts *updateOpts) error {
+	if opts.cpu != "" && !cpuFormat.MatchString(opts.cpu) {
+		return cli.MisuseError("--cpu-limit has an invalid format: " + opts.cpu).
+			WithHint("use a number of vCPUs (e.g. 2, 1.5) or millicores (e.g. 500m)")
+	}
+	if opts.memory != "" && !memoryFormat.MatchString(opts.memory) {
+		return cli.MisuseError("--memory-limit must include a unit suffix; got: " + opts.memory).
+			WithHint("example: --memory-limit 8Gi or --memory-limit 8192Mi (plain numbers are ambiguous)")
+	}
+	if opts.storage != "" && !memoryFormat.MatchString(opts.storage) {
+		return cli.MisuseError("--storage-limit must include a unit suffix; got: " + opts.storage).
+			WithHint("example: --storage-limit 50Gi or --storage-limit 50G")
+	}
+	return nil
 }
 
 // buildPatch turns the update flags into a PatchClusterRequest. RunE's

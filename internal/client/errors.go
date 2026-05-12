@@ -30,12 +30,35 @@ type APIError struct {
 	Path       string
 }
 
+// Error renders a user-facing message. We deliberately drop the "kupe api:"
+// prefix and the bare status code — they add no information that the message
+// itself doesn't already carry. Status codes are exposed via Is* helpers
+// for code that needs to branch on them.
+//
+// 5xx responses prepend a class word ("internal server error" / "service
+// unavailable") because the server message alone tends to be terse and
+// unactionable; the request-id stays attached so users can quote it on a
+// support ticket. 4xx messages stand on their own.
 func (e *APIError) Error() string {
-	base := fmt.Sprintf("kupe api: %d %s", e.StatusCode, e.Message)
-	if e.RequestID != "" {
-		base += fmt.Sprintf(" (request-id: %s)", e.RequestID)
+	msg := e.Message
+	switch {
+	case e.StatusCode >= 500 && e.StatusCode < 600:
+		label := "internal server error"
+		if e.StatusCode == http.StatusServiceUnavailable {
+			label = "service unavailable"
+		}
+		if msg == "" {
+			msg = label
+		} else {
+			msg = label + ": " + msg
+		}
+	case msg == "":
+		msg = http.StatusText(e.StatusCode)
 	}
-	return base
+	if e.RequestID != "" {
+		msg += fmt.Sprintf(" (request-id: %s)", e.RequestID)
+	}
+	return msg
 }
 
 // Is lets errors.Is recognise APIError regardless of pointer identity when

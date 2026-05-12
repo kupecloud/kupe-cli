@@ -3,7 +3,8 @@
 The official command-line interface for [Kupe](https://kupe.cloud) — managed Kubernetes clusters in seconds.
 
 ```bash
-kupe cluster create prod --type shared --version 1.32
+kupe cluster create prod --type shared --version 1.32 \
+  --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 kupe cluster kubeconfig prod --merge
 kubectl get pods
 ```
@@ -87,7 +88,8 @@ curl -fsSL https://get.kupe.cloud | sh -s -- --install-dir /usr/local/bin
 kupe auth login --tenant acme-corp
 
 # 2. Create a cluster
-kupe cluster create dev --type shared
+kupe cluster create dev --type shared \
+  --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 
 # 3. Merge its kubeconfig into ~/.kube/config
 kupe cluster kubeconfig dev --merge
@@ -109,7 +111,9 @@ export KUPE_API_TOKEN="kupe_abc_..."
 export KUPE_TENANT="acme-corp"
 
 # JSON output, no TTY niceties
-kupe cluster create "ci-$GITHUB_SHA" --type shared --wait -o json
+kupe cluster create "ci-$GITHUB_SHA" --type shared \
+  --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
+  --wait -o json
 ```
 
 The CLI auto-detects non-TTY environments and switches off colors, spinners, and prompts. See [docs/design.md](./docs/design.md) for the full interactive-vs-CI contract.

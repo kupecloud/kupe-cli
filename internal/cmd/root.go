@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -33,11 +34,15 @@ func Execute(ctx context.Context) int {
 
 	err := root.ExecuteContext(ctx)
 	if err != nil {
-		// Cobra has already surfaced the error message; add a hint line for
-		// any *cli.Error that carries one.
+		// Cobra has already surfaced the error message; add a hint block for
+		// any *cli.Error that carries one. Multi-line hints are split and
+		// each line is indented so the block reads as a coherent group
+		// rather than wrapping into one wall of text.
 		var e *cli.Error
 		if errors.As(err, &e) && e.Hint != "" {
-			fmt.Fprintf(io.ErrOut, "  %s\n", e.Hint)
+			for _, line := range strings.Split(e.Hint, "\n") {
+				fmt.Fprintf(io.ErrOut, "  %s\n", line)
+			}
 		}
 	}
 	return cli.ExitCode(err)

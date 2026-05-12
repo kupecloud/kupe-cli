@@ -350,9 +350,9 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--type TYPE` | `shared` | `shared` or `dedicated` |
 | `--display-name NAME` | positional NAME | Human-readable name. |
 | `--version VERSION` | latest | Target Kubernetes version (e.g., `1.32`). Defaults server-side. |
-| `--cpu QUANTITY` | plan default | CPU limit (e.g., `2`, `500m`, `1.5`). |
-| `--memory QUANTITY` | plan default | Memory limit (e.g., `8Gi`, `512Mi`). |
-| `--storage QUANTITY` | plan default | Storage (etcd PVC) size (e.g., `100Gi`). |
+| `--cpu-limit QUANTITY` | required | CPU limit (e.g., `2`, `500m`, `1.5`). |
+| `--memory-limit QUANTITY` | required | Memory limit (e.g., `8Gi`, `512Mi`). |
+| `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`. |
@@ -363,7 +363,8 @@ Chain with `kupe cluster kubeconfig NAME --merge` to land a usable kubectl
 context after the Running wait completes:
 
 ```bash
-kupe cluster create prod && kupe cluster kubeconfig prod --merge
+kupe cluster create prod --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
+  && kupe cluster kubeconfig prod --merge
 ```
 
 Built-in `--kubeconfig` / `--kubeconfig-merge` convenience flags, plus
@@ -373,7 +374,8 @@ dry-run path also needs kupe-api support, which doesn't exist yet.
 **Example:**
 
 ```bash
-$ kupe cluster create prod --type shared --version 1.32 --cpu 4 --memory 16Gi --storage 100Gi
+$ kupe cluster create prod --type shared --version 1.32 \
+    --cpu-limit 4 --memory-limit 16Gi --storage-limit 100Gi
 ✓ Submitted cluster create
 ⠹ Provisioning... [2m04s]
 ✓ Cluster prod ready
@@ -402,9 +404,9 @@ Patch a cluster's version or resources. Uses ETag/If-Match internally (see [api-
 | Flag | Description |
 |------|-------------|
 | `--version VERSION` | New Kubernetes version. |
-| `--cpu QUANTITY` | New CPU limit. |
-| `--memory QUANTITY` | New memory limit. |
-| `--storage QUANTITY` | New storage size. |
+| `--cpu-limit QUANTITY` | New CPU limit. |
+| `--memory-limit QUANTITY` | New memory limit. |
+| `--storage-limit QUANTITY` | New storage limit. |
 | `--if-match ETAG` | Require the given ETag; fail with `5` on mismatch. |
 | `--force` | Skip the ETag read-modify-write cycle. |
 | `--wait`, `--wait-timeout` | As per `create`. |

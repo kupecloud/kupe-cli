@@ -24,7 +24,9 @@ func TestCreateDisplayNameFallsBackToName(t *testing.T) {
 	fake := clienttest.New()
 	f := factoryWith(t, fake)
 
-	err := runCmd(newCreateCmd(f), "prod", "--type", "shared", "--wait=false")
+	err := runCmd(newCreateCmd(f), "prod", "--type", "shared",
+		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
+		"--wait=false")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -41,7 +43,10 @@ func TestCreateDisplayNameRespectsFlag(t *testing.T) {
 	fake := clienttest.New()
 	f := factoryWith(t, fake)
 
-	err := runCmd(newCreateCmd(f), "prod", "--type", "shared", "--display-name", "Production Cluster", "--wait=false")
+	err := runCmd(newCreateCmd(f), "prod", "--type", "shared",
+		"--display-name", "Production Cluster",
+		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
+		"--wait=false")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -131,7 +136,7 @@ func TestUpdateNoOpSkipsPATCHAndReturns(t *testing.T) {
 	f := factoryWith(t, fake)
 
 	// Re-requesting the exact same version must not trigger a PATCH.
-	if err := runCmd(newUpdateCmd(f), "prod", "--version", "1.32", "--cpu", "4", "--wait=false"); err != nil {
+	if err := runCmd(newUpdateCmd(f), "prod", "--version", "1.32", "--cpu-limit", "4", "--wait=false"); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	for _, call := range fake.Calls {
@@ -144,8 +149,8 @@ func TestUpdateNoOpSkipsPATCHAndReturns(t *testing.T) {
 // --- Fix 5: update with no mutation flags exits 2 -------------------------
 
 // TestUpdateWithNoFlagsExits2 asserts that `kupe cluster update NAME` with
-// no --version/--cpu/--memory/--storage exits as a misuse (2), not a
-// silent success.
+// no --version/--cpu-limit/--memory-limit/--storage-limit exits as a misuse
+// (2), not a silent success.
 func TestUpdateWithNoFlagsExits2(t *testing.T) {
 	fake := clienttest.New()
 	fake.Clusters["prod"] = &client.Cluster{

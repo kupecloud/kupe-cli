@@ -111,7 +111,9 @@ func TestCreateNoWaitReturnsImmediately(t *testing.T) {
 	fake := clienttest.New()
 	f := factoryWith(t, fake)
 
-	err := executeCmd(newCreateCmd(f), "prod", "--type", "shared", "--wait=false")
+	err := executeCmd(newCreateCmd(f), "prod", "--type", "shared",
+		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
+		"--wait=false")
 	if err != nil {
 		t.Fatalf("create --wait=false: %v", err)
 	}
@@ -130,7 +132,8 @@ func TestCreateWaitWalksPhasesToRunning(t *testing.T) {
 
 	f := factoryWith(t, fake)
 	// Plain progress path (Test streams have SpinnersEnabled=false).
-	if err := executeCmd(newCreateCmd(f), "prod", "--type", "shared"); err != nil {
+	if err := executeCmd(newCreateCmd(f), "prod", "--type", "shared",
+		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	out := f.IOStreams.ErrOut.(interface{ String() string }).String()
@@ -146,7 +149,9 @@ func TestCreateRejectsConflictWithExit5(t *testing.T) {
 	fake.Clusters["prod"] = &client.Cluster{Name: "prod", Type: "shared"}
 
 	f := factoryWith(t, fake)
-	err := executeCmd(newCreateCmd(f), "prod", "--type", "shared", "--wait=false")
+	err := executeCmd(newCreateCmd(f), "prod", "--type", "shared",
+		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
+		"--wait=false")
 	if err == nil {
 		t.Fatal("expected conflict")
 	}

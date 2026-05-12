@@ -21,7 +21,8 @@ The CLI's design is governed by four rules, in priority order. Every design deci
 `kupe <noun> <verb> [positional] [--flags]`
 
 ```
-kupe cluster create prod --type shared --version 1.32
+kupe cluster create prod --type shared --version 1.32 \
+  --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 kupe cluster kubeconfig prod --merge
 kupe apikey create --name ci --role admin
 kupe config use-context staging

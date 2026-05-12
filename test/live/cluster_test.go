@@ -26,12 +26,14 @@ func TestClusterLifecycle(t *testing.T) {
 	name := uniqueName("cli-live")
 
 	// Create with --wait=true so the CLI handles the polling for us.
-	// We keep the resource shape minimal — the operator's defaults are
-	// fine for a smoke test.
+	// --cpu-limit / --memory-limit / --storage-limit are required as of
+	// the resource-quota rollout; pick the smallest viable shape so the
+	// smoke test stays cheap.
 	t.Logf("creating cluster %q (this can take 5-8 minutes)", name)
 	r := runCLI(t,
 		"cluster", "create", name,
 		"--type", "shared",
+		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
 		"--wait", "--wait-timeout", "12m",
 	)
 	if r.exitCode != 0 {

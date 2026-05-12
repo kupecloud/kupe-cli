@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -168,16 +169,136 @@ func waitForGone(ctx context.Context, streams *cli.IOStreams, api client.Interfa
 	})
 }
 
-// mapWaitErr translates ux.ErrWaitTimeout into cli.TimeoutError so exit
-// codes work out (8 for timeout). Other errors pass through unchanged.
-// Uses errors.Is so wrapped timeouts (e.g. from nested deadlines) are
-// still recognised.
-func mapWaitErr(err error) error {
+// translateClusterErr rewrites server-side validation messages from kupe-api /
+// the operator's admission webhook into CLI-shaped guidance. The webhook and
+// API leak K8s field paths ("spec.resources.cpu") that mean nothing to a CLI
+// user — translate to flag names ("--cpu-limit") and pin a Hint where there's a
+// next step the user can take.
+//
+// Only patterns we can match with confidence get rewritten; anything else
+// falls through unchanged so we don't paper over a real bug with a friendly-
+// looking but wrong message. Kept in one place so create/update/delete share
+// the same vocabulary.
+func translateClusterErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "spec.resources.cpu is required"):
+		return cli.MisuseError("--cpu-limit is required").
+			WithHint("example: --cpu-limit 2 (use a number of vCPUs, or a millicore value like 500m)")
+	case strings.Contains(msg, "spec.resources.memory is required"):
+		return cli.MisuseError("--memory-limit is required").
+			WithHint("example: --memory-limit 8Gi (the unit suffix Gi/Mi is required)")
+	case strings.Contains(msg, "spec.resources.storage is required"):
+		return cli.MisuseError("--storage-limit is required").
+			WithHint("example: --storage-limit 50Gi (the unit suffix Gi/Mi is required)")
+	case strings.Contains(msg, "memory must include a unit suffix"):
+		return cli.MisuseError("--memory-limit must include a unit suffix").
+			WithHint("example: --memory-limit 8Gi or --memory-limit 8192Mi (plain numbers are ambiguous)")
+	case strings.Contains(msg, "storage must include a unit suffix"):
+		return cli.MisuseError("--storage-limit must include a unit suffix").
+			WithHint("example: --storage-limit 50Gi or --storage-limit 50G")
+	case strings.Contains(msg, "cluster name is required"):
+		return cli.MisuseError("cluster NAME is required")
+	case strings.Contains(msg, "cluster name must"):
+		// Strip the leading "cluster name " so we don't say it twice when
+		// we prefix with the supplied NAME below.
+		detail := strings.TrimPrefix(msg, "cluster name ")
+		// In some paths the admission framework wraps the message with
+		// extra context; collapse to the descriptive tail.
+		if i := strings.Index(detail, "cluster name "); i >= 0 {
+			detail = detail[i+len("cluster name "):]
+		}
+		return cli.MisuseError("invalid cluster name: " + detail)
+	case strings.Contains(msg, "unsupported Kubernetes version"):
+		return cli.MisuseError(extractWebhookMessage(msg)).
+			WithHint("run \"kupe plan list\" to see supported versions")
+	case strings.Contains(msg, "maximum cluster limit reached"):
+		return cli.New(cli.ExitConflict, extractWebhookMessage(msg)).
+			WithHint("delete a cluster (\"kupe cluster delete <name>\") or upgrade your plan")
+	case strings.Contains(msg, "Cluster creation is temporarily paused"):
+		return cli.New(cli.ExitUnavailable, extractWebhookMessage(msg)).
+			WithHint("retry in a few minutes; status updates are posted at https://status.kupe.cloud")
+	case strings.Contains(msg, "is being deleted; cannot create new ManagedClusters"):
+		return cli.New(cli.ExitConflict, "your tenant is being deleted; cannot create new clusters")
+	case strings.Contains(msg, "spec.tenantRef is immutable"):
+		return cli.MisuseError("a cluster's tenant cannot be changed after creation")
+	case strings.Contains(msg, "tenantRef.namespace must match"):
+		return cli.MisuseError("internal: tenantRef namespace mismatch — please file an issue")
+	case strings.Contains(msg, "check field values and constraints"):
+		// kupe-api's fallback for K8s validation errors that didn't come
+		// from a webhook (or whose webhook prefix wasn't matched). The
+		// most common cause for cluster create/update is bad --cpu-limit /
+		// --memory-limit / --storage-limit values; point users there rather than
+		// re-printing the opaque server message.
+		return cli.MisuseError("invalid cluster spec").
+			WithHint("check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values")
+	}
+	return err
+}
+
+// extractWebhookMessage returns the substring that's the actual webhook
+// message — strips a leading status-class word our APIError formatter may
+// have prepended (none today, but defensive against future format tweaks).
+func extractWebhookMessage(msg string) string {
+	for _, prefix := range []string{"permission denied: ", "forbidden: "} {
+		if strings.HasPrefix(msg, prefix) {
+			msg = strings.TrimPrefix(msg, prefix)
+			break
+		}
+	}
+	if i := strings.Index(msg, " (request-id: "); i > 0 {
+		msg = msg[:i]
+	}
+	return msg
+}
+
+// mapWaitErr translates errors out of a long-running wait into typed CLI
+// errors with actionable hints. The two interesting cases:
+//
+//   - timeout: still in flight server-side, exit 8
+//   - cancellation (Ctrl-C): the API call already succeeded; the resource
+//     is being created/updated/deleted on Kupe Cloud regardless of whether
+//     we kept watching. Tell the user that explicitly so they don't think
+//     the operation aborted, exit 130
+//
+// `verb` is "create" / "update" / "delete" — drives the wording so the
+// message accurately reflects what's still in progress.
+func mapWaitErr(err error, name, verb string) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, ux.ErrWaitTimeout) {
-		return cli.TimeoutError(err.Error()).WithHint("use \"kupe cluster get <name>\" to check status, or \"kupe cluster wait\" to resume")
+		return cli.TimeoutError(err.Error()).WithHint(fmt.Sprintf(
+			"check status:  kupe cluster get %s\nresume wait:   kupe cluster wait %s", name, name))
+	}
+	if errors.Is(err, context.Canceled) {
+		switch verb {
+		case "delete":
+			return cli.New(cli.ExitInterrupted,
+				fmt.Sprintf("stopped waiting; cluster %q is still being deleted on Kupe Cloud", name)).
+				WithHint(fmt.Sprintf(
+					"check status:  kupe cluster get %s\nresume wait:   kupe cluster wait %s --for=Deleted", name, name))
+		case "update":
+			return cli.New(cli.ExitInterrupted,
+				fmt.Sprintf("stopped waiting; cluster %q is still being updated on Kupe Cloud", name)).
+				WithHint(fmt.Sprintf(
+					"check status:  kupe cluster get %s\nresume wait:   kupe cluster wait %s", name, name))
+		case "wait":
+			return cli.New(cli.ExitInterrupted,
+				fmt.Sprintf("stopped waiting; cluster %q may still be transitioning on Kupe Cloud", name)).
+				WithHint(fmt.Sprintf("check status:  kupe cluster get %s", name))
+		default:
+			return cli.New(cli.ExitInterrupted,
+				fmt.Sprintf("stopped waiting; cluster %q is still being created on Kupe Cloud", name)).
+				WithHint(strings.Join([]string{
+					fmt.Sprintf("check status:  kupe cluster get %s", name),
+					fmt.Sprintf("resume wait:   kupe cluster wait %s", name),
+					fmt.Sprintf("abandon:       kupe cluster delete %s", name),
+				}, "\n"))
+		}
 	}
 	return err
 }

@@ -18,16 +18,17 @@ import (
 // On a terminal state (done or err), the model stores the final phase/err
 // and asks the runtime to quit, returning control to the command.
 type spinnerModel struct {
-	spinner  spinner.Model
-	label    string
-	phase    string
-	started  time.Time
-	interval time.Duration
-	maxInt   time.Duration
-	poll     PollFunc
-	done     bool
-	err      error
-	ctx      context.Context //nolint:containedctx // lifetime matches the tea.Program, cancelled externally via WithContext
+	spinner    spinner.Model
+	label      string
+	phase      string
+	started    time.Time
+	interval   time.Duration
+	maxInt     time.Duration
+	poll       PollFunc
+	done       bool
+	err        error
+	ctx        context.Context //nolint:containedctx // lifetime matches the tea.Program, cancelled externally via WithContext
+	cancelPoll context.CancelFunc
 }
 
 type pollMsg pollResult
@@ -68,6 +69,25 @@ func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
+	case tea.KeyMsg:
+		// Bubbletea puts the TTY into raw mode, so the terminal driver
+		// no longer translates ^C into SIGINT — the byte is delivered to
+		// us as a key press. Without this branch the keystroke would be
+		// silently swallowed and the wait loop would run forever, which
+		// is exactly the "I can't ctrl-c out of provisioning" symptom
+		// users report. ^\ (SIGQUIT) and ^D (EOF on raw stdin) get the
+		// same treatment so the spinner is never a roach motel.
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyCtrlBackslash, tea.KeyCtrlD:
+			if m.cancelPoll != nil {
+				m.cancelPoll()
+			}
+			m.err = context.Canceled
+			m.done = true
+			return m, tea.Quit
+		}
+		return m, nil
 
 	case pollMsg:
 		if msg.Err != nil {
@@ -113,20 +133,30 @@ func runSpinner(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error 
 	sp.Spinner = spinner.Dot
 	sp.Style = DefaultPalette.Dim
 
+	// Wrap the caller's ctx in a child we can cancel from the KeyCtrlC
+	// branch in Update. The caller's ctx is the one signal.NotifyContext
+	// in main wires up, but Bubbletea puts the TTY into raw mode so ^C
+	// never reaches signal handlers — we have to translate the key press
+	// into a cancellation ourselves. Cancelling here also aborts any
+	// in-flight HTTP poll that's currently inside the poll func.
+	pollCtx, cancelPoll := context.WithCancel(ctx)
+	defer cancelPoll()
+
 	m := spinnerModel{
-		spinner:  sp,
-		label:    opts.Label,
-		started:  time.Now(),
-		interval: opts.Interval,
-		maxInt:   opts.Max,
-		poll:     opts.Poll,
-		ctx:      ctx,
+		spinner:    sp,
+		label:      opts.Label,
+		started:    time.Now(),
+		interval:   opts.Interval,
+		maxInt:     opts.Max,
+		poll:       opts.Poll,
+		ctx:        pollCtx,
+		cancelPoll: cancelPoll,
 	}
 
 	// Render to stderr so data on stdout stays uncluttered. Use the
 	// alternate-screen-off mode — we want to share the terminal with the
 	// command that will print the result after us.
-	p := tea.NewProgram(m, tea.WithOutput(io.ErrOut), tea.WithInput(io.In), tea.WithContext(ctx))
+	p := tea.NewProgram(m, tea.WithOutput(io.ErrOut), tea.WithInput(io.In), tea.WithContext(pollCtx))
 	finalModel, err := p.Run()
 	if err != nil {
 		if errors.Is(err, tea.ErrProgramKilled) {

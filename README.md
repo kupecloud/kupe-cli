@@ -70,10 +70,16 @@ curl -fsSL https://get.kupe.cloud | sh -s -- --version 1.1.3
 curl -fsSL https://get.kupe.cloud | sh -s -- --install-dir /usr/local/bin
 ```
 
-## Known issues during alpha
+## Code signing status
 
-- **macOS Gatekeeper warning** — the binary isn't yet Apple-notarized (planned for v1.0 GA). The install script and Homebrew cask both strip the `com.apple.quarantine` attribute automatically, so installs from those paths don't trigger the warning. If you downloaded a binary directly from a release page and hit the warning, run once: `xattr -dr com.apple.quarantine "$(which kupe)"`.
-- **Windows SmartScreen warning** — same root cause (no Authenticode signing yet). On first run, Windows shows "Windows protected your PC". Click **More info → Run anyway**. Will be fixed by Azure Trusted Signing post-alpha.
+> While the wider Kupe Cloud platform is still phasing through alpha, the
+> `kupe` binary is not yet Apple-notarized or Authenticode-signed. We strip
+> the relevant OS attributes automatically on the install paths that can do
+> so (install script, Homebrew cask) — full signing will land alongside the
+> platform GA.
+
+- **macOS** — binaries are not yet Apple-notarized. The install script and Homebrew cask both strip `com.apple.quarantine` automatically, so the curl-pipe and `brew install` paths don't trigger Gatekeeper. If you downloaded a binary directly from a release page and hit the "could not verify" dialog, run once: `xattr -dr com.apple.quarantine "$(which kupe)"`.
+- **Windows** — binaries are not yet Authenticode-signed, so SmartScreen shows "Windows protected your PC" on first run. Click **More info → Run anyway**. Azure Trusted Signing will replace this workaround.
 - **Linux** — no warning. Binaries are checksum-verified by the install script and via Cosign keyless signing on `checksums.txt` for users who want to verify manually (`cosign verify-blob …`).
 
 ## Quickstart

@@ -38,27 +38,28 @@ Add both as **repository secrets** on `kupecloud/kupe-cli`
 
 ### 4. Host the install script
 
-The [`scripts/install.sh`](./scripts/install.sh) file is hosted at
-`https://get.kupe.cloud` so users can run:
+The [`scripts/install.sh`](../scripts/install.sh) in this repo is the canonical
+source. `https://get.kupe.cloud` is a **Cloudflare Redirect Rule** on the
+`kupe.cloud` zone that 302s to:
+
+```text
+https://raw.githubusercontent.com/kupecloud/kupe-cli/main/scripts/install.sh
+```
+
+Users see the rewritten URL transparently when they run:
 
 ```bash
 curl -fsSL https://get.kupe.cloud | sh
 ```
 
-**Hosting options** (pick one):
+`curl -L` follows the redirect, GitHub serves the script straight from `main`.
+No separate repo, no Worker, no Pages project — updates ship the moment the
+PR lands. The script then fetches the latest release tag from the GitHub API
+and downloads the matching `kupe_<version>_<os>_<arch>.tar.gz` from the
+releases page.
 
-- **Cloudflare Pages**: put `install.sh` in a small repo (e.g.
-  `kupecloud/install-script`), attach a Pages project, set custom domain
-  `get.kupe.cloud`. Updates flow from `main`. CORS-free, cached by
-  Cloudflare, free.
-- **Cloudflare Worker**: serves the script inline. No separate repo.
-
-Whichever path you pick, set the response `Content-Type: text/x-shellscript`
-and a short cache (5 min) so new versions roll out quickly.
-
-The script fetches the latest release tag from the GitHub API and
-downloads the matching `kupe_<version>_<os>_<arch>.tar.gz` from the
-releases page — no additional infra.
+To change which branch/path the redirect targets, edit the Redirect Rule
+in the Cloudflare dashboard (`kupe.cloud` zone → Rules → Redirect Rules).
 
 ### 5. Cosign keyless + Syft
 

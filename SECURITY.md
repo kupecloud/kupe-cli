@@ -27,10 +27,9 @@ We aim to:
 
 ## Supported versions
 
-We patch the **latest minor release**. While we're in pre-1.0 (`0.x.y`),
-we'll generally fix security issues by releasing a new patch version
-(`0.x.y+1`) rather than backporting to older `0.x` lines. Once we hit `1.0`,
-we'll publish an explicit support window here.
+We patch the **latest minor release**. Security fixes are shipped as a new
+patch release (`x.y.z+1`) rather than backported to older minor lines.
+We'll publish an explicit support window here if the policy changes.
 
 ## Scope
 

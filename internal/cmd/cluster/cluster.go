@@ -89,33 +89,32 @@ func waitForPhase(ctx context.Context, streams *cli.IOStreams, api client.Interf
 }
 
 // waitForUpdateConverged is the wait strategy for `cluster update --wait`.
-// The cluster is expected to be Running at entry; a successful PATCH should
-// cause the operator to transition phase away from Running (Upgrading /
-// Provisioning / etc.) and then return it to Running once the rollout
-// settles.
 //
-// The waiter requires BOTH transitions before declaring success:
+// Convergence is declared when the operator has reconciled at the
+// post-PATCH generation AND the cluster is back in Running phase:
 //
-//  1. Phase must leave Running — proof that the operator observed the
-//     spec change and started acting on it.
-//  2. Phase must return to Running — proof the rollout completed.
+//	status.observedGeneration >= postPatchGeneration  &&  phase == Running
 //
-// If the operator never picks up the change within timeout, the call
-// returns ErrWaitTimeout and the command surfaces exit 8 — NOT silent
-// success. That "no transition observed = all good" shortcut was the
-// source of a false-green bug: CI would move on before the rollout
-// started, and the next step would see the pre-patch state.
+// observedGeneration is the canonical K8s "I've processed this spec" signal
+// — it increments alongside metadata.generation each time the operator
+// completes a reconcile. Using it here unblocks two failure modes the older
+// transition-detection logic suffered from:
 //
-// Callers MUST filter client-side no-ops (spec already matches) BEFORE
-// invoking the waiter; see isNoOpUpdate. If a no-op reaches this code
-// path, it will correctly time out — the operator has no transition to
-// produce. Exposing that as failure is preferable to exposing it as
-// success.
-func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, label string, timeout time.Duration) (*client.Cluster, error) {
-	var (
-		latest        *client.Cluster
-		sawTransition bool
-	)
+//  1. In-place updates (CPU/memory/storage limit bumps) never leave Running
+//     because the operator just patches the ResourceQuota — there is no
+//     rollout to observe. The old "must see phase != Running" gate hung
+//     forever in this case.
+//  2. Version upgrades DO transition Running → Upgrading → Running, but
+//     under observedGeneration the same code path handles both: the
+//     operator only stamps the new generation once the upgrade is complete,
+//     so we wait for the right moment without phase-string heuristics.
+//
+// Degraded is still a hard fail. postPatchGen of 0 disables the generation
+// gate (older servers that don't surface generation), in which case the
+// waiter degrades to "phase == Running" — same as a get-loop, which is
+// what the old code would have done before its transition gate was added.
+func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, label string, postPatchGen int64, timeout time.Duration) (*client.Cluster, error) {
+	var latest *client.Cluster
 	poll := func(ctx context.Context) (string, bool, error) {
 		c, _, err := api.GetCluster(ctx, name)
 		if err != nil {
@@ -126,23 +125,32 @@ func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api cli
 		if phase == client.PhaseDegraded {
 			return phase, false, fmt.Errorf("cluster %q entered Degraded state", name)
 		}
-		if !sawTransition {
-			if phase != "" && phase != client.PhaseRunning {
-				sawTransition = true
-			}
+		if phase != client.PhaseRunning {
 			return phase, false, nil
 		}
-		if phase == client.PhaseRunning {
-			return phase, true, nil
+		if postPatchGen > 0 && observedGen(c) < postPatchGen {
+			// Spec change accepted by the API, but the operator hasn't
+			// yet stamped a reconcile at this generation. Keep waiting.
+			return phase, false, nil
 		}
-		return phase, false, nil
+		return phase, true, nil
 	}
 	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:   label,
-		Poll:    poll,
-		Timeout: timeout,
+		Label:         label,
+		PhaseOverride: "Updating",
+		Poll:          poll,
+		Timeout:       timeout,
 	})
 	return latest, err
+}
+
+// observedGen returns status.observedGeneration or 0 if the status block is
+// missing. Centralised so the waiter doesn't sprinkle nil-checks.
+func observedGen(c *client.Cluster) int64 {
+	if c == nil || c.Status == nil {
+		return 0
+	}
+	return c.Status.ObservedGeneration
 }
 
 // waitForGone polls until the cluster returns 404 (or Terminating flips to

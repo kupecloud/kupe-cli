@@ -18,17 +18,18 @@ import (
 // On a terminal state (done or err), the model stores the final phase/err
 // and asks the runtime to quit, returning control to the command.
 type spinnerModel struct {
-	spinner    spinner.Model
-	label      string
-	phase      string
-	started    time.Time
-	interval   time.Duration
-	maxInt     time.Duration
-	poll       PollFunc
-	done       bool
-	err        error
-	ctx        context.Context //nolint:containedctx // lifetime matches the tea.Program, cancelled externally via WithContext
-	cancelPoll context.CancelFunc
+	spinner       spinner.Model
+	label         string
+	phase         string
+	phaseOverride string
+	started       time.Time
+	interval      time.Duration
+	maxInt        time.Duration
+	poll          PollFunc
+	done          bool
+	err           error
+	ctx           context.Context //nolint:containedctx // lifetime matches the tea.Program, cancelled externally via WithContext
+	cancelPoll    context.CancelFunc
 }
 
 type pollMsg pollResult
@@ -113,7 +114,10 @@ func (m spinnerModel) View() string {
 	if m.done {
 		return "" // clear the line — final status is printed by runSpinner.
 	}
-	phase := m.phase
+	phase := m.phaseOverride
+	if phase == "" {
+		phase = m.phase
+	}
 	if phase == "" {
 		phase = "waiting"
 	}
@@ -143,14 +147,15 @@ func runSpinner(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error 
 	defer cancelPoll()
 
 	m := spinnerModel{
-		spinner:    sp,
-		label:      opts.Label,
-		started:    time.Now(),
-		interval:   opts.Interval,
-		maxInt:     opts.Max,
-		poll:       opts.Poll,
-		ctx:        pollCtx,
-		cancelPoll: cancelPoll,
+		spinner:       sp,
+		label:         opts.Label,
+		phaseOverride: opts.PhaseOverride,
+		started:       time.Now(),
+		interval:      opts.Interval,
+		maxInt:        opts.Max,
+		poll:          opts.Poll,
+		ctx:           pollCtx,
+		cancelPoll:    cancelPoll,
 	}
 
 	// Render to stderr so data on stdout stays uncluttered. Use the

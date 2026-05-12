@@ -9,15 +9,20 @@ import (
 // mirror kupe-api's transformCluster output — see
 // kupe-api/internal/server/handler_cluster.go.
 type Cluster struct {
-	Name            string           `json:"name" yaml:"name"`
-	DisplayName     string           `json:"displayName" yaml:"displayName"`
-	Type            string           `json:"type" yaml:"type"`
-	Version         string           `json:"version" yaml:"version"`
-	Resources       *ClusterResource `json:"resources,omitempty" yaml:"resources,omitempty"`
-	Alerts          any              `json:"alerts,omitempty" yaml:"alerts,omitempty"`
-	Status          *ClusterStatus   `json:"status,omitempty" yaml:"status,omitempty"`
-	ResourceVersion string           `json:"resourceVersion" yaml:"resourceVersion"`
-	CreatedAt       string           `json:"createdAt" yaml:"createdAt"`
+	Name        string           `json:"name" yaml:"name"`
+	DisplayName string           `json:"displayName" yaml:"displayName"`
+	Type        string           `json:"type" yaml:"type"`
+	Version     string           `json:"version" yaml:"version"`
+	Resources   *ClusterResource `json:"resources,omitempty" yaml:"resources,omitempty"`
+	Alerts      any              `json:"alerts,omitempty" yaml:"alerts,omitempty"`
+	Status      *ClusterStatus   `json:"status,omitempty" yaml:"status,omitempty"`
+	// Generation is metadata.generation — bumps by 1 on every spec mutation.
+	// Pair it with status.observedGeneration to know when the operator has
+	// reconciled a PATCH; required because in-place updates (resource limit
+	// bumps) don't transition phase, so phase alone isn't a convergence signal.
+	Generation      int64  `json:"generation,omitempty" yaml:"generation,omitempty"`
+	ResourceVersion string `json:"resourceVersion" yaml:"resourceVersion"`
+	CreatedAt       string `json:"createdAt" yaml:"createdAt"`
 }
 
 // ClusterResource is the tenant-facing resource envelope. Quantities follow
@@ -32,9 +37,13 @@ type ClusterResource struct {
 // ClusterStatus mirrors the observed state published by the operator. Phase
 // values: Pending | Provisioning | Running | Upgrading | Degraded | Terminating.
 type ClusterStatus struct {
-	Phase             string `json:"phase,omitempty" yaml:"phase,omitempty"`
-	KubernetesVersion string `json:"kubernetesVersion,omitempty" yaml:"kubernetesVersion,omitempty"`
-	Endpoint          string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
+	// ObservedGeneration is the metadata.generation the operator last
+	// reconciled. Compare against Cluster.Generation to know whether a
+	// recent PATCH has been applied.
+	ObservedGeneration int64  `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+	Phase              string `json:"phase,omitempty" yaml:"phase,omitempty"`
+	KubernetesVersion  string `json:"kubernetesVersion,omitempty" yaml:"kubernetesVersion,omitempty"`
+	Endpoint           string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
 }
 
 // CreateClusterRequest is the POST body.

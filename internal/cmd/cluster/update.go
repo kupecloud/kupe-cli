@@ -111,12 +111,11 @@ rarely the right answer outside of disaster recovery.`,
 			if !opts.wait {
 				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, updated)
 			}
-			// Real spec change was sent; wait the full timeout for the
-			// operator to transition phase away from Running and back again.
-			// No silent-success shortcut for "no transition observed" — that
-			// was the source of the false-green bug.
+			// Wait for the operator to reconcile at the post-PATCH
+			// generation. PATCH responses carry the bumped metadata.generation,
+			// so we don't need a follow-up GET to capture it.
 			final, werr := waitForUpdateConverged(
-				cmd.Context(), f.IOStreams, api, name, "cluster "+name, opts.waitTimeout,
+				cmd.Context(), f.IOStreams, api, name, "cluster "+name, updated.Generation, opts.waitTimeout,
 			)
 			if werr != nil {
 				return mapWaitErr(werr, name, "update")

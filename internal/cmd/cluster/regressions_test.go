@@ -57,12 +57,12 @@ func TestCreateDisplayNameRespectsFlag(t *testing.T) {
 
 // --- Fix 3: update wait observes operator convergence ---------------------
 
-// TestUpdateWaitRequiresTransitionBeforeRunning simulates the race the agent
-// flagged: the cluster is already Running when update is submitted, and the
-// operator takes a few polls to flip phase to Upgrading. A naive waiter
-// returns success on the first Running read — before any rollout happens.
-// The convergence-aware waiter must observe a transition first.
-func TestUpdateWaitRequiresTransitionBeforeRunning(t *testing.T) {
+// TestUpdateWaitBlocksUntilObservedGenerationCatchesUp covers the in-place
+// update case (CPU/memory/storage bump): phase never leaves Running, so the
+// only convergence signal is status.observedGeneration catching up to the
+// post-PATCH metadata.generation. A naive Running-only waiter would return
+// at entry 0 before the operator has reconciled.
+func TestUpdateWaitBlocksUntilObservedGenerationCatchesUp(t *testing.T) {
 	fake := clienttest.New()
 	fake.Clusters["prod"] = &client.Cluster{
 		Name:    "prod",
@@ -71,50 +71,42 @@ func TestUpdateWaitRequiresTransitionBeforeRunning(t *testing.T) {
 		Status:  &client.ClusterStatus{Phase: client.PhaseRunning},
 	}
 
-	// Seed GetCluster to return Running, then Upgrading (operator picked
-	// up the change), then Running (converged). The naive waiter would
-	// have returned at entry 0 before any work started.
+	// Operator stamps observedGeneration on its 3rd reconcile after the
+	// PATCH. Earlier reads are Running but stale — must NOT be accepted.
 	fake.GetClusterSeq["prod"] = []*client.Cluster{
-		{Name: "prod", Status: &client.ClusterStatus{Phase: client.PhaseRunning}},
-		{Name: "prod", Status: &client.ClusterStatus{Phase: client.PhaseUpgrading}},
-		{Name: "prod", Status: &client.ClusterStatus{Phase: client.PhaseRunning}},
+		{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseRunning, ObservedGeneration: 4}},
+		{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseRunning, ObservedGeneration: 4}},
+		{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseRunning, ObservedGeneration: 5}},
 	}
 
 	f := factoryWith(t, fake)
 
-	start := time.Now()
-	got, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 10*time.Second)
-	elapsed := time.Since(start)
+	got, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 5, 10*time.Second)
 	if err != nil {
 		t.Fatalf("waitForUpdateConverged: %v", err)
 	}
-	if got == nil || got.Status == nil || got.Status.Phase != client.PhaseRunning {
-		t.Fatalf("final phase = %+v; want Running", got)
-	}
-	// Must have taken at least one poll tick — if we returned in sub-ms
-	// we bypassed transition observation entirely.
-	if elapsed < 100*time.Millisecond {
-		t.Fatalf("returned in %v — likely skipped transition observation", elapsed)
+	if got == nil || got.Status == nil || got.Status.ObservedGeneration < 5 {
+		t.Fatalf("final cluster = %+v; want observedGeneration>=5", got)
 	}
 }
 
 // TestUpdateWaitTimesOutWhenOperatorNeverReacts is the contract for the
-// bug fix: if the cluster stays Running for the whole --wait-timeout
-// (operator ignored the PATCH, or the PATCH was a late-detected no-op),
-// the waiter returns ErrWaitTimeout instead of silently succeeding.
-// The old waiter exited success after a 30s observation window; we now
-// refuse to mask that as green and let the command exit 8.
+// bug fix: if the operator never stamps a reconcile at the post-PATCH
+// generation, the waiter returns ErrWaitTimeout instead of silently
+// succeeding. Catches a wedged operator or a PATCH that landed but never
+// got reconciled.
 func TestUpdateWaitTimesOutWhenOperatorNeverReacts(t *testing.T) {
 	fake := clienttest.New()
 	fake.Clusters["prod"] = &client.Cluster{
-		Name:   "prod",
-		Status: &client.ClusterStatus{Phase: client.PhaseRunning},
+		Name:       "prod",
+		Generation: 7,
+		Status:     &client.ClusterStatus{Phase: client.PhaseRunning, ObservedGeneration: 6}, // stale
 	}
 	f := factoryWith(t, fake)
 
-	_, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 500*time.Millisecond)
+	_, err := waitForUpdateConverged(context.Background(), f.IOStreams, fake, "prod", "cluster prod", 7, 500*time.Millisecond)
 	if err == nil {
-		t.Fatal("stuck-on-Running update returned success; expected ErrWaitTimeout")
+		t.Fatal("operator never converged; expected ErrWaitTimeout")
 	}
 	if !errors.Is(err, ux.ErrWaitTimeout) {
 		t.Fatalf("err = %v; want ux.ErrWaitTimeout", err)

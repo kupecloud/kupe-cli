@@ -22,7 +22,16 @@ func runPlain(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error {
 		if err != nil {
 			return err
 		}
-		if phase != "" && phase != lastPhase {
+		// In override mode the user has told us the live phase is unhelpful
+		// (e.g. update where phase stays Running). Print the override once
+		// up front and never echo the live phase to avoid a misleading
+		// "Running" log line during a no-transition update.
+		if opts.PhaseOverride != "" {
+			if lastPhase == "" {
+				fmt.Fprintf(io.ErrOut, "[%s] %s\n", humaniseElapsed(time.Since(started)), opts.PhaseOverride)
+				lastPhase = opts.PhaseOverride
+			}
+		} else if phase != "" && phase != lastPhase {
 			fmt.Fprintf(io.ErrOut, "[%s] %s\n", humaniseElapsed(time.Since(started)), phase)
 			lastPhase = phase
 		}

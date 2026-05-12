@@ -31,6 +31,14 @@ type WaitForOpts struct {
 	// success line. Defaults to "ready" (used by create/update). Pass
 	// "deleted" for a delete waiter so the line reads naturally.
 	DoneVerb string
+	// PhaseOverride, if non-empty, replaces the live phase column in the
+	// spinner. Use it when the live phase is unhelpful to the user — e.g.
+	// during an `update` that doesn't transition phase, where rendering
+	// "Running" while the operator is mid-reconcile is misleading. Pass
+	// "Updating" / "Upgrading" / etc. and the renderer shows it instead
+	// of whatever Poll returned. Leave blank for create/delete waiters
+	// where the live phase IS the story.
+	PhaseOverride string
 	// Poll is called once per tick.
 	Poll PollFunc
 	// Initial polling interval. Doubles each tick up to Max.

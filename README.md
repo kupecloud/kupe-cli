@@ -1,6 +1,6 @@
-# kupe
+# Kupe CLI
 
-The official command-line interface for [Kupe](https://kupe.cloud) — managed Kubernetes clusters in seconds.
+The official command-line interface for [Kupe Cloud](https://kupe.cloud)
 
 ```bash
 kupe cluster create prod --type shared --version 1.32 \

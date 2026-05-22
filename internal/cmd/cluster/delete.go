@@ -38,6 +38,17 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 				return err
 			}
 
+			// Surface the destructive semantics before prompting so users
+			// see what "delete cluster" actually does on the kupe platform.
+			// Skipped along with the confirm prompt when --yes is passed:
+			// IaC / automation callers have already decided to proceed and
+			// don't want the warning text in their logs. The same contract
+			// is reflected in the console's DeleteClusterDialog and the
+			// terraform-provider-kupe kupe_cluster docs.
+			if !opts.yes {
+				printDeleteClusterWarning(io, name)
+			}
+
 			if err := cli.ConfirmDelete(io, opts.yes, "cluster", name); err != nil {
 				return err
 			}
@@ -65,4 +76,30 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to disappear before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 10*time.Minute, "Give up after this long")
 	return cmd
+}
+
+// printDeleteClusterWarning writes the destructive-action warning that
+// precedes the cluster delete confirmation. The text is the CLI mirror
+// of the console's DeleteClusterDialog warning — keep them in sync so
+// tenants see the same contract everywhere.
+//
+// Routed to ErrOut (stderr) so it stays out of any captured stdout
+// payload from `kupe cluster delete | …`. Same stream the confirm
+// prompt itself uses.
+func printDeleteClusterWarning(io *cli.IOStreams, name string) {
+	const warn = `
+Deleting cluster %q will:
+  - Stop and permanently remove every workload running inside the cluster,
+    along with its storage.
+  - Delete every Argo Application, alerting rule, and Grafana dashboard this
+    cluster published to the platform — INCLUDING any workloads those
+    Applications deployed to your OTHER Kupe clusters.
+  - Remove the cluster's public DNS endpoint.
+
+Anything you provisioned in third-party systems from inside this cluster
+(cloud providers, SaaS, DNS zones you own) will NOT be cleaned up. Drain
+those before deleting if you want them removed.
+
+`
+	fmt.Fprintf(io.ErrOut, warn, name)
 }

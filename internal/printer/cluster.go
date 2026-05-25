@@ -62,18 +62,34 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 	return cols
 }
 
-// haDisplay renders the compact HA cell for `cluster list`. Combines spec
-// (the request) and status (operational reality) into one short string so
-// the table stays readable:
+// haDisplay renders the compact HA cell for `cluster list`. Prefers the
+// operator's haPhase rollup when present; falls back to inferring from
+// haConfigured + phase for older operator versions that don't populate
+// haPhase yet. Keeps the table readable:
 //   - HA not requested → "off"
-//   - HA requested but not yet configured → "pending"
-//   - HA configured and cluster Running → "on"
-//   - HA configured but cluster not Running → "degraded"
+//   - haPhase=pending → "pending"
+//   - haPhase=migrating → "migrating"
+//   - haPhase=ha-healthy → "on (N/M)"
+//   - haPhase=ha-degraded → "degraded (N/M)"
+//   - haPhase=ha-unavailable → "unavailable (N/M)"  // quorum lost
 func haDisplay(c *client.Cluster) string {
 	if c == nil || !c.HighAvailability {
 		return "off"
 	}
 	st := statusOf(c)
+	switch st.HAPhase {
+	case "ha-healthy":
+		return "on " + haReadyCount(st)
+	case "ha-degraded":
+		return "degraded " + haReadyCount(st)
+	case "ha-unavailable":
+		return "unavailable " + haReadyCount(st)
+	case "migrating":
+		return "migrating"
+	case "pending":
+		return "pending"
+	}
+	// Fallback for older operators that don't populate haPhase.
 	if !st.HAConfigured {
 		return "pending"
 	}
@@ -91,6 +107,19 @@ func haDetailDisplay(c *client.Cluster) string {
 		return "off"
 	}
 	st := statusOf(c)
+	switch st.HAPhase {
+	case "ha-healthy":
+		return "on " + haReadyCount(st) + " — enabled at " + st.HAEnabledAt
+	case "ha-degraded":
+		return "degraded " + haReadyCount(st) + " — API still serving, enabled at " + st.HAEnabledAt
+	case "ha-unavailable":
+		return "unavailable " + haReadyCount(st) + " — quorum lost, API not serving, enabled at " + st.HAEnabledAt
+	case "migrating":
+		return "migrating (kine→etcd in progress, ~10 min downtime)"
+	case "pending":
+		return "pending (waiting for 3/3 replicas to be ready)"
+	}
+	// Fallback for older operators that don't populate haPhase.
 	switch {
 	case !st.HAConfigured && st.Phase == client.PhaseMigrating:
 		return "migrating (kine→etcd in progress, ~10 min downtime)"
@@ -101,6 +130,15 @@ func haDetailDisplay(c *client.Cluster) string {
 	default:
 		return "on — enabled at " + st.HAEnabledAt
 	}
+}
+
+// haReadyCount returns a "(N/M)" suffix from the replica counts. Empty
+// when desired is zero (e.g. older operators that don't populate counts).
+func haReadyCount(st client.ClusterStatus) string {
+	if st.HAReplicasDesired == 0 {
+		return ""
+	}
+	return "(" + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ")")
 }
 
 // cluster asserts a table row's value into a client.Cluster. Accepts either

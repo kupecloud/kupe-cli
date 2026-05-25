@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"fmt"
 	"regexp"
 	"time"
 
@@ -83,6 +84,18 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 			}
 			if r := resourceRequest(opts.cpu, opts.memory, opts.storage); r != nil {
 				req.Resources = r
+			}
+
+			// HA pre-create message: surface the hourly charge + "billed from
+			// 3/3 ready" so users see the commitment before the cluster goes
+			// live, not after the first invoice. Printed to ErrOut so it doesn't
+			// pollute -o json/yaml output.
+			if opts.highAvailability {
+				fmt.Fprintf(f.IOStreams.ErrOut,
+					"Creating %q with HA control plane.\n"+
+						"HA adds an hourly charge to your bill — accrues from when 3/3 replicas are ready, not from cluster creation.\n"+
+						"See `kupe plan get` for the exact rate on your tier.\n\n",
+					name)
 			}
 
 			created, _, err := api.CreateCluster(cmd.Context(), req)

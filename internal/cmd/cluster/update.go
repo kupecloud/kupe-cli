@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,7 @@ type updateOpts struct {
 	storage     string
 	enableHA    bool
 	disableHA   bool
+	yes         bool
 	ifMatch     string
 	force       bool
 	wait        bool
@@ -81,6 +83,23 @@ rarely the right answer outside of disaster recovery.`,
 				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, current)
 			}
 
+			// HA enable on an existing single-replica cluster triggers an
+			// in-place kine→etcd migration with API downtime. Print the
+			// canonical warning (mirrors HA_ENABLE_MIGRATION from the
+			// operator webhook) and require explicit confirmation so a
+			// stray --enable-ha never causes a surprise outage. --yes
+			// bypasses for CI; non-TTY without --yes errors out so a
+			// scripted invocation can't hang on stdin.
+			if opts.enableHA && !current.HighAvailability {
+				msg := fmt.Sprintf("Enabling HA on %q migrates kine→etcd in place.\n"+
+					"Expect ~10 minutes of API downtime during the migration window.\n"+
+					"HA billing accrues from the moment 3/3 replicas are ready — not before.\n\n"+
+					"Continue?", name)
+				if err := cli.ConfirmYesNo(f.IOStreams, opts.yes, msg); err != nil {
+					return err
+				}
+			}
+
 			patch := buildPatch(opts)
 
 			var updated *client.Cluster
@@ -138,6 +157,7 @@ rarely the right answer outside of disaster recovery.`,
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "New storage limit (e.g. 100Gi)")
 	cmd.Flags().BoolVar(&opts.enableHA, "enable-ha", false, "Enable HA on this cluster. Triggers a ~10-minute in-place kine→etcd migration with API downtime.")
 	cmd.Flags().BoolVar(&opts.disableHA, "disable-ha", false, "Disable HA on this cluster. Not supported in v1 — operator will reject with HA_DISABLE_UNSUPPORTED.")
+	cmd.Flags().BoolVarP(&opts.yes, "yes", "y", false, "Skip interactive confirmation (required in non-interactive environments for --enable-ha)")
 	cmd.Flags().StringVar(&opts.ifMatch, "if-match", "", "Only update if the cluster's resourceVersion still matches this value; aborts otherwise (advanced)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Skip the resourceVersion check; may overwrite a concurrent update from another client (advanced)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to return to Running before returning")

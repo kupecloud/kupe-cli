@@ -89,16 +89,9 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 func printDeleteClusterWarning(io *cli.IOStreams, name string) {
 	const warn = `
 Deleting cluster %q will:
-  - Stop and permanently remove every workload running inside the cluster,
-    along with its storage.
-  - Delete every Argo Application, alerting rule, and Grafana dashboard this
-    cluster published to the platform — INCLUDING any workloads those
-    Applications deployed to your OTHER Kupe clusters.
+  - Permanently remove every workload running inside the cluster, along
+    with its storage.
   - Remove the cluster's public DNS endpoint.
-
-Anything you provisioned in third-party systems from inside this cluster
-(cloud providers, SaaS, DNS zones you own) will NOT be cleaned up. Drain
-those before deleting if you want them removed.
 
 `
 	fmt.Fprintf(io.ErrOut, warn, name)

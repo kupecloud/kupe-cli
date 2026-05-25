@@ -7,7 +7,7 @@ sidebar:
   order: 3
 ---
 
-This is the v1 command reference. Every command follows the grammar in [design.md](./design.md): `kupe <noun> <verb> [NAME] [--flags]`. Every command inherits the global flags described there.
+This is the v1 command reference. Every command follows the grammar in [design.md](./design.md): `kupe <noun> <verb> [NAME] [--flags]`. Every command inherits the auth/config global flags described there. Output flags are local to commands because supported formats differ by command.
 
 Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.json](../../kupe-api/api/swagger.json). Any endpoint not listed here is either in Phase 2 or intentionally not exposed via CLI.
 
@@ -48,12 +48,14 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 
 ## `kupe version`
 
-Print version, git commit, and build date. Useful for support tickets.
+Print version, git commit, build date, Go runtime, and platform. Useful for support tickets.
 
 ```
 $ kupe version
-kupe version 0.1.0 (commit 7a3b9e4, built 2026-04-20T14:02:11Z)
+kupe version 0.1.0 (commit 7a3b9e4, built 2026-04-20T14:02:11Z, go1.26.3 darwin/arm64)
 ```
+
+Use `kupe version --short` for just the version string.
 
 With `-o json`:
 
@@ -62,7 +64,7 @@ With `-o json`:
   "version": "0.1.0",
   "commit": "7a3b9e4",
   "buildDate": "2026-04-20T14:02:11Z",
-  "goVersion": "go1.26.2",
+  "goVersion": "go1.26.3",
   "platform": "darwin/arm64"
 }
 ```
@@ -80,8 +82,6 @@ kupe completion fish > ~/.config/fish/completions/kupe.fish
 kupe completion powershell > $PROFILE.d/kupe.ps1
 ```
 
-Dynamic completion is registered for resource names: `kupe cluster get <TAB>` calls `ListClusters` and autocompletes from the result.
-
 ---
 
 ## `kupe auth` — Authentication
@@ -94,30 +94,37 @@ Authenticate and store credentials for the current or a new context.
 
 | Flag | Description |
 |------|-------------|
-| `--token TOKEN` | Use the given token instead of prompting (scriptable). |
+| `--method METHOD` | `oidc` (default device-code flow) or `token` (long-lived API key). |
+| `--token TOKEN` | API key to store when `--method token` is used. Required in non-interactive token mode. |
 | `--tenant NAME` | Tenant to associate with this context. Prompts if not set. |
 | `--api-url URL` | Override API base URL for this context. |
+| `--oidc-base-url URL` | Override Authentik base URL for OIDC login. |
+| `--oidc-client-id ID` | Override the OIDC public client ID. |
 | `--context NAME` | Name for the context in the config file. Default: the tenant name. |
 | `--set-default` | Make this context the current one. Default when only one context exists. |
 
 **Examples:**
 
 ```bash
-# Interactive
-$ kupe auth login
-? Tenant: acme-corp
-? Paste your API token (create at https://console.kupe.cloud/settings/api-keys):
-  ****************************************
-✓ Logged in as billy@acme.com (admin)
-  Context "acme-corp" saved, set as current.
+# Interactive OIDC device-code login
+$ kupe auth login --tenant acme-corp
+To finish signing in, open the following URL in any browser:
 
-# Scripted
-$ kupe auth login --tenant acme-corp --token "$KUPE_TOKEN" --context prod --set-default
+    https://auth.kupe.cloud/...
+
+and enter this code:
+
+    ABCD-EFGH
+
+Logged in to tenant Acme Corp (acme-corp) as billy@acme.com.
+
+# Scripted API-key bootstrap
+$ kupe auth login --method token --tenant acme-corp --token "$KUPE_TOKEN" --context prod --set-default
 ```
 
-Validates the token by calling `GET /api/v1/tenants/{tenant}`. Stores the token in the OS keyring (see [auth.md](./auth.md)).
+Validates the resulting bearer token by calling `GET /api/v1/tenants/{tenant}`. Stores either the OIDC token set or API key in the OS keyring/plaintext fallback (see [auth.md](./auth.md)).
 
-**Exit codes:** `0` on success, `3` on invalid token, `4` if the tenant doesn't exist.
+**Exit codes:** `0` on success, `3` on rejected credentials, `4` if the tenant doesn't exist.
 
 ### `kupe auth logout`
 
@@ -134,7 +141,7 @@ Remove credentials for a context.
 
 ```bash
 $ kupe auth logout
-✓ Logged out of "acme-corp".
+Logged out of "acme-corp".
 
 $ kupe auth logout --context staging
 $ kupe auth logout --all
@@ -144,14 +151,15 @@ Removes the token from the keyring (and from `~/.config/kupe/credentials.yaml` i
 
 ### `kupe auth whoami`
 
-Show the authenticated identity, tenant, and role.
+Show the authenticated user, tenant, plan, context, API URL, and token storage source.
 
 ```
 $ kupe auth whoami
 User:    billy@acme.com
-Tenant:  acme-corp
-Role:    admin
+Tenant:  Acme Corp (acme-corp)
+Plan:    pro
 Context: acme-corp (https://api.kupe.cloud)
+Storage: keyring
 ```
 
 With `-o json`:
@@ -160,9 +168,11 @@ With `-o json`:
 {
   "user": "billy@acme.com",
   "tenant": "acme-corp",
-  "role": "admin",
+  "tenantDisplayName": "Acme Corp",
+  "plan": "pro",
   "context": "acme-corp",
-  "apiUrl": "https://api.kupe.cloud"
+  "apiUrl": "https://api.kupe.cloud",
+  "storage": "keyring"
 }
 ```
 
@@ -214,6 +224,7 @@ contexts:
     tenant: acme-corp
     tokenRef: keyring
     user: billy@acme.com
+    authMethod: oidc
   - name: staging
     apiUrl: https://api.staging.kupe.cloud
     tenant: acme-staging
@@ -241,7 +252,7 @@ Switch the current context.
 
 ```bash
 $ kupe config use-context staging
-✓ Now using context "staging" (tenant acme-staging).
+Switched to context "staging" (tenant acme-staging).
 ```
 
 ### `kupe config set-context NAME`
@@ -266,7 +277,7 @@ Remove a context. Clears its token from keyring/plaintext.
 
 ```bash
 $ kupe config delete-context old-tenant
-✓ Context "old-tenant" removed.
+Context "old-tenant" removed.
 ```
 
 Prompts on TTY; requires `--yes` on non-TTY.
@@ -302,7 +313,7 @@ staging     shared   1.32      Running      2     8Gi    5d
 ephemeral   shared   1.32      Provisioning 2     4Gi    3m
 ```
 
-With `-o wide`, adds `ENDPOINT` and `KUBERNETES-VERSION` (the actual running version from `status.kubernetesVersion`).
+With `-o wide`, adds `ENDPOINT`, `K8S-VERSION` (the actual running version from `status.kubernetesVersion`), and `STORAGE`.
 
 With `-o name`, one cluster name per line — pipe-friendly for loops:
 
@@ -347,7 +358,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--type TYPE` | `shared` | `shared` or `dedicated` |
+| `--type TYPE` | `shared` | `shared` or `dedicated`. Most users can omit this. |
 | `--display-name NAME` | positional NAME | Human-readable name. |
 | `--version VERSION` | latest | Target Kubernetes version (e.g., `1.32`). Defaults server-side. |
 | `--cpu-limit QUANTITY` | required | CPU limit (e.g., `2`, `500m`, `1.5`). |
@@ -355,7 +366,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
-| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`. |
+| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`, `jsonpath=...` (`jsonpath` currently returns a not-implemented error). |
 
 Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](../../kupe-control-operator/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
 
@@ -367,30 +378,30 @@ kupe cluster create prod --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
   && kupe cluster kubeconfig prod --merge
 ```
 
-Built-in `--kubeconfig` / `--kubeconfig-merge` convenience flags, plus
-`--dry-run=client|server`, are planned follow-ups — the server-side
-dry-run path also needs kupe-api support, which doesn't exist yet.
-
 **Example:**
 
 ```bash
-$ kupe cluster create prod --type shared --version 1.32 \
+$ kupe cluster create prod --version 1.32 \
     --cpu-limit 4 --memory-limit 16Gi --storage-limit 100Gi
-✓ Submitted cluster create
-⠹ Provisioning... [2m04s]
-✓ Cluster prod ready
-  endpoint: https://api.prod.acme.kupe.cloud
-  run "kupe cluster kubeconfig prod --merge" to use it
+Name:         prod
+Display Name: prod
+Type:         shared
+Version:      1.32 (running 1.32.3)
+Phase:        Running
+Endpoint:     https://api.prod.acme.kupe.cloud
+CPU:          4
+Memory:       16Gi
+Storage:      100Gi
+Created:      2026-04-08T09:00:00Z (12d ago)
 ```
 
-In CI (`-q` or non-TTY):
+In CI/non-TTY, progress is written to stderr and the final resource render remains on stdout:
 
 ```
-cluster/prod submitted
-[00:00:04] pending
-[00:00:34] provisioning
-[00:02:04] running
-cluster/prod created
+[00:00] Pending
+[00:04] Provisioning
+[02:04] Running
+[02:04] cluster prod ready
 ```
 
 **Exit codes:** `0` success, `5` on 409 (name exists), `8` on timeout, `1` on degraded.
@@ -410,11 +421,13 @@ Patch a cluster's version or resources. Uses ETag/If-Match internally (see [api-
 | `--if-match ETAG` | Require the given ETag; fail with `5` on mismatch. |
 | `--force` | Skip the ETag read-modify-write cycle. |
 | `--wait`, `--wait-timeout` | As per `create`. |
+| `-o, --output FORMAT` | Same single-resource formats as `create`. |
 
 ```bash
 $ kupe cluster update prod --version 1.33
-⠼ Upgrading... [45s]
-✓ Cluster prod now running 1.33.0
+Name:         prod
+Version:      1.33 (running 1.33.0)
+Phase:        Running
 ```
 
 ### `kupe cluster delete NAME`
@@ -432,9 +445,9 @@ Delete a cluster. Prompts on TTY; requires `--yes` on non-TTY.
 ```bash
 $ kupe cluster delete prod
 ? This will delete cluster "prod" (tenant acme-corp). Type the name to confirm: prod
-⠋ Deleting... [18s]
-✓ Cluster prod deleted
 ```
+
+`--wait=false` returns immediately with `cluster/prod delete requested` on stdout. The wait path uses stderr progress and does not print an extra stdout line after the resource is gone.
 
 ### `kupe cluster kubeconfig NAME`
 
@@ -451,8 +464,8 @@ The API endpoint returns only `{endpoint, certificateAuthority}`; the CLI assemb
 | `--user-name NAME` | User entry name (default: same as context). |
 | `--cluster-name NAME` | Cluster entry name (default: same as context). |
 | `--exec` | Emit exec-plugin form that shells back to `kupe auth get-token`. |
-| `--minify` | After merging, leave only the merged context in the target file. |
 | `--force` | Overwrite an existing context of the same name. |
+| `--force-overwrite` | If the existing kubeconfig is corrupt, discard it and start fresh. |
 
 **Examples:**
 
@@ -469,7 +482,7 @@ kubectl --context kupe-acme-corp-prod get pods
 kupe cluster kubeconfig prod --merge --exec
 ```
 
-Exits `7` (Unavailable) if the cluster is not yet `Running` and `--merge` would produce an unusable kubeconfig — pair with `kupe cluster wait` in scripts.
+Exits `7` (Unavailable) if the cluster is not yet ready to return a kubeconfig — pair with `kupe cluster wait` in scripts.
 
 ### `kupe cluster wait NAME`
 
@@ -479,13 +492,12 @@ Block until the cluster reaches a target phase.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--for PHASE` | `running` | `running`, `deleted`, or a literal phase name. |
+| `--for PHASE` | `running` | `running`, `pending`, `provisioning`, `upgrading`, `degraded`, `terminating`, or `deleted`. |
 | `--timeout` | `30m` | Exit `8` if not reached. |
 
 ```bash
 $ kupe cluster wait prod --for running --timeout 10m
-⠼ Waiting for prod to be running... [3m12s]
-✓ Cluster prod running
+cluster/prod running
 ```
 
 Ctrl+C exits `130` cleanly with a hint.
@@ -501,12 +513,12 @@ Creates tenant-scoped API tokens. Keys are returned **once** at creation — the
 List keys (metadata only — the secret portion is not retrievable after creation).
 
 ```
-ID                                   NAME       ROLE     CREATED BY         LAST USED          AGE
-8f2a...                              ci-prod    admin    billy@acme.com     2026-04-19 14:02   3d
-c91b...                              readonly   readonly billy@acme.com     never              12d
+ID        NAME      ROLE      CREATED-BY       LAST-USED  AGE
+8f2a3e7c… ci-prod   admin     billy@acme.com   3d ago     12d
+c91b49aa… readonly  readonly  billy@acme.com   never      12d
 ```
 
-With `-o json`, full metadata.
+With `-o wide`, adds `EXPIRES` and `ID-FULL`. With `-o json`, full metadata.
 
 ### `kupe apikey create`
 
@@ -523,14 +535,10 @@ Mint a new key. Prints the raw key once to stdout.
 ```bash
 $ kupe apikey create --name "CI Pipeline" --role admin --expires-at 90d
 
-kupe_8f2a_k3mVb9xQpA7...   # copy now; this is the only time it's shown
-Name:       CI Pipeline
-Role:       admin
-Expires:    2026-07-19T00:00:00Z
-ID:         8f2a3e7c-...
+kupe_8f2a_k3mVb9xQpA7...
 ```
 
-With `-o json`, the same data as JSON (including `"token"`). Suppress the "copy now" stderr note with `-q`.
+On a TTY, the CLI also prints metadata and a copy-now warning to stderr. With `-o json`, stdout contains the same data as JSON, including `"token"`.
 
 **CI example:**
 
@@ -544,7 +552,7 @@ Revoke a key.
 
 ```bash
 $ kupe apikey delete 8f2a3e7c-...
-✓ API key 8f2a3e7c-... revoked.
+apikey/8f2a3e7c-... revoked
 ```
 
 Prompts on TTY; requires `--yes` on non-TTY.
@@ -597,6 +605,9 @@ out-of-band.
 
 Replace a secret's sync list. Uses ETag RMW internally; a 412 mismatch is
 retried once, then exits 5 on repeated contention.
+
+At least one `--sync` is required. To clear all targets, delete and recreate
+the managed secret without `--sync`.
 
 ```bash
 kupe secret update mydb-pass --sync prod:default --sync staging:default
@@ -686,32 +697,35 @@ credentials.
 
 ## `kupe invoice` — Billing history
 
-Read-only access to invoices. Invoices are period-scoped (`YYYY-MM`) and
-settle at the start of the following month.
+Read-only access to invoices. Invoice names are server-controlled, typically
+`<tenant>-<YYYYMMDD>` for the period start. Run `kupe invoice list` before
+`kupe invoice get`.
 
 ### `kupe invoice list`
 
 ```
 $ kupe invoice list
-PERIOD    PHASE  SUBTOTAL  CREDITS  TOTAL   CURRENCY
-2026-03   Paid   120.00    20.00    100.00  GBP
-2026-02   Paid   90.00     0.00     90.00   GBP
+NAME            PHASE  ISSUED                SUBTOTAL  CREDITS  TOTAL   CURRENCY
+acme-20260301   Paid   2026-04-01T00:00:00Z  120.00    20.00    100.00  GBP
+acme-20260201   Paid   2026-03-01T00:00:00Z  90.00     0.00     90.00   GBP
 ```
 
-`-o wide` adds `START` and `END` billing-period dates.
+`-o wide` adds `TAX`, `START`, and `END` billing-period dates.
 
-### `kupe invoice get PERIOD`
+### `kupe invoice get NAME`
 
 ```
-$ kupe invoice get 2026-03
-Name:       2026-03
-Phase:      Paid
-Period:     2026-03-01 → 2026-04-01
-Subtotal:   120.00 GBP
-Credits:    20.00 GBP
-Total:      100.00 GBP
-Currency:   GBP
-Line Items: 12 (use -o json for full breakdown)
+$ kupe invoice get acme-20260301
+Name:            acme-20260301
+Phase:           Paid
+Issued:          2026-04-01T00:00:00Z
+Period Start:    2026-03-01T00:00:00Z
+Period End:      2026-04-01T00:00:00Z
+Subtotal:        120.00
+Credits Applied: 20.00
+Tax:             0.00
+Total:           100.00 GBP
+Line Items:      12 (use -o json for details)
 ```
 
 Line items (per-resource usage rows with `kind` / `cost` / `quantity`) are
@@ -719,11 +733,11 @@ only meaningfully rendered as structured output — `-o json` or `-o yaml`
 preserves every field the server emits.
 
 ```bash
-kupe invoice get 2026-03 -o json | jq '.status.lineItems[] | {kind, cost}'
+kupe invoice get acme-20260301 -o json | jq '.status.lineItems[] | {kind, cost}'
 ```
 
-Backed by `GET /api/v1/tenants/{tenant}/invoices[/{period}]`. `kupe invoice
-get` exits `4` if the period has no invoice.
+Backed by `GET /api/v1/tenants/{tenant}/invoices[/{name}]`. `kupe invoice
+get` exits `4` if the name has no invoice.
 
 ---
 
@@ -739,7 +753,7 @@ for the request itself.
 ```
 $ kupe plan list
 NAME      DISPLAY   FEE    MAX-CLUSTERS  POOL
-starter   Starter   0.00   2             —
+starter   Starter   0.00   2             -
 pro       Pro       49.00  5             CPU=8 MEM=32 STORAGE=200
 ```
 

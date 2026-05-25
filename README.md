@@ -3,7 +3,7 @@
 The official command-line interface for [Kupe Cloud](https://kupe.cloud)
 
 ```bash
-kupe cluster create prod --type shared --version 1.32 \
+kupe cluster create prod --version 1.32 \
   --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 kupe cluster kubeconfig prod --merge
 kubectl get pods
@@ -94,8 +94,7 @@ curl -fsSL https://get.kupe.cloud | sh -s -- --install-dir /usr/local/bin
 kupe auth login --tenant acme-corp
 
 # 2. Create a cluster
-kupe cluster create dev --type shared \
-  --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
+kupe cluster create dev --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 
 # 3. Merge its kubeconfig into ~/.kube/config
 kupe cluster kubeconfig dev --merge
@@ -117,7 +116,7 @@ export KUPE_API_TOKEN="kupe_abc_..."
 export KUPE_TENANT="acme-corp"
 
 # JSON output, no TTY niceties
-kupe cluster create "ci-$GITHUB_SHA" --type shared \
+kupe cluster create "ci-$GITHUB_SHA" \
   --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
   --wait -o json
 ```
@@ -128,7 +127,7 @@ The CLI auto-detects non-TTY environments and switches off colors, spinners, and
 
 | Command | Purpose |
 | ------- | ------- |
-| `kupe auth login` | Authenticate with an API token |
+| `kupe auth login` | Sign in with OIDC or store an API token |
 | `kupe auth whoami` | Show who you're logged in as |
 | `kupe cluster list` | List clusters in the current tenant |
 | `kupe cluster create NAME` | Create a new cluster |
@@ -144,6 +143,8 @@ Run `kupe --help` or see [docs/commands.md](./docs/commands.md) for the full ref
 Config lives at `~/.config/kupe/config.yaml`. Tokens are stored in the OS keyring (Keychain / Secret Service / Credential Manager), not in the config file.
 
 All settings can be overridden by flags or `KUPE_*` environment variables. See [docs/auth.md](./docs/auth.md).
+
+`kupe cluster create --type` is still supported; it defaults to `shared`, so most examples omit it. Use `--type dedicated` only when you need a dedicated cluster type.
 
 ## Documentation
 
@@ -169,8 +170,10 @@ All settings can be overridden by flags or `KUPE_*` environment variables. See [
 make build       # Build the binary into ./bin/kupe
 make test        # Unit tests
 make lint        # golangci-lint
+make gosec       # Security static analysis
+make govulncheck # Go vulnerability check
 make snapshot    # Build a release locally (no publish)
-make manpages    # Generate man(1) pages into man/man1/
+make manpages    # Generate completions and man(1) pages
 ```
 
 Hit a live development environment:

@@ -23,7 +23,7 @@ Hand-written wins on three points:
 - **Swagger 2.0 tooling is weaker than OpenAPI 3.** kupe-api emits Swagger 2.0 today (from `swag` on Go comments). Swagger 2.0 codegen output in Go is notably worse than OpenAPI 3 output. Converting the spec first adds a pipeline step for little benefit.
 - **The spec is already proven and tested.** `terraform-provider-kupe/internal/client/*` has real tests (`client_test.go`, `cluster_test.go`, `apikey_test.go`, etc.). Throwing that away to regenerate is net-negative.
 
-The swagger spec is used as a **coverage checklist**, not as codegen input. [commands.md](./commands.md) has a table mapping every endpoint in the spec to either a CLI command or "Phase 2 / out of scope".
+The swagger spec is used as a **coverage checklist**, not as codegen input. [commands.md](./commands.md) has a table mapping every endpoint in the spec to either a CLI command or a deferred/out-of-scope entry.
 
 ## Strategy: lift, then extend
 
@@ -35,18 +35,22 @@ Copy these files from [terraform-provider-kupe/internal/client/](../../terraform
 |------|----------|
 | `client.go` | Base HTTP plumbing: `Client` struct, `request()`, `requestWithETag()`, `APIError`, `IsNotFound`, `IsConflict`. |
 | `cluster.go` | `Cluster`, `ClusterResource`, `ClusterStatus`, `CreateClusterRequest`, `PatchClusterRequest`; `ListClusters`, `GetCluster`, `CreateCluster`, `UpdateCluster`, `DeleteCluster`. |
+| `cluster_kubeconfig.go` | `GetClusterKubeconfig` for the endpoint/CA envelope. |
+| `cluster_rmw.go` | `UpdateClusterRMW` and contention handling. |
 | `apikey.go` | APIKey types + CRUD. |
+| `secret.go` | Managed secret types + CRUD + RMW helper. |
+| `member.go` | Tenant member list/add/update/remove. |
+| `invoice.go` | Invoice list/get. |
+| `plan.go` | Public plan catalog list/get. |
 | `tenant.go` | `GetTenant` (used by `whoami`). |
 | Corresponding `*_test.go` | Tests that ride along — they validate the client still works after extensions. |
-
-`member.go`, `secret.go`, and `alertmanager.go` can be lifted too but are Phase 2 — ignore until those commands are needed.
 
 ### Step 2 — rebrand
 
 Change `User-Agent` from `terraform-provider-kupe` to:
 
 ```go
-fmt.Sprintf("kupe-cli/%s (%s/%s) go/%s",
+fmt.Sprintf("kupe-cli/%s (%s/%s) %s",
     build.Version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 ```
 
@@ -66,21 +70,23 @@ Each is covered below.
 
 ## Base client
 
-Unchanged from the tf provider — reproduced here for reference (full file at [terraform-provider-kupe/internal/client/client.go](../../terraform-provider-kupe/internal/client/client.go)):
+The base client follows the terraform-provider shape, with CLI additions for user-agent injection, retry policy, and trace hooks:
 
 ```go
 type Client struct {
     baseURL    string
     tenant     string
     token      string
+    userAgent  string
     httpClient *http.Client
 }
 
-func New(baseURL, tenant, token string) *Client {
+func New(baseURL, tenant, token, userAgent string, opts ...Option) *Client {
     return &Client{
         baseURL: baseURL,
         tenant:  tenant,
         token:   token,
+        userAgent: userAgent,
         httpClient: &http.Client{Timeout: 30 * time.Second},
     }
 }
@@ -205,7 +211,7 @@ func IsUnauthorized(err error) bool {
 
 ## Request ID propagation
 
-`kupe-api` emits `X-Request-Id` on every response (likely to land; verify against the API's current middleware stack). When present, the client attaches it to errors:
+`kupe-api` emits `X-Request-Id` on responses. When present, the client attaches it to errors:
 
 ```go
 type APIError struct {
@@ -222,7 +228,7 @@ func (e *APIError) Error() string {
 }
 ```
 
-The CLI's error printer (see [design.md](./design.md)) picks up `RequestID` and displays it as a hint line, so support tickets can reference it.
+The request ID is included in the API error text, so support tickets can reference it.
 
 ## Timeouts
 
@@ -235,18 +241,16 @@ A long-running command (`cluster create --wait`) applies `--wait-timeout` via `c
 
 ## Observability hooks
 
-The client exposes two hooks for testing and verbose mode:
+The client exposes one trace hook for verbose mode:
 
 ```go
-type Transport struct {
-    Base      http.RoundTripper  // defaults to http.DefaultTransport
-    OnRequest func(*http.Request)
-    OnResponse func(*http.Response, time.Duration)
-}
+type TraceFunc func(method, path string, status int, duration time.Duration, requestID string)
+
+func WithTrace(fn TraceFunc) Option
 ```
 
 - `-v` attaches hooks that log method, path, status, duration, and request-id (no headers, no body).
-- Tests attach hooks that assert on headers or inject failures.
+- Tests inject `WithHTTPClient` and `WithRetryPolicy` for transport behavior and fast retry tests.
 
 No bodies are ever logged. `Authorization: Bearer ...` is redacted if any code path were to log headers (defense in depth).
 

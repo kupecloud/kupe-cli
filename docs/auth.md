@@ -7,15 +7,17 @@ sidebar:
   order: 4
 ---
 
-The CLI authenticates against `kupe-api` using a tenant-scoped bearer token. This doc specifies how tokens are stored, resolved, rotated, and surfaced to `kubectl` via the exec-plugin contract.
+The CLI authenticates against `kupe-api` using bearer credentials scoped to a tenant. This doc specifies how credentials are stored, resolved, rotated, and surfaced to `kubectl` via the exec-plugin contract.
 
-## Token model
+## Credential model
 
-Every token is an API key minted against a specific tenant. Format: `kupe_<keyID>_<secret>` (prefix `kupe_` for routing on the server side, ID for auditability, secret for auth). The API validates via constant-time HMAC-SHA256 comparison against a stored hash (see [kupe-api/internal/auth/auth.go](../../kupe-api/internal/auth/auth.go)).
+The default login path is OIDC. `kupe auth login --method oidc` runs an OAuth 2.0 Device Authorization Grant ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)) against the Authentik `kupe-cli` public client. The CLI stores the resulting access, refresh, and ID token set, then refreshes it transparently on later commands.
+
+The non-interactive path is an API key minted against a specific tenant. Format: `kupe_<keyID>_<secret>` (prefix `kupe_` for routing on the server side, ID for auditability, secret for auth). The API validates via constant-time HMAC-SHA256 comparison against a stored hash (see [kupe-api/internal/auth/auth.go](../../kupe-api/internal/auth/auth.go)).
 
 Two roles exist: `admin` (read-write) and `readonly`. The role is a property of the key, not the user — a tenant member can create keys in either role as long as their own role allows it.
 
-Two login methods are supported. `--method oidc` (default) runs an OAuth 2.0 Device Authorization Grant ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)) against the Authentik `kupe-cli` public client, returning an access + refresh token pair the CLI persists and rotates on subsequent commands. `--method token` reads a long-lived API key (`kupe_...`) and stores that instead — primary path for CI machines and automation. Both store credentials through the same keyring/plaintext storage layer described below.
+Both login methods store credentials through the same keyring/plaintext storage layer described below. `--method apikey` is accepted as an alias for `--method token`.
 
 ## Config file
 
@@ -23,11 +25,11 @@ Two login methods are supported. `--method oidc` (default) runs an OAuth 2.0 Dev
 
 | OS | Default path | Override |
 |----|--------------|----------|
-| macOS | `~/Library/Application Support/kupe/config.yaml` (respect `XDG_CONFIG_HOME`) | `$KUPE_CONFIG` or `--config` |
+| macOS | `$XDG_CONFIG_HOME/kupe/config.yaml` or `~/.config/kupe/config.yaml` | `$KUPE_CONFIG` or `--config` |
 | Linux | `$XDG_CONFIG_HOME/kupe/config.yaml` or `~/.config/kupe/config.yaml` | `$KUPE_CONFIG` or `--config` |
 | Windows | `%AppData%\kupe\config.yaml` | `$KUPE_CONFIG` or `--config` |
 
-For consistency with kubectl and gh, Linux users on most distros will see `~/.config/kupe/config.yaml`. macOS falls back to the same path unless they've set `XDG_CONFIG_HOME`.
+For consistency with kubectl and gh, macOS and Linux users without `XDG_CONFIG_HOME` set will see `~/.config/kupe/config.yaml`.
 
 File mode is `0600` on creation. Directory mode is `0700`.
 
@@ -43,11 +45,15 @@ contexts:
     tenant: acme-corp
     tokenRef: keyring          # "keyring" | "plaintext"
     user: billy@acme.com       # populated on login — display hint only
+    authMethod: oidc           # "oidc" | "apikey"
   - name: staging
     apiUrl: https://api.staging.kupe.cloud
     tenant: acme-staging
     tokenRef: keyring
     user: billy@acme.com
+    authMethod: oidc
+    oidcBaseUrl: https://auth.staging.kupe.cloud
+    oidcClientId: kupe-cli
 preferences:
   output: table                # table | wide | json | yaml | name
   color: auto                  # auto | always | never
@@ -57,7 +63,9 @@ preferences:
 
 **Tokens are never written into this file.** `tokenRef` is a pointer to where the token actually lives (the OS keyring, or the plaintext-fallback credentials file). See [Token storage](#token-storage).
 
-Unknown top-level keys produce a loud error pointing at `kupe config view`. Unknown keys inside `preferences` are ignored with a warning on `-v`.
+`preferences.output` is applied as the default for commands with an `-o` flag. `preferences.color`, `preferences.wait`, and `preferences.waitTimeout` are accepted by `kupe config get/set` but are not currently wired into command defaults.
+
+The loader validates `apiVersion` and `kind`, then normalizes omitted identity fields. Unknown YAML fields are ignored by `yaml.v3`; use `kupe config view` to see the effective schema the CLI preserves when it writes the file.
 
 ### Credentials file (plaintext fallback only)
 
@@ -89,15 +97,15 @@ Via [`github.com/zalando/go-keyring`](https://github.com/zalando/go-keyring):
 | Linux | Secret Service (libsecret — GNOME Keyring, KDE Wallet, KeePassXC) |
 | Windows | Credential Manager (`wincred`) |
 
-Service key: `kupe-cli`. Account key: the context name (e.g., `prod`). A single binary invocation touches exactly one keyring entry.
+Service key: `cloud.kupe.cli`. Account key: the context name (e.g., `prod`). A single binary invocation touches exactly one keyring entry.
 
 On login, the CLI writes to the keyring and sets `tokenRef: keyring` in the config. On logout, it deletes the keyring entry.
 
 ### Plaintext fallback
 
-Linux desktops without libsecret (WSL, headless servers, minimal containers) cannot use the Secret Service. On first-time write failure, the CLI:
+Linux desktops without libsecret (WSL, headless servers, minimal containers) cannot use the Secret Service. Very large OIDC token sets can also exceed some keyring limits. On write failure that the manager classifies as unavailable or too large, the CLI:
 
-1. Logs a warning to stderr: `keyring unavailable on this system; storing token in ~/.config/kupe/credentials.yaml (mode 0600)`.
+1. Logs a warning to stderr that the OS keyring rejected the credential and the CLI fell back to plaintext.
 2. Writes to `~/.config/kupe/credentials.yaml`.
 3. Sets `tokenRef: plaintext` in the context.
 
@@ -107,7 +115,7 @@ Users can opt *out* of plaintext via `KUPE_STORAGE=keyring`, which will hard-fai
 
 ### Env var override (CI)
 
-**Setting `KUPE_API_TOKEN` bypasses the config file entirely.** The CLI never reads the config, never touches the keyring, never writes credentials. `--tenant` (or `KUPE_TENANT`) is required.
+**Setting `KUPE_API_TOKEN` bypasses keyring/plaintext token lookup.** The CLI still resolves `--api-url`, `--tenant`, and `--context` through the normal flag/env/config precedence chain. In config-free CI, set `KUPE_TENANT` as well.
 
 This is the intended CI path. A workflow doing:
 
@@ -121,13 +129,12 @@ runs without any prior `kupe auth login`. `kupe auth login` itself refuses to ru
 
 ## Precedence
 
-Every commanded that needs credentials resolves them in this order. The first non-empty source wins:
+Every command that needs credentials resolves them in this order. The first non-empty source wins:
 
 ```
 token:    --token flag
           → KUPE_API_TOKEN env var
-          → keyring[current context]
-          → credentials.yaml[current context]
+          → keyring or credentials.yaml for the resolved context's tokenRef
           → <error: "not logged in; run `kupe auth login`">
 
 apiUrl:   --api-url flag
@@ -143,7 +150,7 @@ tenant:   --tenant flag
 context:  --context flag
           → KUPE_CONTEXT env var
           → config.currentContext
-          → <error: "no context; run `kupe auth login`">
+          → empty (valid for direct-token commands that also provide a tenant)
 ```
 
 Precedence is implemented in `internal/config/precedence.go` as a single `Resolve(flags, env, file)` function. Tests cover every layer of the chain.
@@ -153,27 +160,37 @@ Precedence is implemented in `internal/config/precedence.go` as a single `Resolv
 ### Interactive (TTY)
 
 ```
-$ kupe auth login
-? Tenant: acme-corp
-? Paste your API token (create at https://console.kupe.cloud/settings/api-keys):
-  ****************************************
-✓ Logged in as billy@acme.com (admin)
-  Context "acme-corp" saved, set as current.
+$ kupe auth login --tenant acme-corp
+To finish signing in, open the following URL in any browser:
+
+    https://auth.kupe.cloud/...
+
+and enter this code:
+
+    ABCD-EFGH
+
+Waiting for approval (code expires in 15m0s)...
+
+Logged in to tenant Acme Corp (acme-corp) as billy@acme.com.
 ```
 
 Steps:
 
 1. Prompt for tenant (hidden if `--tenant` or `KUPE_TENANT` set).
-2. Prompt for token (echo suppressed via `golang.org/x/term.ReadPassword`).
-3. Validate by calling `GET /api/v1/tenants/{tenant}` with the token. Stores `user` (from response) and `role` (from response) for display.
-4. Write context to `config.yaml`.
-5. Store token in keyring (or plaintext fallback).
-6. Set `currentContext` if `--set-default` was passed, or if there are no other contexts.
+2. Start the OIDC device-code flow and print the verification URL and user code.
+3. Poll Authentik until the user approves and a token set is returned.
+4. Validate by calling `GET /api/v1/tenants/{tenant}` with the access token.
+5. Store the OIDC token set in keyring (or plaintext fallback).
+6. Write context to `config.yaml`, including `authMethod: oidc` and any non-default OIDC settings.
+7. Set `currentContext` if `--set-default` was passed, or if there are no other contexts.
+
+For API-key login, pass `--method token`; the CLI prompts for the token with echo suppressed when no `--token` flag is provided.
 
 ### Scripted
 
 ```bash
 kupe auth login \
+  --method token \
   --tenant acme-corp \
   --token "$KUPE_BOOTSTRAP_TOKEN" \
   --context prod \
@@ -204,7 +221,7 @@ The context itself is preserved. Use `kupe config delete-context` to remove it e
 
 ## Exec-plugin contract (for kubectl)
 
-When you run `kupe cluster kubeconfig NAME --exec --merge`, the emitted kubeconfig looks like:
+When you run `kupe cluster kubeconfig NAME --exec --merge`, the emitted kubeconfig looks like this. The `command` is usually the absolute path to the current `kupe` binary; `kupe` is shown here for readability.
 
 ```yaml
 apiVersion: v1
@@ -237,7 +254,7 @@ current-context: kupe-acme-corp-prod
 When `kubectl` makes an API call, it executes `kupe auth get-token --context=prod`. The CLI:
 
 1. Resolves the `prod` context from config.
-2. Loads the token (keyring > plaintext > env — same precedence as any other command).
+2. Loads the token (`--token`/`KUPE_API_TOKEN` if present, otherwise the resolved context's keyring/plaintext `tokenRef`).
 3. Writes an `ExecCredential` JSON to stdout:
 
    ```json
@@ -253,15 +270,15 @@ When `kubectl` makes an API call, it executes `kupe auth get-token --context=pro
 
 4. Exits `0`. Any error → exit non-zero, `ExecCredential`-free stderr; `kubectl` surfaces the error to the user.
 
-`expirationTimestamp` is the API key's `expiresAt` if set, otherwise omitted. `kubectl` caches the credential in-memory for the duration.
+`expirationTimestamp` is set when the resolved credential is an OIDC access token with a known expiry. API-key contexts omit it, so `kubectl` may invoke the exec plugin more often; that path is a cheap keyring/plaintext read.
 
 This pattern lets the kubeconfig be committed to a team repo (no secrets in the YAML) and rotated by simply running `kupe auth login` again with a new token.
 
 ### Why the exec plugin is gated behind `--exec`
 
-Exec-plugin kubeconfigs require `kupe` to be on the target machine's `$PATH`. That's fine for developers but wrong for throwaway kubeconfigs dropped into a container for a single `kubectl apply`. The default (`--exec` off) embeds the bearer token directly — works everywhere, but the kubeconfig becomes a secret.
+Exec-plugin kubeconfigs require the `kupe` binary path embedded in the kubeconfig to exist on the target machine. That's fine for developers but wrong for throwaway kubeconfigs dropped into a container for a single `kubectl apply`. The default (`--exec` off) embeds the bearer token directly — works everywhere, but the kubeconfig becomes a secret.
 
-For OIDC contexts, `--exec` is recommended for long-lived local use because the exec plugin shells back into `kupe auth get-token` on every API call, letting the CLI refresh expired access tokens transparently. For API-key contexts, the embedded-token form is fine because there's nothing to rotate.
+For OIDC contexts, `--exec` is recommended for long-lived local use because the exec plugin shells back into `kupe auth get-token`, letting the CLI refresh expired access tokens transparently. For API-key contexts, the embedded-token form is fine for short-lived kubeconfigs because there is no refresh token to rotate.
 
 ## Rotation
 
@@ -287,7 +304,6 @@ No auto-reminder on expiry in v1. Server logs `lastUsedAt` on the key and the co
 - **`-v` debug output never prints `Authorization` headers** — the HTTP middleware strips them before logging.
 - **Error messages never echo the token** — only the key ID.
 - **Shell history**: `kupe auth login --token "$KUPE_TOKEN"` with the token literal on the command line will be captured by shell history on most systems. Documented in the README quickstart as "use env vars, not literal tokens".
-- **File mode audit**: `kupe config view -v` prints `~/.config/kupe/` directory and file modes, making it easy to spot a misconfigured `0644`.
 
 ## Open questions
 

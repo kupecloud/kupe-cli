@@ -1,22 +1,22 @@
 ---
 title: "Testing"
-description: "Factory + IOStreams pattern, golden-file tests, fake client, httptest fixtures, go-vcr cassettes, and E2E strategy for the kupe CLI"
+description: "Factory + IOStreams pattern, fake client, printer tests, httptest fixtures, and live-test strategy for the kupe CLI"
 owner: platform-team
 lastReviewed: "2026-04-20"
 sidebar:
   order: 8
 ---
 
-The CLI's test strategy has four layers, each owning a specific failure class. All layers are run by `make test` in CI; the live E2E layer is gated on an env var so it doesn't fire on PRs from forks.
+The CLI's test strategy has four layers, each owning a specific failure class. `make test` runs the unit, printer, and client layers under `./internal/...`; live tests are separate and gated behind the `live` build tag.
 
 | Layer | Scope | Purpose | Runs in CI? |
 |-------|-------|---------|-------------|
 | 1. Command unit tests | `internal/cmd/...` | Flag parsing, rendering, error mapping, exit codes | Yes |
-| 2. Golden-file tests | `internal/printer/...` | Output format stability per resource | Yes |
+| 2. Printer tests | `internal/printer/...` | Output parser/table/detail rendering behavior | Yes |
 | 3. Client tests | `internal/client/...` | HTTP plumbing, retries, ETag, error classification | Yes |
-| 4. E2E tests | `test/e2e/...` | Full round-trip against a real `kupe-api` | On schedule / on-demand |
+| 4. Live tests | `test/live/...` | Full round-trip against a real `kupe-api` | Manual / on-demand |
 
-The single goal: **changes to a command body fail a test; changes to an output schema fail a golden file; changes to API contract fail an E2E or a VCR cassette.** Each break has one obvious place to look.
+The single goal: **changes to a command body fail a command test; changes to rendering behavior fail printer tests; changes to API contract fail client or live tests.** Each break has one obvious place to look.
 
 ## Layer 1 — command unit tests
 
@@ -26,30 +26,26 @@ Every command body accepts a `*cli.Factory`. Tests construct a factory backed by
 
 ```go
 func TestClusterList_JSON(t *testing.T) {
-    f, out, _ := cmdtest.NewTestFactory(t,
-        cmdtest.WithClusters([]client.Cluster{
-            {Name: "prod", Type: "shared", Status: &client.ClusterStatus{Phase: "Running"}},
-        }),
-    )
-    cmd := clustercmd.NewListCmd(f)
+    fake := clienttest.New()
+    fake.Clusters["prod"] = &client.Cluster{
+        Name: "prod", Type: "shared",
+        Status: &client.ClusterStatus{Phase: client.PhaseRunning},
+    }
+    f := factoryWith(t, fake)
+    cmd := newListCmd(f)
     cmd.SetArgs([]string{"-o", "json"})
 
     err := cmd.Execute()
     require.NoError(t, err)
 
     var got []client.Cluster
-    require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+    require.NoError(t, json.Unmarshal([]byte(f.IOStreams.Out.(interface{ String() string }).String()), &got))
     require.Len(t, got, 1)
     require.Equal(t, "prod", got[0].Name)
 }
 ```
 
-Helpers live in `internal/cmdtest/`:
-
-- `NewTestFactory(t, opts...)` — returns `(*cli.Factory, *bytes.Buffer, *bytes.Buffer)` for stdout and stderr.
-- `WithClusters(...)`, `WithAPIKeys(...)`, `WithTenant(...)` — preload a fake client.
-- `WithConfig(*config.Config)` — override resolved config.
-- `WithTTY(stdinTTY, stdoutTTY, stderrTTY bool)` — control the detected TTY state to exercise TTY/CI code paths.
+Most command packages define a small local `factoryWith` helper that wires `cli.Test()` streams, a temporary config file, and `internal/client/clienttest.Fake`. Shared fake API behavior lives in `internal/client/clienttest/`.
 
 ### What to test
 
@@ -67,54 +63,17 @@ For each command:
 - Output format byte-level shape — that's Layer 2.
 - Live API behavior — that's Layer 4.
 
-## Layer 2 — golden-file tests
+## Layer 2 — printer tests
 
-Every output format × every resource gets a golden file. Update with `go test -update`.
+Printer tests live in `internal/printer/`. They cover:
 
-```
-test/golden/
-├── cluster_list_table.txt
-├── cluster_list_wide.txt
-├── cluster_list_json.json
-├── cluster_list_yaml.yaml
-├── cluster_list_name.txt
-├── cluster_get_table.txt
-├── cluster_get_yaml.yaml
-├── apikey_list_table.txt
-├── apikey_create_stdout.txt
-├── ...
-```
+- `printer.Parse` for `table`, `wide`, `json`, `yaml`, `name`, `go-template=...`, and `jsonpath=...`.
+- Narrow vs wide table behavior.
+- Empty table rendering.
+- ANSI-colored cell alignment.
+- Detail rendering.
 
-Pattern (adapted from `kubectl` and `helm`):
-
-```go
-func TestClusterListGolden(t *testing.T) {
-    fixture := loadFixture(t, "clusters-basic.json")
-    for _, fmt := range []string{"table", "wide", "json", "yaml", "name"} {
-        t.Run(fmt, func(t *testing.T) {
-            f, out, _ := cmdtest.NewTestFactory(t,
-                cmdtest.WithClustersRaw(fixture),
-                cmdtest.WithTTY(true, true, true),
-            )
-            cmd := clustercmd.NewListCmd(f)
-            cmd.SetArgs([]string{"-o", fmt})
-            require.NoError(t, cmd.Execute())
-
-            goldenPath := filepath.Join("testdata/golden",
-                fmt.Sprintf("cluster_list_%s.%s", fmt, ext(fmt)))
-            cmdtest.AssertGolden(t, out.Bytes(), goldenPath)
-        })
-    }
-}
-```
-
-`cmdtest.AssertGolden` compares to the on-disk file; with `-update`, it writes the current output back. Humans review golden-file changes like any other diff.
-
-### Determinism
-
-- Fixtures use **fixed timestamps** (`2026-04-20T14:00:00Z`) so `AGE` columns are stable.
-- `TestMain` sets `NO_COLOR=1` and forces the detected TTY state explicitly per test — no environment leakage.
-- `time.Now()` is injected via a clock interface on the factory so "elapsed time" rendering is stable.
+There are no golden files in the current tree. If byte-for-byte output fixtures are added later, they should live under `testdata/` next to the package that owns the renderer.
 
 ## Layer 3 — client tests
 
@@ -131,7 +90,7 @@ func TestClient_GetCluster_404(t *testing.T) {
     }))
     defer srv.Close()
 
-    c := client.New(srv.URL, "acme", "test-token")
+    c := client.New(srv.URL, "acme", "test-token", "kupe-cli/test")
     _, _, err := c.GetCluster(context.Background(), "missing")
     require.True(t, client.IsNotFound(err))
     require.Contains(t, err.Error(), "test-req-123")
@@ -140,7 +99,7 @@ func TestClient_GetCluster_404(t *testing.T) {
 
 Coverage targets:
 
-- All resource CRUD (list/get/create/update/delete) for cluster + apikey.
+- Resource methods for clusters, kubeconfig, API keys, secrets, members, tenant, invoices, and plans.
 - Every typed error helper (`IsUnauthorized`, `IsForbidden`, `IsNotFound`, `IsValidation`, `IsConflict`, `IsPreconditionFailed`, `IsRateLimited`, `IsUnavailable`).
 - Retry policy: transient 503 retries, persistent 503 fails after N attempts, POST/PATCH never retry.
 - `Retry-After` parsing: integer, HTTP-date, missing, malformed.
@@ -149,33 +108,9 @@ Coverage targets:
 
 ### Imported tests from terraform-provider-kupe
 
-When lifting `internal/client/*.go`, the accompanying `*_test.go` files come too. They already cover most of the HTTP contract. Add new tests only for the extensions (retry, `Retry-After`, typed helpers, RMW).
+Several client tests started as copies of terraform-provider-kupe tests. Keep extending them in place as CLI-specific behavior lands, especially retry, `Retry-After`, typed helpers, RMW, and public plan endpoints.
 
-## Layer 4 — E2E
-
-Two modes, triggered by separate env vars.
-
-### Mode A — go-vcr cassettes (deterministic)
-
-[`gopkg.in/dnaeon/go-vcr.v3`](https://pkg.go.dev/gopkg.in/dnaeon/go-vcr.v3) records real `kupe-api` responses the first time, replays them on subsequent runs. Cassettes are committed to `test/e2e/cassettes/`.
-
-```go
-func TestE2E_ClusterCreateWait(t *testing.T) {
-    r, err := recorder.New("testdata/cassettes/cluster_create_wait",
-        recorder.WithMode(recorder.ModeReplayOnly),
-    )
-    require.NoError(t, err)
-    defer r.Stop()
-
-    httpClient := r.GetDefaultClient()
-    c := client.NewWithHTTP(os.Getenv("KUPE_E2E_URL"), "acme", "test-token", httpClient)
-    // exercise create + wait
-}
-```
-
-Runs always in CI. Any PR that changes HTTP plumbing may need cassettes re-recorded, which is itself a review signal.
-
-### Mode B — live `kupe-api` (`make test-live`, in repo)
+## Layer 4 — live `kupe-api` (`make test-live`)
 
 Lives at [`test/live/`](../test/live/). Mirrors the [kupe-api `test/live/` convention](../../kupe-api/test/live/) so engineers can move between repos without re-learning the layout. Go tests with the `//go:build live` tag, run by exec'ing the freshly-compiled `kupe` binary against a deployed API.
 
@@ -214,7 +149,7 @@ Patterns to follow when adding a test:
 - Use `runCLI(t, args…)` when asserting on exit code, stderr, or non-JSON stdout.
 - Don't print or compare against `apiToken`; the helper does the leak check for you.
 
-**Auth-mode parity (OIDC vs apikey):** the same suite runs unmodified for either token type — the CLI's `--token` / `KUPE_API_TOKEN` path doesn't care if the bearer is a `kupe_…` API key or an OIDC JWT. To verify both auth paths work end-to-end, run `make test-live` twice: once with an apikey and once with a JWT minted via `kupe auth login --method oidc` (read it out of the keyring with `security find-generic-password -s cloud.kupe.cli -a kupe-test -w` on macOS).
+**Auth-mode parity (OIDC vs apikey):** the same suite runs unmodified for either token type — the CLI's `--token` / `KUPE_API_TOKEN` path doesn't care if the bearer is a `kupe_...` API key or an OIDC access token. To verify both auth paths end-to-end, run `make test-live` twice: once with an API key and once with an access token from `kupe auth login --method oidc`.
 
 **Manual OIDC smoke test:** the device-code login itself can't be automated in `go test` — it needs a real Authentik to issue a code and a real human to approve. Test it interactively against dev:
 
@@ -231,29 +166,6 @@ unset KUPE_API_TOKEN
 The CLI builds the full issuer URL as `{base}/application/o/{client-id}/` — only the base hostname varies between environments.
 
 **Not wired into GitHub Actions** — intentional. Live tests need WireGuard for the private dev API, mutate state in the testing tenant, and would slow PR feedback. Promote to nightly only if/when the operations matter.
-
-### Mode C — aspirational live e2e (not yet built)
-
-Gated by `KUPE_E2E_URL` + `KUPE_E2E_TOKEN`. Runs against a dev instance of `kupe-api`:
-
-```bash
-export KUPE_E2E_URL=https://api.dev.kupe.cloud
-export KUPE_E2E_TOKEN=kupe_dev_...
-export KUPE_E2E_TENANT=cli-e2e
-
-make test-e2e-live
-```
-
-Test plan:
-
-1. Create a cluster with `--wait` and a short timeout.
-2. `kupe cluster get` returns it.
-3. `kupe cluster kubeconfig --merge` into a tempfile, then `kubectl --kubeconfig=$tmp get namespaces` succeeds.
-4. Update to a new minor version, wait for `Running`.
-5. Delete, wait for gone.
-6. Create + revoke an API key.
-
-Runs on a schedule (nightly) and on-demand via `/test live-e2e` on a PR. Not on every PR.
 
 ### Fake client for command-layer tests
 
@@ -274,32 +186,32 @@ Command unit tests (Layer 1) use this fake, not `httptest`. The fake is itself t
 
 ## Test matrix for a new command
 
-When adding a new command (e.g., `kupe secret create` in Phase 2), the test checklist is:
+When adding a new command, the test checklist is:
 
 - [ ] Unit test: happy path, `-o json`.
 - [ ] Unit test: not-found error on a dependent resource.
 - [ ] Unit test: validation error on missing required flag.
 - [ ] Unit test: `--yes` skips prompt; non-TTY without `--yes` fails.
-- [ ] Golden files for `table`, `wide` (if applicable), `json`, `yaml`, `name`.
+- [ ] Printer coverage for any new columns or output helper behavior.
 - [ ] Client test: happy path.
 - [ ] Client test: error per classification the API can emit.
 - [ ] Commands.md entry.
 
-A one-page "adding a command" guide lives in this repo's `CONTRIBUTING.md` (Phase 2 deliverable; not part of this doc-writing task).
+A one-page "adding a command" guide lives in this repo's `CONTRIBUTING.md`.
 
 ## Lint and vuln
 
 Mirror [kupe-api](../../kupe-api/) and [terraform-provider-kupe](../../terraform-provider-kupe/):
 
 ```bash
-make lint    # golangci-lint run
-make sec     # gosec + govulncheck
-make vet     # go vet
+make lint        # golangci-lint run
+make gosec       # gosec
+make govulncheck # Go vulnerability check
 ```
 
 Golangci-lint config sits next to the existing kupe repos' `.golangci.yml`. Same enabled linters, same `errcheck` exclusions (context-scoped, deferred `Close()`), same import-ordering rules. Copy rather than inventing a new one.
 
-`govulncheck` runs on every PR; high-severity advisories block the merge. Low-severity advisories warn only.
+`govulncheck` should run before releases and on security-sensitive changes. High-severity advisories block release.
 
 ## CI workflow summary
 
@@ -311,16 +223,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.26.2" }
+        with: { go-version: "1.26.3" }
       - run: make vendor
       - run: make lint
       - run: make test                   # layers 1 + 2 + 3
-      - run: make test-e2e-cassette      # layer 4 mode A
-      - run: make sec
+      - run: make gosec
+      - run: make govulncheck
       - run: goreleaser release --snapshot --clean --skip=publish
 ```
 
-`.github/workflows/e2e-live.yaml` (schedule + `workflow_dispatch`):
+`.github/workflows/e2e-live.yaml` (if/when enabled; schedule + `workflow_dispatch`):
 
 ```yaml
 on:
@@ -330,11 +242,11 @@ jobs:
   live:
     environment: e2e
     steps:
-      - run: make test-e2e-live
+      - run: make test-live
         env:
-          KUPE_E2E_URL: ${{ vars.KUPE_E2E_URL }}
-          KUPE_E2E_TOKEN: ${{ secrets.KUPE_E2E_TOKEN }}
-          KUPE_E2E_TENANT: ${{ vars.KUPE_E2E_TENANT }}
+          KUPE_API_URL: ${{ vars.KUPE_API_URL }}
+          KUPE_API_TOKEN: ${{ secrets.KUPE_API_TOKEN }}
+          KUPE_TEST_TENANT: ${{ vars.KUPE_TEST_TENANT }}
 ```
 
 See [distribution.md](./distribution.md) for release workflow; this doc covers only CI.
@@ -344,8 +256,8 @@ See [distribution.md](./distribution.md) for release workflow; this doc covers o
 Not blocking, informational:
 
 - Layer 1 (commands): 80%
-- Layer 2 (printer): 100% (every format × every resource)
+- Layer 2 (printer): focused coverage for parser, table, detail, and ANSI alignment behavior
 - Layer 3 (client): 90%
-- Layer 4 (E2E cassettes): cover the happy path for every command in v1
+- Layer 4 (live): cover happy paths for every command that can run safely against the shared testing tenant
 
-Coverage reported via `go test -coverprofile` and posted as a PR comment. A regression of >2% blocks merge; smaller changes just annotate.
+Coverage is available through `make test-coverage`; it is not currently a hard CI gate.

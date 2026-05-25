@@ -44,8 +44,6 @@ user input
   ↓ cobra
 command bodies (internal/cmd/*)
   ↓ factory
-services (ClusterService, AuthService, ConfigService)
-  ↓ interface
 HTTP client (internal/client)
   ↓ net/http
 kupe-api
@@ -58,7 +56,7 @@ The **factory** (`internal/cli/factory.go`) is the seam between command bodies a
 type Factory struct {
     Config     func() (*config.Config, error)
     Client     func() (client.Interface, error)
-    IOStreams  *iostreams.IOStreams
+    IOStreams  *cli.IOStreams
 }
 
 func NewListCmd(f *cli.Factory) *cobra.Command {
@@ -79,11 +77,11 @@ Tests inject a `*cli.Factory` backed by fakes; production wires real implementat
 
 For a typical command (e.g., `kupe cluster list`):
 
-1. **Cobra parses args and flags**. Global flags (`--api-url`, `--token`, `--tenant`, `--context`, `-o`, `--no-color`, `-q`, `-v`) are bound to the root command and inherited by all subcommands.
-2. **Factory resolves configuration** using the precedence chain `flag > KUPE_* env > keyring[ctx] > config file > default`. This happens lazily — commands that don't need the API client (like `kupe version`) never touch the config.
-3. **Factory builds a client** with the resolved base URL, tenant, and bearer token. User-Agent is `kupe-cli/<version> (<os>/<arch>) go/<goversion>`.
+1. **Cobra parses args and flags**. Global flags (`--api-url`, `--token`, `--tenant`, `--context`, `--config`, `--no-color`, `-q`, `-v`) are bound to the root command and inherited by subcommands. `-o` is local to commands that render data.
+2. **Factory resolves configuration** using the precedence chain `flag > KUPE_* env > config context > default`, then resolves the token from `--token`/`KUPE_API_TOKEN` or the resolved context's keyring/plaintext `tokenRef`. This happens lazily — commands that don't need the API client (like `kupe version`) never touch the config.
+3. **Factory builds a client** with the resolved base URL, tenant, and bearer token. User-Agent is `kupe-cli/<version> (<os>/<arch>) <runtime.Version()>`.
 4. **Command body calls the service** (`cli.ListClusters(ctx)` etc.). Client internally handles retry/backoff on `5xx`, `Retry-After` on `429`, and typed error classification.
-5. **Command body renders via `PrintFlags`**. Output format (`table`/`wide`/`json`/`yaml`/`name`/`go-template`/`jsonpath`) is chosen by the `-o` flag, defaulting to `table` on TTY. Rendering writes to `f.IOStreams.Out`.
+5. **Command body renders via `internal/printer`**. Output format (`table`/`wide`/`json`/`yaml`/`name`/`go-template`/`jsonpath`) is chosen by the command-local `-o` flag or `preferences.output`, defaulting to `table`. Rendering writes to `f.IOStreams.Out`.
 6. **Exit code is mapped from the error type** via `internal/cli/exit.go` (`0` success, `3` auth, `4` not-found, `5` conflict, `1` general).
 
 Long-running commands (`cluster create|delete|update`) add a polling loop between steps 4 and 5, discussed below.
@@ -103,7 +101,10 @@ internal/
 │   ├── cluster/                 — list, get, create, delete, update, kubeconfig, wait.
 │   ├── apikey/                  — list, create, delete.
 │   ├── secret/                  — list, get, create, update, delete.
-│   └── member/                  — list, add, update, remove.
+│   ├── member/                  — list, add, update, remove.
+│   ├── tenant/                  — get.
+│   ├── invoice/                 — list, get.
+│   └── plan/                    — list, get.
 ├── cli/
 │   ├── factory.go               — Lazy config/client resolution. Injected into every cmd.
 │   ├── iostreams.go             — Stdin/stdout/stderr with TTY + color + spinner gating.
@@ -120,6 +121,8 @@ internal/
 │   ├── secret.go                — ListSecrets, GetSecret, CreateSecret, UpdateSecret,
 │   │                              DeleteSecret, UpdateSecretRMW.
 │   ├── member.go                — ListMembers, AddMember, UpdateMember, RemoveMember.
+│   ├── invoice.go               — ListInvoices, GetInvoice.
+│   ├── plan.go                  — ListPlans, GetPlan.
 │   ├── tenant.go                — GetTenant (used by whoami).
 │   ├── errors.go                — APIError with Is* helpers.
 │   ├── retry.go                 — Exponential backoff + idempotent-method gating.
@@ -128,10 +131,12 @@ internal/
 ├── config/
 │   ├── config.go                — Load, save, atomic write.
 │   ├── schema.go                — Config / Context / Preferences structs.
-│   └── precedence.go            — Resolve with flag > env > keyring > file > default.
+│   └── precedence.go            — Resolve with flag > env > context > default.
 ├── auth/
 │   ├── token.go                 — Keyring-aware token get/set/delete.
 │   ├── keyring.go               — zalando/go-keyring wrapper (Service = "cloud.kupe.cli").
+│   ├── oidc.go                  — Token refresh / revoke helpers.
+│   ├── oidc_device.go           — OIDC device-code login flow.
 │   └── plaintext.go             — ~/.config/kupe/credentials.yaml fallback (mode 0600).
 ├── printer/
 │   ├── format.go                — Parse + MustParse for the -o flag.
@@ -142,7 +147,10 @@ internal/
 │   ├── cluster.go               — Cluster column specs + age helpers.
 │   ├── apikey.go                — APIKey column specs + ID truncation.
 │   ├── secret.go                — Secret column specs + sync-target rendering.
-│   └── member.go                — Member column specs.
+│   ├── member.go                — Member column specs.
+│   ├── tenant.go                — Tenant detail rows.
+│   ├── invoice.go               — Invoice column specs.
+│   └── plan.go                  — Plan column specs.
 ├── kubeconfig/
 │   ├── build.go                 — Assemble kubeconfig from {endpoint, CA, token} or exec-plugin.
 │   ├── merge.go                 — clientcmd-based merge into $KUBECONFIG / ~/.kube/config.
@@ -175,7 +183,7 @@ internal/
 The CLI's `--wait` behavior (default on for `create`/`delete`/`update`) implements this as a polling loop:
 
 1. After the initial write, poll `GET /clusters/{name}` every 2s (exponential to 10s cap, capped at `--wait-timeout`).
-2. Compare `status.phase` transitions: `Pending → Provisioning → Running` (create) or `Running → Terminating → <gone>` (delete) or `Running → Upgrading → Running` (update).
+2. Compare `status.phase` transitions for create/delete. Updates wait for `status.observedGeneration >= metadata.generation` and `phase == Running`, so resource-only updates that never leave Running still converge.
 3. On a terminal phase, return success. On `Degraded`, return a non-zero exit with the cluster's latest condition messages on stderr.
 4. On Ctrl+C, cancel the context, print a `Use "kupe cluster get <name>" to check status` hint, and exit cleanly.
 
@@ -185,7 +193,7 @@ See [output.md](./output.md) for the TTY/CI split of how these transitions are r
 
 Three entry points produce an authenticated client:
 
-1. **Interactive `kupe auth login`** — prompt for API key, validate via `GET /tenants/{tenant}`, store in keyring, save context in config file.
+1. **Interactive `kupe auth login`** — default OIDC device-code flow, validate via `GET /tenants/{tenant}`, store the token set in keyring/plaintext fallback, save context in config file.
 2. **Env-driven `KUPE_API_TOKEN`** — the CI short-circuit. When set, the config file is bypassed entirely; token is used as-is with whatever tenant is resolved from `--tenant` / `KUPE_TENANT`.
 3. **Exec-plugin `kupe auth get-token`** — called by `kubectl` when a kubeconfig was produced by `kupe cluster kubeconfig NAME --exec`. Prints an `ExecCredential` JSON object per `client.authentication.k8s.io/v1` to stdout. This lets `kubectl` acquire tokens on demand without embedding them in the kubeconfig.
 

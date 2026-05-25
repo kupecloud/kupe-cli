@@ -21,7 +21,7 @@ The CLI's design is governed by four rules, in priority order. Every design deci
 `kupe <noun> <verb> [positional] [--flags]`
 
 ```
-kupe cluster create prod --type shared --version 1.32 \
+kupe cluster create prod --version 1.32 \
   --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 kupe cluster kubeconfig prod --merge
 kupe apikey create --name ci --role admin
@@ -45,7 +45,7 @@ We keep kubectl compatibility where it matters — output formats and exit codes
 | `list` | Plural list of resources | Returns a table by default; `-o name` for pipe-friendly names |
 | `get` | Single resource detail | Accepts one positional arg |
 | `create` | Create a new resource | Positional arg is the name; waits by default |
-| `delete` | Remove a resource | Prompts on TTY, requires `--yes` or non-TTY stdin; waits by default |
+| `delete` | Remove a resource | Prompts on TTY, requires `--yes` in non-TTY usage; cluster delete waits by default |
 | `update` | Modify an existing resource | ETag/If-Match handled transparently; `--force` skips |
 | `kubeconfig` | Retrieve a kubeconfig | Cluster-only; special-case verb |
 | `wait` | Block until a resource reaches a phase | `--for=running\|deleted`, `--timeout=30m` |
@@ -66,7 +66,7 @@ Based on these, the CLI makes these decisions:
 | ANSI color | stdout is TTY AND `NO_COLOR` unset AND `--no-color` unset AND `TERM != dumb` |
 | Spinners / progress bars | stderr is TTY AND `CI` unset AND `-q` unset AND `KUPE_NO_PROGRESS` unset |
 | Confirmation prompts | stdin AND stderr are both TTY AND `--yes`/`-y` unset |
-| Table output default | Always on unless `-o` explicitly set to a non-table format |
+| Table output default | Used unless the command-local `-o` flag or `preferences.output` selects another format |
 | Password / token hidden input | stdin is TTY |
 
 The critical rule: **nothing about the data written to stdout depends on the TTY state.** The only difference between a TTY run and a CI run with `-o table` is that colors and column padding behave differently — the same columns in the same order, still parseable with `awk`.
@@ -92,14 +92,13 @@ A caller running `kupe cluster list -o json | jq` should never see progress text
 | `--tenant NAME` | `KUPE_TENANT` | — | Override context's tenant |
 | `--context NAME` | `KUPE_CONTEXT` | current | Use named context from config |
 | `--config PATH` | `KUPE_CONFIG` | `~/.config/kupe/config.yaml` | Config file path |
-| `-o, --output FMT` | — | `table` | Output format |
 | `--no-color` | `NO_COLOR` | off | Disable ANSI colors |
 | `-q, --quiet` | — | off | Suppress status/progress |
 | `-v, --verbose` | — | off | Debug logging to stderr |
 | `-h, --help` | — | — | Show help |
 | `--version` | — | — | Show version |
 
-`-o` accepts: `table` (default for TTY), `wide`, `json`, `yaml`, `name`, `go-template=...`, `go-template-file=...`, `jsonpath=...`, `jsonpath-file=...`. See [output.md](./output.md) for the full spec.
+`-o` / `--output` is local to each command, not a global flag. List/get-style commands accept `table`, `wide` where applicable, `json`, `yaml`, `name`, `go-template=...`, and `jsonpath=...`; `jsonpath` is parsed but currently returns a not-implemented error. Toggle commands such as `kupe version`, `kupe auth whoami`, and `kupe apikey create` accept only `text` and `json`. See [output.md](./output.md) for the full spec.
 
 ## Per-command flags
 
@@ -107,13 +106,12 @@ Local flags are scoped to the command. Convention:
 
 - `--wait` / `--wait-timeout` on any command that triggers an async phase change.
 - `--yes` / `-y` on any destructive command (skips confirmation).
-- `--force` on `update` commands (skips ETag check — use with care).
-- `--if-match ETAG` on `update` commands (explicit optimistic locking — advanced users).
-- `--dry-run=client|server` on any write command. `server` performs a validation-only request (if the API supports it); `client` just renders what would be sent.
+- `--force` and `--if-match ETAG` on `cluster update` (advanced optimistic-locking controls).
+- `--force` / `--force-overwrite` on `cluster kubeconfig --merge` for merge collisions or corrupt existing kubeconfig files.
 
 ## Confirmation prompts
 
-Destructive commands (`cluster delete`, `apikey delete`, `config delete-context`) prompt on TTY:
+Destructive commands (`cluster delete`, `apikey delete`, `secret delete`, `member remove`, `config delete-context`) prompt on TTY:
 
 ```
 $ kupe cluster delete prod
@@ -161,17 +159,9 @@ Error: cluster "prod" not found
   (request-id: 7a3b9e41-...)
 ```
 
-Request ID is always appended when the response included `X-Request-Id`, so support tickets can reference it.
+Request ID is included in the client error text when the response included `X-Request-Id`, so support tickets can reference it.
 
-With `-v`, full error chain and HTTP details (minus the token) are printed at the end.
-
-With `-o json`, errors are printed as a JSON object on stderr:
-
-```json
-{"error":"cluster \"prod\" not found","requestId":"7a3b9e41-...","exitCode":4}
-```
-
-The exit code is in the JSON and also matches the process exit code, so both `jq '.exitCode'` and `$?` work.
+With `-v`, HTTP method/path/status/duration traces are printed to stderr. Errors are not rendered as JSON today, even when `-o json` is set; scripts should use the process exit code and parse stdout only on success.
 
 ## Comparison with peer CLIs
 
@@ -186,7 +176,7 @@ The exit code is in the JSON and also matches the process exit code, so both `jq
 | Keyring | yes | yes | no | no | no |
 | Completion | yes | yes | yes | yes | yes |
 
-The biggest divergence is `-o json` (kubectl-style) instead of `--json` (gh/fly-style). We chose `-o json` because the full kubectl output format family (`go-template`, `jsonpath`, `yaml`, `name`, `wide`) only makes sense under a single `-o` umbrella, and importing `k8s.io/cli-runtime` gives us all of them for free.
+The biggest divergence is `-o json` (kubectl-style) instead of `--json` (gh/fly-style). We chose `-o json` because the kubectl-style output family (`go-template`, `jsonpath`, `yaml`, `name`, `wide`) only makes sense under a single `-o` umbrella. Rendering is implemented in-house because the Kubernetes printer stack expects `runtime.Object` types.
 
 ## Versioning and stability
 

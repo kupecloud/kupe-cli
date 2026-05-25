@@ -11,7 +11,7 @@ Output is the CLI's public interface. This doc specifies the formats supported, 
 
 ## Output formats
 
-The `-o` / `--output` flag accepts any of these values:
+List/get-style commands that expose `-o` / `--output` accept these values:
 
 | Format | Purpose | TTY default | Notes |
 |--------|---------|-------------|-------|
@@ -21,11 +21,14 @@ The `-o` / `--output` flag accepts any of these values:
 | `yaml` | `yaml.v3` marshal | No | Same schema as `json`. |
 | `name` | Bare resource names, one per line | No | Pipe-friendly: `kupe cluster list -o name \| xargs …`. |
 | `go-template=...` | Go `text/template` | No | e.g., `-o go-template='{{.Status.Phase}}'`. |
-| `jsonpath=...` | Planned — currently returns a helpful error directing users to `go-template=...` or `-o json \| jq`. | No | Deferred; see `internal/printer/plain.go`. |
+| `jsonpath=...` | Parsed for flag compatibility but currently returns a helpful not-implemented error directing users to `go-template=...` or `-o json \| jq`. | No | Deferred; see `internal/printer/plain.go`. |
 
 The file-based variants kubectl supports (`go-template-file=PATH`,
 `jsonpath-file=PATH`) are not yet wired to the `-o` flag. Pass the template
 inline for now.
+
+Toggle commands such as `kupe version`, `kupe auth whoami`, and
+`kupe apikey create` accept only `text` (default) and `json`.
 
 ### Format stability guarantee
 
@@ -48,7 +51,7 @@ are plain Go structs, so we shipped a thin in-house dispatcher instead:
 - `printer.RenderList[T]` / `printer.RenderOne[T]` — generic helpers every
   command uses. One place to add a new `-o` kind.
 - Per-resource `*Columns()` functions live in `printer/{cluster,apikey,
-  secret,member}.go`.
+  secret,member,tenant,invoice,plan}.go`.
 
 ### Per-resource table columns
 
@@ -76,8 +79,8 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 | ID | `.id` (truncated to 8 chars + `…`) | |
 | NAME | `.displayName` | |
 | ROLE | `.role` | |
-| CREATED BY | `.createdBy` | |
-| LAST USED | `.lastUsedAt` → relative or `never` | |
+| CREATED-BY | `.createdBy` | |
+| LAST-USED | `.lastUsedAt` → relative or `never` | |
 | AGE | `.createdAt` → relative | |
 | EXPIRES | `.expiresAt` → relative or `never` | ✓ |
 | ID-FULL | `.id` (full UUID) | ✓ |
@@ -99,6 +102,33 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 |--------|--------|------------|
 | EMAIL | `.email` | |
 | ROLE | `.role` | |
+
+**Invoice**:
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| NAME | `.name` | |
+| PHASE | `.status.phase` | |
+| ISSUED | `.status.issuedAt` | |
+| SUBTOTAL | `.status.subtotal` | |
+| CREDITS | `.status.creditsApplied` | |
+| TAX | `.status.tax` | ✓ |
+| TOTAL | `.status.total` | |
+| CURRENCY | `.status.currency` | |
+| START | `.billingPeriod.start` | ✓ |
+| END | `.billingPeriod.end` | ✓ |
+
+**Plan**:
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| NAME | `.name` | |
+| DISPLAY | `.displayName` or `.name` | |
+| FEE | `.platformFee` | |
+| MAX-CLUSTERS | `.maxClusters` | |
+| POOL | `.resourcePool` formatted as CPU/MEM/STORAGE | |
+| METRICS-SERIES | `.observabilityPool.maxActiveSeries` | ✓ |
+| LOG-GB | `.observabilityPool.logIngestGB` | ✓ |
 
 Column rendering uses `text/tabwriter` with 2-space padding. No unicode box characters in plain mode (breaks `awk`).
 
@@ -140,7 +170,7 @@ Rules (already referenced in [design.md](./design.md), reproduced here for compl
 
 - **ColorEnabled** = `stdoutIsTTY` AND `NO_COLOR` unset AND `--no-color` unset AND `$TERM != "dumb"`.
 - **SpinnersEnabled** = `stderrIsTTY` AND `CI` unset AND `-q` unset AND `KUPE_NO_PROGRESS` unset.
-- **PromptsEnabled** = `stdinIsTTY` AND `stderrIsTTY` AND `--yes` unset.
+- **PromptsEnabled** = `stdinIsTTY` AND `stderrIsTTY`. Destructive commands still bypass the prompt when their local `--yes` flag is set.
 
 Detection happens once. The `IOStreams` is threaded through the factory into every command; no function ever re-detects or reads these env vars directly.
 
@@ -175,16 +205,17 @@ type model struct {
 }
 
 func (m model) View() string {
-    elapsed := time.Since(m.startedAt).Round(time.Second)
-    return fmt.Sprintf("%s %s [%s]",
+    elapsed := humaniseElapsed(time.Since(m.startedAt))
+    return fmt.Sprintf("%s %s [%s]  %s",
         m.spinner.View(),
-        lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render(m.phase),
+        PhaseStyle(m.phase).Render(m.phase),
         elapsed,
+        m.label,
     )
 }
 ```
 
-A `tea.Cmd` ticks every 2s, calls `GetCluster`, and returns an `updatedMsg{phase, err}`. On a terminal phase (`Running` / gone / `Degraded`), the program quits. The wait returns and the normal command output resumes.
+A `tea.Cmd` polls immediately and then with exponential backoff from 2s to 10s, returning a phase/done/error result. On a terminal phase (`Running` / gone / `Degraded`), the program quits. The wait returns and the normal command output resumes.
 
 `bubbles/spinner.Dot` is the default frame style. There is currently no env
 var to pick a different style — the spinner is a single constant. If that
@@ -196,9 +227,10 @@ a `KUPE_SPINNER` knob at that point.
 One newline-terminated status line per phase transition, on stderr, no ANSI:
 
 ```
-[00:00:04] pending
-[00:00:34] provisioning
-[00:02:04] running
+[00:00] Pending
+[00:04] Provisioning
+[02:04] Running
+[02:04] cluster prod ready
 ```
 
 The timestamp is elapsed time from the command start (not wall-clock), so CI log scrollback stays useful even across replays. Lines are flushed immediately — no buffering.
@@ -211,8 +243,10 @@ The command's `context.Context` is canceled by the Cobra signal handler. The wai
 
 ```
 ^C
-cancelled while cluster prod was "provisioning"
-use "kupe cluster get prod" to check status, "kupe cluster wait prod" to resume
+Error: stopped waiting; cluster "prod" is still being created on Kupe Cloud
+  check status:  kupe cluster get prod
+  resume wait:   kupe cluster wait prod
+  abandon:       kupe cluster delete prod
 ```
 
 Exit code is `130` (standard Unix `128 + SIGINT`). The cluster keeps provisioning — it's the operator's job, not the CLI's. This matches `kubectl apply -f` and `gh pr merge --auto` behavior.
@@ -232,21 +266,11 @@ Body:
 - Indented hint lines: classification-specific guidance.
 - Indented `(request-id: ...)` when the error carries one.
 
-For `-o json`, errors write to stderr as a JSON object:
+Errors are always rendered as text today, even when `-o json` is set. Scripts should parse stdout only on success and use the process exit code for failure classification.
 
-```json
-{
-  "error": "cluster \"prod\" not found",
-  "exitCode": 4,
-  "requestId": "7a3b9e41-abcd-4567-8901-abcdef123456"
-}
-```
+### Hints
 
-The exit code is both in the JSON and the process exit code. Scripts can use either.
-
-### Hint table
-
-Errors carry classification-specific hints appended below the main message:
+Commands that can provide a concrete next step attach one or more indented hint lines below the main message. API errors that are returned directly may only include the server message and request ID.
 
 | Class | Hint |
 |-------|------|
@@ -262,18 +286,17 @@ Errors carry classification-specific hints appended below the main message:
 
 ## Quiet mode (`-q` / `--quiet`)
 
-- Turns off spinners, progress, status messages, and any stderr output that isn't an error.
+- Disables the animated spinner path by setting `SpinnersEnabled=false`.
 - Does **not** change stdout. `-o json` still produces JSON; `table` still produces a table.
-- Confirmation prompts are not allowed in `-q` mode — the command requires `--yes` or fails.
+- Does **not** bypass confirmation prompts; destructive commands still require `--yes` in non-TTY usage.
 
-Useful for CI where you only want the final result or the error.
+Current long-running commands fall back to the plain stderr progress renderer when spinners are disabled.
 
 ## Verbose mode (`-v` / `--verbose`)
 
 - Enables debug logging to stderr.
-- Logs: config file path, resolved context, HTTP method/path/status/duration, retry events, cache hits.
+- Logs: HTTP method, path, status, duration, and request ID for each round trip.
 - Never logs tokens, `Authorization` headers, or full request/response bodies.
-- Overrides `-q` for stderr output (errors and debug lines appear; info lines don't).
 
 `-v -v` reserved for future expansion (trace-level). For now `-v` only has one level.
 

@@ -11,7 +11,7 @@ the day-to-day workflow. Detailed reference material lives in [docs/](./docs/):
   storage backends.
 - **[docs/api-client.md](./docs/api-client.md)** — HTTP client conventions.
 - **[docs/output.md](./docs/output.md)** — TTY vs CI rendering rules.
-- **[docs/testing.md](./docs/testing.md)** — unit, golden, and live-test
+- **[docs/testing.md](./docs/testing.md)** — unit, printer, and live-test
   patterns.
 - **[docs/releasing.md](./docs/releasing.md)** — release pipeline runbook.
 
@@ -31,8 +31,10 @@ instead of opening a public issue.
 make build           # build bin/kupe with dev ldflags
 make test            # unit tests
 make lint            # golangci-lint
+make gosec           # security static analysis
+make govulncheck     # Go vulnerability check
 make snapshot        # local goreleaser run (no publish)
-make manpages        # generate man(1) into man/man1/
+make manpages        # generate completions and man(1) pages
 ```
 
 Hit a live development environment by exporting:

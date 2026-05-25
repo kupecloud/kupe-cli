@@ -234,16 +234,16 @@ Hosted at `https://get.kupe.cloud`. Simple POSIX shell script:
 2. Detect `uname -m` → amd64 / arm64.
 3. Fetch `https://github.com/kupecloud/kupe-cli/releases/latest/download/kupe_<version>_<os>_<arch>.tar.gz`.
 4. Fetch `kupe_<version>_checksums.txt` and verify.
-5. Extract and move `kupe` to `/usr/local/bin/kupe` (or `~/.local/bin/kupe` with `--user`, or `$KUPE_INSTALL_DIR`).
+5. Extract and move `kupe` to `~/.local/bin/kupe` by default, or to `--install-dir` / `$KUPE_INSTALL_DIR` when set. The script uses `sudo` only when the target directory is not writable.
 6. `chmod +x` and print success.
 
 ```bash
 curl -fsSL https://get.kupe.cloud | sh
 curl -fsSL https://get.kupe.cloud | sh -s -- --version=0.1.0
-curl -fsSL https://get.kupe.cloud | sh -s -- --user
+curl -fsSL https://get.kupe.cloud | sh -s -- --install-dir /usr/local/bin
 ```
 
-Script lives in a separate repo or the `docs-public` repo under `static/`. Cloudflare fronts `get.kupe.cloud` and serves the script with a 5-minute cache.
+Script lives at [`scripts/install.sh`](../scripts/install.sh). Cloudflare fronts `get.kupe.cloud` and serves the script with a 5-minute cache.
 
 ### No arbitrary code execution from sub-shells
 
@@ -273,7 +273,7 @@ Auto-generated from commit messages by goreleaser (`changelog.use: github`). Com
 feat: add kupe cluster wait command
 fix: restore --wait=false default for cluster delete
 docs: document exec-plugin kubeconfig mode
-chore: bump go to 1.26.2
+chore: bump go to 1.26.3
 ```
 
 `feat:` and `fix:` show up in release notes; `docs:`/`chore:`/`test:` are filtered out.
@@ -282,14 +282,14 @@ chore: bump go to 1.26.2
 
 ### `.github/workflows/ci.yaml` (PRs)
 
-- Checkout, setup-go 1.26.2, vendor, lint, test, sec, snapshot build.
+- Checkout, setup-go 1.26.3, vendor, lint, test, gosec, govulncheck, snapshot build.
 - Cancels in-progress runs on subsequent pushes to the same PR.
 
 ### `.github/workflows/release.yaml` (tags)
 
 - Triggers on `push: tags: ["v*"]`.
 - Permissions: `contents: write`, `packages: write`, `id-token: write` (for Cosign keyless).
-- Steps: checkout with full history (for changelog), setup-go 1.26.2, setup-cosign, setup-syft, `goreleaser release --clean`.
+- Steps: checkout with full history (for changelog), setup-go 1.26.3, setup-cosign, setup-syft, `goreleaser release --clean`.
 - Secrets required:
   - `GITHUB_TOKEN` (default).
   - `HOMEBREW_TAP_TOKEN` — PAT with `repo` on `kupecloud/homebrew-tap`.
@@ -312,11 +312,11 @@ Verifiable by checking out a release tag and re-running goreleaser locally — t
 
 Documented in README and docs-public. Steps:
 
-1. `brew uninstall kupe` or `scoop uninstall kupe` (or `rm /usr/local/bin/kupe` for install-script users).
+1. `brew uninstall kupe` or `scoop uninstall kupe` (or `rm ~/.local/bin/kupe` / `rm /usr/local/bin/kupe` for install-script users).
 2. `rm -rf ~/.config/kupe/`.
-3. On macOS: `security delete-generic-password -s kupe-cli` per context.
-4. On Linux: `secret-tool clear service kupe-cli` per context.
-5. On Windows: `cmdkey /delete:kupe-cli:<context>` per context.
+3. On macOS: `security delete-generic-password -s cloud.kupe.cli -a <context>` per context.
+4. On Linux: `secret-tool clear service cloud.kupe.cli account <context>` per context.
+5. On Windows: remove the `cloud.kupe.cli` Credential Manager entry for each context.
 
 No automated uninstaller in v1 — Homebrew/Scoop handle the binary; users own the config and secrets.
 

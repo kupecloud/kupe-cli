@@ -90,7 +90,7 @@ The commit message drives the version bump via
 ### 2. Merge to main
 
 ```bash
-make test lint sec          # clean checkout on the PR branch
+make test lint gosec govulncheck  # clean checkout on the PR branch
 make snapshot               # sanity-check the goreleaser config
 # … PR review → squash-merge to main
 ```

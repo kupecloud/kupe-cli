@@ -15,6 +15,8 @@ type updateOpts struct {
 	cpu         string
 	memory      string
 	storage     string
+	enableHA    bool
+	disableHA   bool
 	ifMatch     string
 	force       bool
 	wait        bool
@@ -45,8 +47,11 @@ rarely the right answer outside of disaster recovery.`,
 			// "at least one field required"); catch that client-side so
 			// misconfigured CI pipelines don't silently report success on
 			// a no-op invocation.
-			if opts.version == "" && opts.cpu == "" && opts.memory == "" && opts.storage == "" {
-				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu-limit, --memory-limit, --storage-limit")
+			if opts.version == "" && opts.cpu == "" && opts.memory == "" && opts.storage == "" && !opts.enableHA && !opts.disableHA {
+				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu-limit, --memory-limit, --storage-limit, --enable-ha, --disable-ha")
+			}
+			if opts.enableHA && opts.disableHA {
+				return cli.MisuseError("--enable-ha and --disable-ha are mutually exclusive")
 			}
 			if err := validateUpdateOpts(opts); err != nil {
 				return err
@@ -131,6 +136,8 @@ rarely the right answer outside of disaster recovery.`,
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "New CPU limit (e.g. 4, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "New memory limit (e.g. 16Gi, 512Mi)")
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "New storage limit (e.g. 100Gi)")
+	cmd.Flags().BoolVar(&opts.enableHA, "enable-ha", false, "Enable HA on this cluster. Triggers a ~10-minute in-place kine→etcd migration with API downtime.")
+	cmd.Flags().BoolVar(&opts.disableHA, "disable-ha", false, "Disable HA on this cluster. Not supported in v1 — operator will reject with HA_DISABLE_UNSUPPORTED.")
 	cmd.Flags().StringVar(&opts.ifMatch, "if-match", "", "Only update if the cluster's resourceVersion still matches this value; aborts otherwise (advanced)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Skip the resourceVersion check; may overwrite a concurrent update from another client (advanced)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to return to Running before returning")
@@ -169,6 +176,18 @@ func buildPatch(opts *updateOpts) *client.PatchClusterRequest {
 	if r := resourceRequest(opts.cpu, opts.memory, opts.storage); r != nil {
 		patch.Resources = r
 	}
+	if opts.enableHA {
+		t := true
+		patch.HighAvailability = &t
+	}
+	if opts.disableHA {
+		// We send the value through to the server even though we know it'll
+		// reject — the operator's webhook owns the canonical error code
+		// (HA_DISABLE_UNSUPPORTED) and we want the same string surfaced
+		// here as in console/TF/kubectl direct.
+		f := false
+		patch.HighAvailability = &f
+	}
 	return patch
 }
 
@@ -183,6 +202,15 @@ func isNoOpUpdate(current *client.Cluster, opts *updateOpts) bool {
 		return false
 	}
 	if opts.version != "" && opts.version != current.Version {
+		return false
+	}
+	if opts.enableHA && !current.HighAvailability {
+		return false
+	}
+	// --disable-ha is never a no-op: even on a non-HA cluster the operator
+	// rejects it explicitly. Send it through so the user sees the canonical
+	// HA_DISABLE_UNSUPPORTED rejection (or, on an HA cluster, the same).
+	if opts.disableHA {
 		return false
 	}
 	if current.Resources == nil {

@@ -18,6 +18,7 @@ func ClusterColumns(colorEnabled bool) Columns {
 		{Name: "PHASE", Get: func(v any) string {
 			return ux.ColorPhase(phaseOf(cluster(v)), colorEnabled)
 		}},
+		{Name: "HA", Get: func(v any) string { return haDisplay(cluster(v)) }},
 		{Name: "CPU", Get: func(v any) string { return resourceOf(cluster(v)).CPU }},
 		{Name: "MEM", Get: func(v any) string { return resourceOf(cluster(v)).Memory }},
 		{Name: "AGE", Get: func(v any) string { return ageFromRFC3339(cluster(v).CreatedAt) }},
@@ -44,6 +45,7 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(phaseOf(cluster(v)), colorEnabled)
 		}},
+		{Name: "High Availability", Get: func(v any) string { return haDetailDisplay(cluster(v)) }},
 		{Name: "Endpoint", Get: func(v any) string { return statusOf(cluster(v)).Endpoint }},
 		{Name: "CPU", Get: func(v any) string { return resourceOf(cluster(v)).CPU }},
 		{Name: "Memory", Get: func(v any) string { return resourceOf(cluster(v)).Memory }},
@@ -58,6 +60,47 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 		}},
 	}
 	return cols
+}
+
+// haDisplay renders the compact HA cell for `cluster list`. Combines spec
+// (the request) and status (operational reality) into one short string so
+// the table stays readable:
+//   - HA not requested → "off"
+//   - HA requested but not yet configured → "pending"
+//   - HA configured and cluster Running → "on"
+//   - HA configured but cluster not Running → "degraded"
+func haDisplay(c *client.Cluster) string {
+	if c == nil || !c.HighAvailability {
+		return "off"
+	}
+	st := statusOf(c)
+	if !st.HAConfigured {
+		return "pending"
+	}
+	if st.Phase != client.PhaseRunning {
+		return "degraded"
+	}
+	return "on"
+}
+
+// haDetailDisplay is the expanded HA line for `cluster get`. Includes the
+// billing-anchor timestamp so tenants can self-serve "when did HA charging
+// start for this cluster?" without grepping invoice lines.
+func haDetailDisplay(c *client.Cluster) string {
+	if c == nil || !c.HighAvailability {
+		return "off"
+	}
+	st := statusOf(c)
+	switch {
+	case !st.HAConfigured && st.Phase == client.PhaseMigrating:
+		return "migrating (kine→etcd in progress, ~10 min downtime)"
+	case !st.HAConfigured:
+		return "pending (waiting for 3/3 replicas to be ready)"
+	case st.Phase != client.PhaseRunning:
+		return "degraded — enabled at " + st.HAEnabledAt
+	default:
+		return "on — enabled at " + st.HAEnabledAt
+	}
 }
 
 // cluster asserts a table row's value into a client.Cluster. Accepts either

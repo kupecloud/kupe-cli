@@ -12,15 +12,16 @@ import (
 )
 
 type createOpts struct {
-	typ         string
-	displayName string
-	version     string
-	cpu         string
-	memory      string
-	storage     string
-	wait        bool
-	waitTimeout time.Duration
-	output      string
+	typ              string
+	displayName      string
+	version          string
+	cpu              string
+	memory           string
+	storage          string
+	highAvailability bool
+	wait             bool
+	waitTimeout      time.Duration
+	output           string
 }
 
 func newCreateCmd(f *cli.Factory) *cobra.Command {
@@ -74,10 +75,11 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 				displayName = name
 			}
 			req := client.CreateClusterRequest{
-				Name:        name,
-				DisplayName: displayName,
-				Type:        opts.typ,
-				Version:     opts.version,
+				Name:             name,
+				DisplayName:      displayName,
+				Type:             opts.typ,
+				Version:          opts.version,
+				HighAvailability: opts.highAvailability,
 			}
 			if r := resourceRequest(opts.cpu, opts.memory, opts.storage); r != nil {
 				req.Resources = r
@@ -109,6 +111,11 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "CPU limit for the cluster (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "Memory limit for the cluster (e.g. 8Gi, 512Mi)")
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "Storage limit for the cluster (e.g. 50Gi)")
+	cmd.Flags().BoolVar(&opts.highAvailability, "high-availability", false, "Provision a 3-replica HA control plane. Adds an hourly charge (see kupe plan for the rate).")
+	// --ha is a short alias people will reach for in shell prompts. Hidden so
+	// it doesn't crowd --help; documented in the --high-availability flag help.
+	cmd.Flags().BoolVar(&opts.highAvailability, "ha", false, "Alias for --high-availability")
+	_ = cmd.Flags().MarkHidden("ha")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to reach Running before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)

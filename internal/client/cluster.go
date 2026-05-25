@@ -15,7 +15,10 @@ type Cluster struct {
 	Version     string           `json:"version" yaml:"version"`
 	Resources   *ClusterResource `json:"resources,omitempty" yaml:"resources,omitempty"`
 	Alerts      any              `json:"alerts,omitempty" yaml:"alerts,omitempty"`
-	Status      *ClusterStatus   `json:"status,omitempty" yaml:"status,omitempty"`
+	// HighAvailability is the requested HA state. status.HAConfigured + status.HAEnabledAt
+	// describe the operational reality.
+	HighAvailability bool           `json:"highAvailability,omitempty" yaml:"highAvailability,omitempty"`
+	Status           *ClusterStatus `json:"status,omitempty" yaml:"status,omitempty"`
 	// Generation is metadata.generation — bumps by 1 on every spec mutation.
 	// Pair it with status.observedGeneration to know when the operator has
 	// reconciled a PATCH; required because in-place updates (resource limit
@@ -35,7 +38,7 @@ type ClusterResource struct {
 }
 
 // ClusterStatus mirrors the observed state published by the operator. Phase
-// values: Pending | Provisioning | Running | Upgrading | Degraded | Terminating.
+// values: Pending | Provisioning | Running | Upgrading | Migrating | Degraded | Terminating.
 type ClusterStatus struct {
 	// ObservedGeneration is the metadata.generation the operator last
 	// reconciled. Compare against Cluster.Generation to know whether a
@@ -44,24 +47,32 @@ type ClusterStatus struct {
 	Phase              string `json:"phase,omitempty" yaml:"phase,omitempty"`
 	KubernetesVersion  string `json:"kubernetesVersion,omitempty" yaml:"kubernetesVersion,omitempty"`
 	Endpoint           string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
+	// HAConfigured is true once the operator has confirmed 3/3 HA control-plane
+	// replicas ready. HAEnabledAt is the moment that happened (billing anchor).
+	HAConfigured bool   `json:"haConfigured,omitempty" yaml:"haConfigured,omitempty"`
+	HAEnabledAt  string `json:"haEnabledAt,omitempty" yaml:"haEnabledAt,omitempty"`
 }
 
 // CreateClusterRequest is the POST body.
 type CreateClusterRequest struct {
-	Name        string           `json:"name"`
-	DisplayName string           `json:"displayName,omitempty"`
-	Type        string           `json:"type"`
-	Version     string           `json:"version,omitempty"`
-	Resources   *ClusterResource `json:"resources,omitempty"`
-	Alerts      any              `json:"alerts,omitempty"`
+	Name             string           `json:"name"`
+	DisplayName      string           `json:"displayName,omitempty"`
+	Type             string           `json:"type"`
+	Version          string           `json:"version,omitempty"`
+	Resources        *ClusterResource `json:"resources,omitempty"`
+	Alerts           any              `json:"alerts,omitempty"`
+	HighAvailability bool             `json:"highAvailability,omitempty"`
 }
 
 // PatchClusterRequest is the PATCH body — all fields optional; only the
-// populated ones are sent to the server.
+// populated ones are sent to the server. HighAvailability uses *bool so the
+// CLI can distinguish "don't change" (nil) from "set to true" (&true). The
+// operator rejects true → false in v1 (HA_DISABLE_UNSUPPORTED).
 type PatchClusterRequest struct {
-	Version   *string          `json:"version,omitempty"`
-	Resources *ClusterResource `json:"resources,omitempty"`
-	Alerts    any              `json:"alerts,omitempty"`
+	Version          *string          `json:"version,omitempty"`
+	Resources        *ClusterResource `json:"resources,omitempty"`
+	Alerts           any              `json:"alerts,omitempty"`
+	HighAvailability *bool            `json:"highAvailability,omitempty"`
 }
 
 // Phase helper constants for waiter comparisons. Defined alongside the
@@ -71,6 +82,7 @@ const (
 	PhaseProvisioning = "Provisioning"
 	PhaseRunning      = "Running"
 	PhaseUpgrading    = "Upgrading"
+	PhaseMigrating    = "Migrating"
 	PhaseDegraded     = "Degraded"
 	PhaseTerminating  = "Terminating"
 )

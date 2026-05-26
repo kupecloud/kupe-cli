@@ -47,8 +47,11 @@ type ClusterStatus struct {
 	Phase              string `json:"phase,omitempty" yaml:"phase,omitempty"`
 	KubernetesVersion  string `json:"kubernetesVersion,omitempty" yaml:"kubernetesVersion,omitempty"`
 	Endpoint           string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
-	// HAConfigured is true once the operator has confirmed 3/3 HA control-plane
-	// replicas ready. HAEnabledAt is the moment that happened (billing anchor).
+	// HAConfigured is true once the operator has confirmed both 3/3 apiserver
+	// replicas AND 3/3 deployed-etcd replicas are Ready. Etcd readiness is
+	// required because the OSS deployed-etcd path runs etcd in its own
+	// StatefulSet — quorum loss with healthy apiserver pods still blocks
+	// writes. HAEnabledAt is the moment that happened (billing anchor).
 	HAConfigured bool   `json:"haConfigured,omitempty" yaml:"haConfigured,omitempty"`
 	HAEnabledAt  string `json:"haEnabledAt,omitempty" yaml:"haEnabledAt,omitempty"`
 	// HAPhase is the consumer-friendly HA rollup. One of pending,

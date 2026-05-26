@@ -37,7 +37,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		Short: "Show full details of the current tenant",
 		Example: `  kupe tenant get
   kupe tenant get -o yaml
-  kupe tenant get -o json | jq .status.currentUsage`,
+  kupe tenant get -o json | jq .status.billing.currentUsage`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			format, err := printer.Resolve(f, output)
 			if err != nil {

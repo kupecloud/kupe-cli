@@ -686,8 +686,8 @@ Created:          2026-03-01T10:00:00Z (50d ago)
 ```
 
 With `-o json` or `-o yaml`, the full tenant object is emitted including nested
-`status.currentUsage.compute` and `status.currentUsage.observability` blocks —
-use `jq .status.currentUsage` to extract just the billing-relevant fields.
+`status.billing.currentUsage.compute` and `status.billing.currentUsage.observability`
+blocks — use `jq .status.billing.currentUsage` to extract just the billing-relevant fields.
 
 Backed by `GET /api/v1/tenants/{tenant}`. Exits `4` if the tenant (i.e. the
 current context's tenant) no longer exists on the server, `3` on invalid

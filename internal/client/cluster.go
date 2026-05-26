@@ -38,7 +38,7 @@ type ClusterResource struct {
 }
 
 // ClusterStatus mirrors the observed state published by the operator. Phase
-// values: Pending | Provisioning | Running | Upgrading | Migrating | Degraded | Terminating.
+// values: Pending | Provisioning | Running | Upgrading | Degraded | Terminating.
 type ClusterStatus struct {
 	// ObservedGeneration is the metadata.generation the operator last
 	// reconciled. Compare against Cluster.Generation to know whether a
@@ -51,7 +51,7 @@ type ClusterStatus struct {
 	// replicas ready. HAEnabledAt is the moment that happened (billing anchor).
 	HAConfigured bool   `json:"haConfigured,omitempty" yaml:"haConfigured,omitempty"`
 	HAEnabledAt  string `json:"haEnabledAt,omitempty" yaml:"haEnabledAt,omitempty"`
-	// HAPhase is the consumer-friendly HA rollup. One of pending, migrating,
+	// HAPhase is the consumer-friendly HA rollup. One of pending,
 	// ha-healthy, ha-degraded, ha-unavailable. Empty for non-HA clusters.
 	HAPhase string `json:"haPhase,omitempty" yaml:"haPhase,omitempty"`
 	// HAReplicasReady / HAReplicasDesired surface the "N of M" pair used by
@@ -90,7 +90,6 @@ const (
 	PhaseProvisioning = "Provisioning"
 	PhaseRunning      = "Running"
 	PhaseUpgrading    = "Upgrading"
-	PhaseMigrating    = "Migrating"
 	PhaseDegraded     = "Degraded"
 	PhaseTerminating  = "Terminating"
 )

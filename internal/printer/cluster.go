@@ -68,7 +68,6 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 // haPhase yet. Keeps the table readable:
 //   - HA not requested → "off"
 //   - haPhase=pending → "pending"
-//   - haPhase=migrating → "migrating"
 //   - haPhase=ha-healthy → "on (N/M)"
 //   - haPhase=ha-degraded → "degraded (N/M)"
 //   - haPhase=ha-unavailable → "unavailable (N/M)"  // quorum lost
@@ -84,8 +83,6 @@ func haDisplay(c *client.Cluster) string {
 		return "degraded " + haReadyCount(st)
 	case "ha-unavailable":
 		return "unavailable " + haReadyCount(st)
-	case "migrating":
-		return "migrating"
 	case "pending":
 		return "pending"
 	}
@@ -114,15 +111,11 @@ func haDetailDisplay(c *client.Cluster) string {
 		return "degraded " + haReadyCount(st) + " — API still serving, enabled at " + st.HAEnabledAt
 	case "ha-unavailable":
 		return "unavailable " + haReadyCount(st) + " — quorum lost, API not serving, enabled at " + st.HAEnabledAt
-	case "migrating":
-		return "migrating (kine→etcd in progress, ~10 min downtime)"
 	case "pending":
-		return "pending (waiting for 3/3 replicas to be ready)"
+		return "pending (waiting for 3/3 CP and etcd replicas to be ready)"
 	}
 	// Fallback for older operators that don't populate haPhase.
 	switch {
-	case !st.HAConfigured && st.Phase == client.PhaseMigrating:
-		return "migrating (kine→etcd in progress, ~10 min downtime)"
 	case !st.HAConfigured:
 		return "pending (waiting for 3/3 replicas to be ready)"
 	case st.Phase != client.PhaseRunning:

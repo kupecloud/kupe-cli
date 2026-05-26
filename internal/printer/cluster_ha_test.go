@@ -34,12 +34,12 @@ func TestHaDisplay(t *testing.T) {
 			want: "degraded",
 		},
 		{
-			name: "HA configured during Migrating",
+			name: "HA configured during Upgrading",
 			c: &client.Cluster{
 				HighAvailability: true,
-				// Migrating implies HAConfigured isn't true yet, but be
-				// defensive against operator-state edge cases.
-				Status: &client.ClusterStatus{HAConfigured: true, Phase: client.PhaseMigrating},
+				// Upgrading implies a transient non-Running phase; the
+				// fallback path treats this as degraded.
+				Status: &client.ClusterStatus{HAConfigured: true, Phase: client.PhaseUpgrading},
 			},
 			want: "degraded",
 		},
@@ -76,7 +76,6 @@ func TestHaDisplay_HAPhaseDriven(t *testing.T) {
 		{name: "ha-healthy with counts", phase: "ha-healthy", ready: 3, desired: 3, want: "on (3/3)"},
 		{name: "ha-degraded with counts", phase: "ha-degraded", ready: 2, desired: 3, want: "degraded (2/3)"},
 		{name: "ha-unavailable with counts", phase: "ha-unavailable", ready: 0, desired: 3, want: "unavailable (0/3)"},
-		{name: "migrating", phase: "migrating", want: "migrating"},
 		{name: "pending", phase: "pending", want: "pending"},
 		{name: "ha-healthy without counts (older op)", phase: "ha-healthy", want: "on "},
 	}
@@ -149,14 +148,6 @@ func TestHaDetailDisplay(t *testing.T) {
 		want string
 	}{
 		{name: "off", c: &client.Cluster{HighAvailability: false}, want: "off"},
-		{
-			name: "migrating",
-			c: &client.Cluster{
-				HighAvailability: true,
-				Status:           &client.ClusterStatus{Phase: client.PhaseMigrating},
-			},
-			want: "migrating (kine→etcd in progress, ~10 min downtime)",
-		},
 		{
 			name: "pending (Provisioning)",
 			c: &client.Cluster{

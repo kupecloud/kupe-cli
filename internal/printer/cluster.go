@@ -125,13 +125,28 @@ func haDetailDisplay(c *client.Cluster) string {
 	}
 }
 
-// haReadyCount returns a "(N/M)" suffix from the replica counts. Empty
-// when desired is zero (e.g. older operators that don't populate counts).
+// haReadyCount returns a parenthesised N-of-M suffix from the replica
+// counts. Empty when desired is zero (older operators that don't populate
+// counts). When CP and etcd readiness agree the format collapses to a
+// single "(N/M)" pair; otherwise both tiers are labelled so operators can
+// tell at a glance which side is degraded — important because the OSS
+// deployed-etcd path can leave the apiserver replicas healthy while etcd
+// has lost quorum (writes blocked) or vice versa.
 func haReadyCount(st client.ClusterStatus) string {
-	if st.HAReplicasDesired == 0 {
+	if st.HAReplicasDesired == 0 && st.HAEtcdReplicasDesired == 0 {
 		return ""
 	}
-	return "(" + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ")")
+	// Older operators that haven't been redeployed yet only emit the CP
+	// counts. Fall back to the single-pair format so the output stays
+	// readable across the version skew window.
+	if st.HAEtcdReplicasDesired == 0 {
+		return "(" + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ")")
+	}
+	if st.HAReplicasReady == st.HAEtcdReplicasReady && st.HAReplicasDesired == st.HAEtcdReplicasDesired {
+		return "(" + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ")")
+	}
+	return "(cp " + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ", etcd ") +
+		itoaSuffix(int(st.HAEtcdReplicasReady), "/") + itoaSuffix(int(st.HAEtcdReplicasDesired), ")")
 }
 
 // cluster asserts a table row's value into a client.Cluster. Accepts either

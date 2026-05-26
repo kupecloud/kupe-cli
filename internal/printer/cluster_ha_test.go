@@ -96,6 +96,39 @@ func TestHaDisplay_HAPhaseDriven(t *testing.T) {
 	}
 }
 
+// TestHaReadyCount_DualTier verifies the (cp N/M, etcd N/M) format kicks
+// in once the operator populates both tiers AND they disagree. Equal
+// counts collapse to a single pair so the common-case `kupe cluster list`
+// output stays compact.
+func TestHaReadyCount_DualTier(t *testing.T) {
+	tests := []struct {
+		name        string
+		cpReady     int32
+		cpDesired   int32
+		etcdReady   int32
+		etcdDesired int32
+		want        string
+	}{
+		{name: "older operator (no etcd counts)", cpReady: 3, cpDesired: 3, want: "(3/3)"},
+		{name: "both healthy", cpReady: 3, cpDesired: 3, etcdReady: 3, etcdDesired: 3, want: "(3/3)"},
+		{name: "cp degraded, etcd healthy", cpReady: 2, cpDesired: 3, etcdReady: 3, etcdDesired: 3, want: "(cp 2/3, etcd 3/3)"},
+		{name: "cp healthy, etcd quorum lost", cpReady: 3, cpDesired: 3, etcdReady: 1, etcdDesired: 3, want: "(cp 3/3, etcd 1/3)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := client.ClusterStatus{
+				HAReplicasReady:       tt.cpReady,
+				HAReplicasDesired:     tt.cpDesired,
+				HAEtcdReplicasReady:   tt.etcdReady,
+				HAEtcdReplicasDesired: tt.etcdDesired,
+			}
+			if got := haReadyCount(st); got != tt.want {
+				t.Errorf("haReadyCount() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestHaDetailDisplay_HAPhaseDriven covers the expanded `cluster get`
 // detail line driven by the haPhase rollup, including the new
 // ha-unavailable copy that distinguishes "quorum lost" from "redundancy

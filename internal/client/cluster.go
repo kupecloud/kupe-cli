@@ -54,10 +54,16 @@ type ClusterStatus struct {
 	// HAPhase is the consumer-friendly HA rollup. One of pending,
 	// ha-healthy, ha-degraded, ha-unavailable. Empty for non-HA clusters.
 	HAPhase string `json:"haPhase,omitempty" yaml:"haPhase,omitempty"`
-	// HAReplicasReady / HAReplicasDesired surface the "N of M" pair used by
-	// the printer for `cluster list` / `cluster get` display.
+	// HAReplicasReady / HAReplicasDesired surface the apiserver "N of M" pair
+	// used by the printer for `cluster list` / `cluster get` display.
 	HAReplicasReady   int32 `json:"haReplicasReady,omitempty" yaml:"haReplicasReady,omitempty"`
 	HAReplicasDesired int32 `json:"haReplicasDesired,omitempty" yaml:"haReplicasDesired,omitempty"`
+	// HAEtcdReplicasReady / HAEtcdReplicasDesired surface the deployed-etcd
+	// "N of M" pair. In the OSS deployed-etcd path etcd runs in its own
+	// StatefulSet; a 3/3 CP with a 2/3 etcd is still degraded because
+	// etcd quorum loss takes writes offline.
+	HAEtcdReplicasReady   int32 `json:"haEtcdReplicasReady,omitempty" yaml:"haEtcdReplicasReady,omitempty"`
+	HAEtcdReplicasDesired int32 `json:"haEtcdReplicasDesired,omitempty" yaml:"haEtcdReplicasDesired,omitempty"`
 }
 
 // CreateClusterRequest is the POST body.

@@ -37,30 +37,3 @@ func ConfirmDelete(io *IOStreams, skip bool, noun, identifier string) error {
 	}
 	return nil
 }
-
-// ConfirmYesNo prompts with the given message on a TTY. Accepts y/yes
-// (case-insensitive) as confirmation; anything else aborts. Returns nil
-// on confirmation, a MisuseError otherwise.
-//
-// skip=true bypasses the prompt entirely. Non-TTY callers without skip
-// get a MisuseError so CI doesn't hang. Used for HA-enable migration
-// confirmation (≠ deletion — different semantics, different default,
-// reused prompt machinery).
-func ConfirmYesNo(io *IOStreams, skip bool, message string) error {
-	if skip {
-		return nil
-	}
-	if !io.PromptsEnabled {
-		return MisuseError("refusing to proceed without --yes in non-interactive mode")
-	}
-	fmt.Fprintf(io.ErrOut, "%s [y/N] ", message)
-	line, err := bufio.NewReader(io.In).ReadString('\n')
-	if err != nil {
-		return Wrap(ExitGeneral, "reading confirmation", err)
-	}
-	answer := strings.ToLower(strings.TrimSpace(line))
-	if answer != "y" && answer != "yes" {
-		return MisuseError("aborted")
-	}
-	return nil
-}

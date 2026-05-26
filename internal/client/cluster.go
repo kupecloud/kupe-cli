@@ -72,14 +72,15 @@ type CreateClusterRequest struct {
 }
 
 // PatchClusterRequest is the PATCH body — all fields optional; only the
-// populated ones are sent to the server. HighAvailability uses *bool so the
-// CLI can distinguish "don't change" (nil) from "set to true" (&true). The
-// operator rejects true → false in v1 (HA_DISABLE_UNSUPPORTED).
+// populated ones are sent to the server. HA is intentionally absent —
+// it's a create-time-only setting in v1 (see cluster create
+// --high-availability); both directions of the toggle are rejected by
+// the operator with HA_ENABLE_ON_EXISTING_UNSUPPORTED /
+// HA_DISABLE_UNSUPPORTED.
 type PatchClusterRequest struct {
-	Version          *string          `json:"version,omitempty"`
-	Resources        *ClusterResource `json:"resources,omitempty"`
-	Alerts           any              `json:"alerts,omitempty"`
-	HighAvailability *bool            `json:"highAvailability,omitempty"`
+	Version   *string          `json:"version,omitempty"`
+	Resources *ClusterResource `json:"resources,omitempty"`
+	Alerts    any              `json:"alerts,omitempty"`
 }
 
 // Phase helper constants for waiter comparisons. Defined alongside the

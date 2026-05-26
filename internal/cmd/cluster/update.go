@@ -1,7 +1,6 @@
 package cluster
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,9 +15,6 @@ type updateOpts struct {
 	cpu         string
 	memory      string
 	storage     string
-	enableHA    bool
-	disableHA   bool
-	yes         bool
 	ifMatch     string
 	force       bool
 	wait        bool
@@ -36,6 +32,10 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 --cpu-limit, --memory-limit, or --storage-limit should be provided; combining
 several mutations in a single request is supported but unusual.
 
+High availability is set at cluster creation and cannot be toggled via
+update — see "kupe cluster create --high-availability". Recreate the cluster
+with --high-availability set if you need HA on an existing cluster.
+
 By default the CLI checks the cluster hasn't changed since you last
 read it (read-modify-write with a server-side version check) and retries
 once on a concurrent-update collision. Pass --force to skip the check —
@@ -49,11 +49,8 @@ rarely the right answer outside of disaster recovery.`,
 			// "at least one field required"); catch that client-side so
 			// misconfigured CI pipelines don't silently report success on
 			// a no-op invocation.
-			if opts.version == "" && opts.cpu == "" && opts.memory == "" && opts.storage == "" && !opts.enableHA && !opts.disableHA {
-				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu-limit, --memory-limit, --storage-limit, --enable-ha, --disable-ha")
-			}
-			if opts.enableHA && opts.disableHA {
-				return cli.MisuseError("--enable-ha and --disable-ha are mutually exclusive")
+			if opts.version == "" && opts.cpu == "" && opts.memory == "" && opts.storage == "" {
+				return cli.MisuseError("nothing to update: pass at least one of --version, --cpu-limit, --memory-limit, --storage-limit")
 			}
 			if err := validateUpdateOpts(opts); err != nil {
 				return err
@@ -81,23 +78,6 @@ rarely the right answer outside of disaster recovery.`,
 			}
 			if isNoOpUpdate(current, opts) {
 				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, current)
-			}
-
-			// HA enable on an existing single-replica cluster triggers an
-			// in-place kine→etcd migration with API downtime. Print the
-			// canonical warning (mirrors HA_ENABLE_MIGRATION from the
-			// operator webhook) and require explicit confirmation so a
-			// stray --enable-ha never causes a surprise outage. --yes
-			// bypasses for CI; non-TTY without --yes errors out so a
-			// scripted invocation can't hang on stdin.
-			if opts.enableHA && !current.HighAvailability {
-				msg := fmt.Sprintf("Enabling HA on %q migrates kine→etcd in place.\n"+
-					"Expect ~10 minutes of API downtime during the migration window.\n"+
-					"HA billing accrues from the moment 3/3 replicas are ready — not before.\n\n"+
-					"Continue?", name)
-				if err := cli.ConfirmYesNo(f.IOStreams, opts.yes, msg); err != nil {
-					return err
-				}
 			}
 
 			patch := buildPatch(opts)
@@ -155,9 +135,6 @@ rarely the right answer outside of disaster recovery.`,
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "New CPU limit (e.g. 4, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "New memory limit (e.g. 16Gi, 512Mi)")
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "New storage limit (e.g. 100Gi)")
-	cmd.Flags().BoolVar(&opts.enableHA, "enable-ha", false, "Enable HA on this cluster. Triggers a ~10-minute in-place kine→etcd migration with API downtime.")
-	cmd.Flags().BoolVar(&opts.disableHA, "disable-ha", false, "Disable HA on this cluster. Not supported in v1 — operator will reject with HA_DISABLE_UNSUPPORTED.")
-	cmd.Flags().BoolVarP(&opts.yes, "yes", "y", false, "Skip interactive confirmation (required in non-interactive environments for --enable-ha)")
 	cmd.Flags().StringVar(&opts.ifMatch, "if-match", "", "Only update if the cluster's resourceVersion still matches this value; aborts otherwise (advanced)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Skip the resourceVersion check; may overwrite a concurrent update from another client (advanced)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the cluster to return to Running before returning")
@@ -196,18 +173,6 @@ func buildPatch(opts *updateOpts) *client.PatchClusterRequest {
 	if r := resourceRequest(opts.cpu, opts.memory, opts.storage); r != nil {
 		patch.Resources = r
 	}
-	if opts.enableHA {
-		t := true
-		patch.HighAvailability = &t
-	}
-	if opts.disableHA {
-		// We send the value through to the server even though we know it'll
-		// reject — the operator's webhook owns the canonical error code
-		// (HA_DISABLE_UNSUPPORTED) and we want the same string surfaced
-		// here as in console/TF/kubectl direct.
-		f := false
-		patch.HighAvailability = &f
-	}
 	return patch
 }
 
@@ -222,15 +187,6 @@ func isNoOpUpdate(current *client.Cluster, opts *updateOpts) bool {
 		return false
 	}
 	if opts.version != "" && opts.version != current.Version {
-		return false
-	}
-	if opts.enableHA && !current.HighAvailability {
-		return false
-	}
-	// --disable-ha is never a no-op: even on a non-HA cluster the operator
-	// rejects it explicitly. Send it through so the user sees the canonical
-	// HA_DISABLE_UNSUPPORTED rejection (or, on an HA cluster, the same).
-	if opts.disableHA {
 		return false
 	}
 	if current.Resources == nil {

@@ -65,12 +65,18 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 // haDisplay renders the compact HA cell for `cluster list`. Prefers the
 // operator's haPhase rollup when present; falls back to inferring from
 // haConfigured + phase for older operator versions that don't populate
-// haPhase yet. Keeps the table readable:
+// haPhase yet. Vocabulary deliberately matches the console's HA chip so
+// users see the same label across surfaces:
 //   - HA not requested → "off"
 //   - haPhase=pending → "pending"
-//   - haPhase=ha-healthy → "on (N/M)"
-//   - haPhase=ha-degraded → "degraded (N/M)"
-//   - haPhase=ha-unavailable → "unavailable (N/M)"  // quorum lost
+//   - haPhase=ha-healthy → "healthy (N/M)"
+//   - haPhase=ha-degraded → "degraded (N/M)"      // quorum present, API serving
+//   - haPhase=ha-unavailable → "degraded (N/M)"   // quorum lost; detail line spells it out
+//
+// Both ha-degraded and ha-unavailable render as "degraded" in the compact
+// view — "degraded" is the standard K8s/SRE term for "needs attention".
+// The operational distinction (redundancy reduced vs quorum lost) lives
+// in the `cluster get` detail line, which has room to carry it.
 func haDisplay(c *client.Cluster) string {
 	if c == nil || !c.HighAvailability {
 		return "off"
@@ -78,11 +84,9 @@ func haDisplay(c *client.Cluster) string {
 	st := statusOf(c)
 	switch st.HAPhase {
 	case "ha-healthy":
-		return "on " + haReadyCount(st)
-	case "ha-degraded":
+		return "healthy " + haReadyCount(st)
+	case "ha-degraded", "ha-unavailable":
 		return "degraded " + haReadyCount(st)
-	case "ha-unavailable":
-		return "unavailable " + haReadyCount(st)
 	case "pending":
 		return "pending"
 	}
@@ -93,12 +97,15 @@ func haDisplay(c *client.Cluster) string {
 	if st.Phase != client.PhaseRunning {
 		return "degraded"
 	}
-	return "on"
+	return "healthy"
 }
 
-// haDetailDisplay is the expanded HA line for `cluster get`. Includes the
-// billing-anchor timestamp so tenants can self-serve "when did HA charging
-// start for this cluster?" without grepping invoice lines.
+// haDetailDisplay is the expanded HA line for `cluster get`. Uses the same
+// "healthy/degraded/pending" vocabulary as the list view, then appends
+// the operational context that distinguishes ha-degraded from
+// ha-unavailable (and the billing-anchor timestamp so tenants can self-
+// serve "when did HA charging start for this cluster?" without grepping
+// invoice lines).
 func haDetailDisplay(c *client.Cluster) string {
 	if c == nil || !c.HighAvailability {
 		return "off"
@@ -106,11 +113,11 @@ func haDetailDisplay(c *client.Cluster) string {
 	st := statusOf(c)
 	switch st.HAPhase {
 	case "ha-healthy":
-		return "on " + haReadyCount(st) + " — enabled at " + st.HAEnabledAt
+		return "healthy " + haReadyCount(st) + " — enabled at " + st.HAEnabledAt
 	case "ha-degraded":
 		return "degraded " + haReadyCount(st) + " — API still serving, enabled at " + st.HAEnabledAt
 	case "ha-unavailable":
-		return "unavailable " + haReadyCount(st) + " — quorum lost, API not serving, enabled at " + st.HAEnabledAt
+		return "degraded " + haReadyCount(st) + " — quorum lost, API not serving, enabled at " + st.HAEnabledAt
 	case "pending":
 		return "pending (waiting for 3/3 CP and etcd replicas to be ready)"
 	}
@@ -121,7 +128,7 @@ func haDetailDisplay(c *client.Cluster) string {
 	case st.Phase != client.PhaseRunning:
 		return "degraded — enabled at " + st.HAEnabledAt
 	default:
-		return "on — enabled at " + st.HAEnabledAt
+		return "healthy — enabled at " + st.HAEnabledAt
 	}
 }
 

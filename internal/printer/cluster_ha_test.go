@@ -49,7 +49,7 @@ func TestHaDisplay(t *testing.T) {
 				HighAvailability: true,
 				Status:           &client.ClusterStatus{HAConfigured: true, Phase: client.PhaseRunning},
 			},
-			want: "on",
+			want: "healthy",
 		},
 	}
 	for _, tt := range tests {
@@ -62,9 +62,10 @@ func TestHaDisplay(t *testing.T) {
 }
 
 // TestHaDisplay_HAPhaseDriven covers the haPhase-driven path that takes
-// precedence when the operator populates the rollup. Includes the new
-// ha-unavailable state (quorum lost) which the legacy fallback can't
-// distinguish from "degraded".
+// precedence when the operator populates the rollup. ha-degraded and
+// ha-unavailable both render as "degraded" in the compact list view —
+// the operational distinction (redundancy reduced vs quorum lost) lives
+// in the `cluster get` detail line, which has room to spell it out.
 func TestHaDisplay_HAPhaseDriven(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -73,11 +74,11 @@ func TestHaDisplay_HAPhaseDriven(t *testing.T) {
 		desired int32
 		want    string
 	}{
-		{name: "ha-healthy with counts", phase: "ha-healthy", ready: 3, desired: 3, want: "on (3/3)"},
+		{name: "ha-healthy with counts", phase: "ha-healthy", ready: 3, desired: 3, want: "healthy (3/3)"},
 		{name: "ha-degraded with counts", phase: "ha-degraded", ready: 2, desired: 3, want: "degraded (2/3)"},
-		{name: "ha-unavailable with counts", phase: "ha-unavailable", ready: 0, desired: 3, want: "unavailable (0/3)"},
+		{name: "ha-unavailable with counts", phase: "ha-unavailable", ready: 0, desired: 3, want: "degraded (0/3)"},
 		{name: "pending", phase: "pending", want: "pending"},
-		{name: "ha-healthy without counts (older op)", phase: "ha-healthy", want: "on "},
+		{name: "ha-healthy without counts (older op)", phase: "ha-healthy", want: "healthy "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -144,7 +145,7 @@ func TestHaDetailDisplay_HAPhaseDriven(t *testing.T) {
 	}{
 		{
 			name: "ha-healthy", phase: "ha-healthy", ready: 3, desired: 3,
-			want: "on (3/3) — enabled at " + enabledAt,
+			want: "healthy (3/3) — enabled at " + enabledAt,
 		},
 		{
 			name: "ha-degraded", phase: "ha-degraded", ready: 2, desired: 3,
@@ -152,7 +153,7 @@ func TestHaDetailDisplay_HAPhaseDriven(t *testing.T) {
 		},
 		{
 			name: "ha-unavailable", phase: "ha-unavailable", ready: 0, desired: 3,
-			want: "unavailable (0/3) — quorum lost, API not serving, enabled at " + enabledAt,
+			want: "degraded (0/3) — quorum lost, API not serving, enabled at " + enabledAt,
 		},
 	}
 	for _, tt := range tests {
@@ -190,12 +191,12 @@ func TestHaDetailDisplay(t *testing.T) {
 			want: "pending (waiting for 3/3 replicas to be ready)",
 		},
 		{
-			name: "on with timestamp",
+			name: "healthy with timestamp",
 			c: &client.Cluster{
 				HighAvailability: true,
 				Status:           &client.ClusterStatus{HAConfigured: true, Phase: client.PhaseRunning, HAEnabledAt: enabledAt},
 			},
-			want: "on — enabled at " + enabledAt,
+			want: "healthy — enabled at " + enabledAt,
 		},
 		{
 			name: "degraded with timestamp",

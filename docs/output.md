@@ -65,6 +65,7 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 | TYPE | `.type` | |
 | VERSION | `.version` | |
 | PHASE | `.status.phase` | |
+| HA | `.status.haPhase` → compact cell (`off` / `pending` / `healthy (n/m)` / `degraded …`) | |
 | CPU | `.resources.cpu` | |
 | MEM | `.resources.memory` | |
 | AGE | `.createdAt` → relative | |

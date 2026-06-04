@@ -13,7 +13,6 @@ import (
 )
 
 type createOpts struct {
-	typ              string
 	displayName      string
 	version          string
 	cpu              string
@@ -44,7 +43,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 
   # Specific version, fire-and-forget
   kupe cluster create ci-$GITHUB_SHA \
-    --type shared --version 1.32 \
+    --version 1.32 \
     --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
     --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -75,10 +74,15 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 			if displayName == "" {
 				displayName = name
 			}
+			// Type is always "shared" for now — dedicated isn't supported by
+			// the operator (CLUSTER_DEDICATED_UNSUPPORTED). The field stays
+			// on the wire so a future re-introduction (likely under a
+			// different shape, e.g. a node-pool reference) doesn't require
+			// a wire-format change here.
 			req := client.CreateClusterRequest{
 				Name:             name,
 				DisplayName:      displayName,
-				Type:             opts.typ,
+				Type:             "shared",
 				Version:          opts.version,
 				HighAvailability: opts.highAvailability,
 			}
@@ -118,7 +122,6 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.typ, "type", "shared", "Cluster type: shared or dedicated")
 	cmd.Flags().StringVar(&opts.displayName, "display-name", "", "Human-readable display name (defaults to NAME)")
 	cmd.Flags().StringVar(&opts.version, "version", "", "Kubernetes minor version (e.g. 1.32). Defaults to the platform default if unset.")
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "CPU limit for the cluster (e.g. 2, 500m)")

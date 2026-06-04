@@ -24,8 +24,7 @@ func TestCreateDisplayNameFallsBackToName(t *testing.T) {
 	fake := clienttest.New()
 	f := factoryWith(t, fake)
 
-	err := runCmd(newCreateCmd(f), "prod", "--type", "shared",
-		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
+	err := runCmd(newCreateCmd(f), "prod", "--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
 		"--wait=false")
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -43,8 +42,7 @@ func TestCreateDisplayNameRespectsFlag(t *testing.T) {
 	fake := clienttest.New()
 	f := factoryWith(t, fake)
 
-	err := runCmd(newCreateCmd(f), "prod", "--type", "shared",
-		"--display-name", "Production Cluster",
+	err := runCmd(newCreateCmd(f), "prod", "--display-name", "Production Cluster",
 		"--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
 		"--wait=false")
 	if err != nil {

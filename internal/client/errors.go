@@ -14,20 +14,46 @@ import (
 	"net/http"
 )
 
-// errorResponse matches kupe-api's JSON error body shape ({"error": "..."}).
-type errorResponse struct {
-	Error string `json:"error"`
+// errorEnvelope matches both kupe-api error body shapes:
+//
+//  1. Legacy:     {"error": "human message"}
+//  2. Structured: {"code": "HA_DISABLE_UNSUPPORTED", "severity": "error",
+//     "message": "...", "field": "spec.highAvailability", "error": "..."}
+//
+// kupe-api emits the structured form only for canonical error codes; other
+// 4xx responses still use the legacy shape. The duplicated `error` field on
+// the structured form lets clients that only read Message keep working. We
+// prefer Message when present (newer field) and fall back to Error.
+type errorEnvelope struct {
+	Code     string `json:"code,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Field    string `json:"field,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // APIError is the wrapper for any non-2xx response. RequestID is the
 // X-Request-Id header value if the server emitted one — surface it in
 // user-visible errors so support tickets can reference it.
+//
+// Code/Severity/Field are populated only when kupe-api returns the
+// structured canonical envelope (HA_DISABLE_UNSUPPORTED,
+// CLUSTER_DEDICATED_UNSUPPORTED, etc.). Callers that need to branch on a
+// specific advisory should check Code rather than string-matching Message.
 type APIError struct {
 	StatusCode int
 	Message    string
 	RequestID  string
 	Method     string
 	Path       string
+	// Code is the canonical error code (e.g. "HA_DISABLE_UNSUPPORTED"),
+	// empty for legacy/non-canonical responses.
+	Code string
+	// Severity is "error" or "warning" — empty when Code is empty.
+	Severity string
+	// Field is the dotted spec path the error applies to
+	// (e.g. "spec.highAvailability"). Empty when Code is empty.
+	Field string
 }
 
 // Error renders a user-facing message. We deliberately drop the "kupe api:"

@@ -117,18 +117,44 @@ func (c *Client) requestWithETag(ctx context.Context, method, path, etag string,
 	requestID := resp.Header.Get("X-Request-Id")
 
 	if resp.StatusCode >= 400 {
-		msg := strings.TrimSpace(string(respBody))
-		var errResp errorResponse
-		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
-			msg = errResp.Error
-		}
-		return "", &APIError{
+		apiErr := &APIError{
 			StatusCode: resp.StatusCode,
-			Message:    msg,
+			Message:    strings.TrimSpace(string(respBody)),
 			RequestID:  requestID,
 			Method:     method,
 			Path:       path,
 		}
+		// Parse the unified envelope: structured canonical responses carry
+		// a `code` field; legacy responses only carry `error`. The same
+		// struct handles both — we just decide which fields to surface.
+		// On JSON parse failure we keep the raw body as Message above so
+		// users still see *something* (an HTML 502 page, a proxy error
+		// string) instead of "".
+		var env errorEnvelope
+		if json.Unmarshal(respBody, &env) == nil {
+			switch {
+			case env.Code != "":
+				apiErr.Code = env.Code
+				apiErr.Severity = env.Severity
+				apiErr.Field = env.Field
+				// Prefer Message; fall back to the duplicated Error field;
+				// keep the raw body as the last resort.
+				switch {
+				case env.Message != "":
+					apiErr.Message = env.Message
+				case env.Error != "":
+					apiErr.Message = env.Error
+				}
+			case env.Error != "":
+				apiErr.Message = env.Error
+			case env.Message != "":
+				// Defensive: a server that returns `message` without `code`
+				// shouldn't happen today, but we honour it rather than
+				// dropping a useful string on the floor.
+				apiErr.Message = env.Message
+			}
+		}
+		return "", apiErr
 	}
 
 	respETag := resp.Header.Get("ETag")

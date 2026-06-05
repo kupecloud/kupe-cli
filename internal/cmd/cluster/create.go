@@ -107,6 +107,14 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 				return translateClusterErr(err)
 			}
 
+			// Render any advisory warnings the API attached to the response
+			// (e.g. HA_K8S_VERSION_RETIRING). Advisory — never fails the
+			// command. Printed to ErrOut to match the HA pre-create style
+			// above and to keep -o json/yaml clean.
+			for _, w := range created.Warnings {
+				fmt.Fprintf(f.IOStreams.ErrOut, "⚠ %s\n", w.Message)
+			}
+
 			if !opts.wait {
 				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, created)
 			}

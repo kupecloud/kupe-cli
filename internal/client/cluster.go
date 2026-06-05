@@ -26,6 +26,25 @@ type Cluster struct {
 	Generation      int64  `json:"generation,omitempty" yaml:"generation,omitempty"`
 	ResourceVersion string `json:"resourceVersion" yaml:"resourceVersion"`
 	CreatedAt       string `json:"createdAt" yaml:"createdAt"`
+	// Warnings is the advisory list kupe-api attaches to successful create/
+	// update responses (currently only POST /clusters). Empty slice when
+	// there are no advisories; we intentionally don't tag this with
+	// `omitempty` so unmarshalling an empty array is a no-op without
+	// dropping the field from the receive-side decode. This field is
+	// receive-only — request types (CreateClusterRequest) don't carry it,
+	// so callers can't accidentally send warnings back.
+	Warnings []Warning `json:"warnings" yaml:"warnings,omitempty"`
+}
+
+// Warning is one advisory entry returned alongside a successful response.
+// Today only POST /clusters emits these (HA_K8S_VERSION_RETIRING etc.) but
+// the shape is shared with the structured error envelope so future endpoints
+// can reuse it.
+type Warning struct {
+	Code     string `json:"code" yaml:"code"`
+	Severity string `json:"severity" yaml:"severity"`
+	Message  string `json:"message" yaml:"message"`
+	Field    string `json:"field,omitempty" yaml:"field,omitempty"`
 }
 
 // ClusterResource is the tenant-facing resource envelope. Quantities follow

@@ -18,9 +18,14 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "invoice",
 		Short: "List and inspect tenant invoices",
-		Long: `Read-only access to the tenant's billing history. Invoices are named by
-billing period ("2026-03"); -o json surfaces the full line-item breakdown
-for downstream scripts or spreadsheets.`,
+		Long: `Read-only access to the tenant's billing history. Invoices are billed in
+arrears: usage charges and the plan fee for a period land on the same
+invoice once the period closes. Names follow "{tenant}-{YYYYMMDD}"
+(period start date, e.g. "acme-20260301"); a final invoice issued on
+cancellation or deletion carries a "-final" suffix. -o json surfaces the
+full line-item breakdown for downstream scripts or spreadsheets.
+
+All amounts are pre-tax; VAT/sales tax is added by Paddle at payment.`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newGetCmd(f))
@@ -34,7 +39,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 		Short: "List invoices for the current tenant",
 		Example: `  kupe invoice list
   kupe invoice list -o wide
-  kupe invoice list -o json | jq '.[] | select(.status.phase=="Open")'`,
+  kupe invoice list -o json | jq '.[] | select(.status.phase=="PastDue")'`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			format, err := printer.Resolve(f, output)
 			if err != nil {
@@ -62,8 +67,10 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		Short: "Show one invoice by name",
 		Long: `Show a single invoice. NAME is the invoice identifier as it appears in
 "kupe invoice list" — e.g. "kupe-test-20260301" for the period starting
-1 March 2026. Always run "kupe invoice list" first to find the exact
-name; the format is server-controlled and not meant to be guessed.`,
+1 March 2026, or "kupe-test-20260301-final" for a final invoice issued
+on cancellation or deletion. Always run "kupe invoice list" first to
+find the exact name; the format is server-controlled and not meant to
+be guessed.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe invoice list                              # find the name
   kupe invoice get kupe-test-20260301

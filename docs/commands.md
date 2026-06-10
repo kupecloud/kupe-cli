@@ -697,17 +697,21 @@ credentials.
 
 ## `kupe invoice` — Billing history
 
-Read-only access to invoices. Invoice names are server-controlled, typically
-`<tenant>-<YYYYMMDD>` for the period start. Run `kupe invoice list` before
-`kupe invoice get`.
+Read-only access to invoices. Billing is in arrears: usage charges and the
+plan fee for a period land on the same invoice once the period closes.
+Invoice names are server-controlled, typically `<tenant>-<YYYYMMDD>` for the
+period start (final invoices issued on cancellation/deletion carry a
+`-final` suffix). Run `kupe invoice list` before `kupe invoice get`.
+
+All amounts are pre-tax; VAT/sales tax is added by Paddle at payment.
 
 ### `kupe invoice list`
 
 ```
 $ kupe invoice list
-NAME            PHASE  ISSUED                SUBTOTAL  CREDITS  TOTAL   CURRENCY
-acme-20260301   Paid   2026-04-01T00:00:00Z  120.00    20.00    100.00  GBP
-acme-20260201   Paid   2026-03-01T00:00:00Z  90.00     0.00     90.00   GBP
+NAME            PHASE  ISSUED                SUBTOTAL  CREDITS  TOTAL (EXCL. VAT)  CURRENCY
+acme-20260301   Paid   2026-04-01T00:00:00Z  120.00    20.00    100.00             GBP
+acme-20260201   Paid   2026-03-01T00:00:00Z  90.00     0.00     90.00              GBP
 ```
 
 `-o wide` adds `TAX`, `START`, and `END` billing-period dates.
@@ -716,16 +720,17 @@ acme-20260201   Paid   2026-03-01T00:00:00Z  90.00     0.00     90.00   GBP
 
 ```
 $ kupe invoice get acme-20260301
-Name:            acme-20260301
-Phase:           Paid
-Issued:          2026-04-01T00:00:00Z
-Period Start:    2026-03-01T00:00:00Z
-Period End:      2026-04-01T00:00:00Z
-Subtotal:        120.00
-Credits Applied: 20.00
-Tax:             0.00
-Total:           100.00 GBP
-Line Items:      12 (use -o json for details)
+Name:               acme-20260301
+Phase:              Paid
+Issued:             2026-04-01T00:00:00Z
+Period Start:       2026-03-01T00:00:00Z
+Period End:         2026-04-01T00:00:00Z
+Billed Until:       2026-04-01T00:00:00Z
+Subtotal:           120.00
+Credits Applied:    20.00
+Tax:                0.00
+Total (excl. VAT):  100.00 GBP
+Line Items:         12 (use -o json for details)
 ```
 
 Line items (per-resource usage rows with `kind` / `cost` / `quantity`) are

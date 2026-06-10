@@ -52,7 +52,8 @@ func (c *Client) ListInvoices(ctx context.Context) ([]Invoice, error) {
 	return resp.Items, err
 }
 
-// GetInvoice fetches a single invoice by name (billing period).
+// GetInvoice fetches a single invoice by name ("{tenant}-{YYYYMMDD}",
+// "-final" suffix for final invoices).
 func (c *Client) GetInvoice(ctx context.Context, name string) (*Invoice, error) {
 	var inv Invoice
 	_, err := c.request(ctx, http.MethodGet, c.tenantPath("invoices", name), nil, &inv)

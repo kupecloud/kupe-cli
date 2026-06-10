@@ -114,7 +114,7 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 | SUBTOTAL | `.status.subtotal` | |
 | CREDITS | `.status.creditsApplied` | |
 | TAX | `.status.tax` | ✓ |
-| TOTAL | `.status.total` | |
+| TOTAL (EXCL. VAT) | `.status.total` | |
 | CURRENCY | `.status.currency` | |
 | START | `.billingPeriod.start` | ✓ |
 | END | `.billingPeriod.end` | ✓ |

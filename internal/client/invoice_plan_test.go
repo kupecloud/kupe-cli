@@ -13,8 +13,8 @@ func TestListInvoices(t *testing.T) {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		fmt.Fprintln(w, `{"items":[
-		  {"name":"2026-03","status":{"phase":"Paid","total":"100.00","currency":"GBP"}},
-		  {"name":"2026-02","status":{"phase":"Paid","total":"90.00","currency":"GBP"}}
+		  {"name":"acme-20260301","status":{"phase":"Paid","total":"100.00","currency":"GBP"}},
+		  {"name":"acme-20260201","status":{"phase":"Paid","total":"90.00","currency":"GBP"}}
 		]}`)
 	})
 	list, err := c.ListInvoices(context.Background())

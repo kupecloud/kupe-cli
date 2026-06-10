@@ -45,12 +45,12 @@ func run(cmd *cobra.Command, args ...string) error {
 
 func TestInvoiceList(t *testing.T) {
 	fake := clienttest.New()
-	fake.Invoices["2026-03"] = &client.Invoice{
-		Name:   "2026-03",
+	fake.Invoices["acme-20260301"] = &client.Invoice{
+		Name:   "acme-20260301",
 		Status: client.InvoiceStatus{Phase: "Paid", Subtotal: "120.00", Total: "100.00", Currency: "GBP"},
 	}
-	fake.Invoices["2026-02"] = &client.Invoice{
-		Name:   "2026-02",
+	fake.Invoices["acme-20260201"] = &client.Invoice{
+		Name:   "acme-20260201",
 		Status: client.InvoiceStatus{Phase: "Paid", Subtotal: "90.00", Total: "90.00", Currency: "GBP"},
 	}
 	f := factoryWith(t, fake)
@@ -58,7 +58,7 @@ func TestInvoiceList(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.IOStreams.Out.(interface{ String() string }).String()
-	for _, want := range []string{"NAME", "PHASE", "2026-03", "100.00", "GBP"} {
+	for _, want := range []string{"NAME", "PHASE", "acme-20260301", "100.00", "GBP"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list missing %q:\n%s", want, out)
 		}
@@ -67,8 +67,8 @@ func TestInvoiceList(t *testing.T) {
 
 func TestInvoiceGetJSONSurfacesLineItems(t *testing.T) {
 	fake := clienttest.New()
-	fake.Invoices["2026-03"] = &client.Invoice{
-		Name: "2026-03",
+	fake.Invoices["acme-20260301"] = &client.Invoice{
+		Name: "acme-20260301",
 		Status: client.InvoiceStatus{
 			Phase: "Paid", Total: "100.00", Currency: "GBP",
 			LineItems: []map[string]any{
@@ -78,7 +78,7 @@ func TestInvoiceGetJSONSurfacesLineItems(t *testing.T) {
 		},
 	}
 	f := factoryWith(t, fake)
-	if err := run(NewCmd(f), "get", "2026-03", "-o", "json"); err != nil {
+	if err := run(NewCmd(f), "get", "acme-20260301", "-o", "json"); err != nil {
 		t.Fatal(err)
 	}
 	var got client.Invoice
@@ -92,7 +92,7 @@ func TestInvoiceGetJSONSurfacesLineItems(t *testing.T) {
 
 func TestInvoiceGetNotFoundMapsToExit4(t *testing.T) {
 	f := factoryWith(t, clienttest.New())
-	err := run(NewCmd(f), "get", "2025-01")
+	err := run(NewCmd(f), "get", "acme-20250101")
 	if err == nil {
 		t.Fatal("expected error")
 	}

@@ -11,7 +11,9 @@ func InvoiceColumns() Columns {
 		{Name: "SUBTOTAL", Get: func(v any) string { return invoice(v).Status.Subtotal }},
 		{Name: "CREDITS", Get: func(v any) string { return invoice(v).Status.CreditsApplied }},
 		{Name: "TAX", Wide: true, Get: func(v any) string { return invoice(v).Status.Tax }},
-		{Name: "TOTAL", Get: func(v any) string { return invoice(v).Status.Total }},
+		// Totals are pre-tax by design — Paddle (merchant of record) adds
+		// VAT/sales tax at payment, so the header says so explicitly.
+		{Name: "TOTAL (EXCL. VAT)", Get: func(v any) string { return invoice(v).Status.Total }},
 		{Name: "CURRENCY", Get: func(v any) string { return invoice(v).Status.Currency }},
 		{Name: "START", Wide: true, Get: func(v any) string {
 			if p := invoice(v).BillingPeriod; p != nil {
@@ -52,7 +54,7 @@ func InvoiceDetailColumns() Columns {
 		{Name: "Subtotal", Get: func(v any) string { return invoice(v).Status.Subtotal }},
 		{Name: "Credits Applied", Get: func(v any) string { return invoice(v).Status.CreditsApplied }},
 		{Name: "Tax", Get: func(v any) string { return invoice(v).Status.Tax }},
-		{Name: "Total", Get: func(v any) string {
+		{Name: "Total (excl. VAT)", Get: func(v any) string {
 			inv := invoice(v)
 			if inv.Status.Total == "" {
 				return ""

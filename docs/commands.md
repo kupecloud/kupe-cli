@@ -699,9 +699,12 @@ credentials.
 
 Read-only access to invoices. Billing is in arrears: usage charges and the
 plan fee for a period land on the same invoice once the period closes.
-Invoice names are server-controlled, typically `<tenant>-<YYYYMMDD>` for the
-period start (final invoices issued on cancellation/deletion carry a
-`-final` suffix). Run `kupe invoice list` before `kupe invoice get`.
+Invoice names are server-controlled, usually `<tenant>-<YYYYMMDD>` for the
+period start, but variants exist: final invoices issued on
+cancellation/deletion carry a `-final` suffix, and a timestamp-suffixed
+form (`<tenant>-<YYYYMMDD-HHMMSS>`) is used when two periods start on the
+same date. Always list invoices rather than constructing names — run
+`kupe invoice list` before `kupe invoice get`.
 
 All amounts are pre-tax; VAT/sales tax is added by Paddle at payment.
 

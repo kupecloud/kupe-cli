@@ -5,9 +5,12 @@ import (
 	"net/http"
 )
 
-// Invoice mirrors kupe-api's invoiceResponse. Name follows the operator's
-// convention "{tenant}-{YYYYMMDD}" (e.g. "acme-20260301") — not a guessable
-// format; users should always look up the actual name via ListInvoices.
+// Invoice mirrors kupe-api's invoiceResponse. Names are server-controlled:
+// usually "{tenant}-{YYYYMMDD}" for the period start (e.g. "acme-20260301"),
+// with a "-final" suffix for final invoices issued on cancellation/deletion
+// and a "{tenant}-{YYYYMMDD-HHMMSS}" form when two periods start on the same
+// date. Not a guessable format; users should always look up the actual name
+// via ListInvoices.
 // Status carries the totals + line items for consumption by the CLI's
 // invoice printer and by downstream scripts via -o json.
 type Invoice struct {
@@ -25,7 +28,7 @@ type BillingPeriod struct {
 }
 
 // InvoiceStatus holds the totals and the line-item breakdown. Phase
-// values mirror the operator: Draft, Billed, Paid, PastDue, Canceled.
+// values mirror the operator: Draft, Billed, Paid, PastDue.
 //
 // Operator-internal status fields (chargeState, chargeSubmittedAt,
 // creditsDeducted, lastWebhookEventID, isFinal) are intentionally NOT
@@ -52,8 +55,9 @@ func (c *Client) ListInvoices(ctx context.Context) ([]Invoice, error) {
 	return resp.Items, err
 }
 
-// GetInvoice fetches a single invoice by name ("{tenant}-{YYYYMMDD}",
-// "-final" suffix for final invoices).
+// GetInvoice fetches a single invoice by name. Names are server-controlled
+// (usually "{tenant}-{YYYYMMDD}"; variants exist) — list invoices rather
+// than constructing names.
 func (c *Client) GetInvoice(ctx context.Context, name string) (*Invoice, error) {
 	var inv Invoice
 	_, err := c.request(ctx, http.MethodGet, c.tenantPath("invoices", name), nil, &inv)

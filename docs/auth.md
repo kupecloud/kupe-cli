@@ -229,7 +229,7 @@ kind: Config
 clusters:
   - name: kupe-acme-corp-prod
     cluster:
-      server: https://api.prod.acme.kupe.cloud
+      server: https://prod.acme.clusters.kupe.cloud
       certificate-authority-data: LS0tLS1CRUdJTi...
 users:
   - name: kupe-acme-corp-prod

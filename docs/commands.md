@@ -340,7 +340,7 @@ Display Name: Prod
 Type:         shared
 Version:      1.32 (running 1.32.3)
 Phase:        Running
-Endpoint:     https://api.prod.acme.kupe.cloud
+Endpoint:     https://prod.acme.clusters.kupe.cloud
 Resources:
   CPU:        4
   Memory:     16Gi
@@ -388,7 +388,7 @@ Display Name: prod
 Type:         shared
 Version:      1.32 (running 1.32.3)
 Phase:        Running
-Endpoint:     https://api.prod.acme.kupe.cloud
+Endpoint:     https://prod.acme.clusters.kupe.cloud
 CPU:          4
 Memory:       16Gi
 Storage:      100Gi

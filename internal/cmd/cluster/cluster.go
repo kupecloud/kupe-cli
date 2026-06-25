@@ -82,7 +82,7 @@ func waitForPhase(ctx context.Context, streams *cli.IOStreams, api client.Interf
 	}
 	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
 		Label:   label,
-		Poll:    poll,
+		Poll:    tolerateTransient(poll),
 		Timeout: timeout,
 	})
 	return latest, err
@@ -138,10 +138,72 @@ func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api cli
 	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
 		Label:         label,
 		PhaseOverride: "Updating",
-		Poll:          poll,
+		Poll:          tolerateTransient(poll),
 		Timeout:       timeout,
 	})
 	return latest, err
+}
+
+// transientWaitGrace is how long a wait loop tolerates *consecutive* transient
+// API errors (5xx, 429, network/transport) before giving up. Covers a rolling
+// kupe-api deploy, an LB blip, or a brief 502 without aborting a long
+// `--wait`. A first success resets the window. See KC-7.
+const transientWaitGrace = 90 * time.Second
+
+// isTransientWaitErr reports whether err is a transient failure a wait loop
+// should ride out rather than treat as terminal: any non-APIError (network /
+// transport / context-independent I/O) or a 5xx / 429 from kupe-api. A 404,
+// 401, 403, or 400 is authoritative and must stay terminal — callers handle
+// 404 themselves (e.g. delete-wait treats it as success).
+func isTransientWaitErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Context cancellation/deadline is handled by the waiter itself; never
+	// swallow it here.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if client.IsUnavailable(err) || client.IsRateLimited(err) || client.IsServerError(err) {
+		return true
+	}
+	// A typed 4xx (401/403/404/400/409/412) is authoritative — terminal.
+	if client.IsUnauthorized(err) || client.IsForbidden(err) || client.IsNotFound(err) ||
+		client.IsValidation(err) || client.IsConflict(err) || client.IsPreconditionFailed(err) {
+		return false
+	}
+	// Anything left that isn't a typed APIError is a transport/network error
+	// (the client already exhausted its short internal retry) — transient.
+	return !client.IsAPIError(err)
+}
+
+// tolerateTransient wraps a poll function so consecutive transient errors are
+// swallowed (the loop keeps polling, surfacing the last known phase) until
+// transientWaitGrace elapses, after which the error becomes terminal. A
+// successful poll resets the window. Terminal errors pass through immediately.
+func tolerateTransient(poll ux.PollFunc) ux.PollFunc {
+	var firstFailure time.Time
+	lastPhase := ""
+	return func(ctx context.Context) (string, bool, error) {
+		phase, done, err := poll(ctx)
+		if err == nil {
+			firstFailure = time.Time{}
+			lastPhase = phase
+			return phase, done, nil
+		}
+		if !isTransientWaitErr(err) {
+			return phase, done, err
+		}
+		now := time.Now()
+		if firstFailure.IsZero() {
+			firstFailure = now
+		}
+		if now.Sub(firstFailure) > transientWaitGrace {
+			return phase, false, err
+		}
+		// Keep waiting: report the last known phase, no error.
+		return lastPhase, false, nil
+	}
 }
 
 // observedGen returns status.observedGeneration or 0 if the status block is
@@ -172,7 +234,7 @@ func waitForGone(ctx context.Context, streams *cli.IOStreams, api client.Interfa
 	return ux.WaitFor(ctx, streams, ux.WaitForOpts{
 		Label:    label,
 		DoneVerb: "deleted",
-		Poll:     poll,
+		Poll:     tolerateTransient(poll),
 		Timeout:  timeout,
 	})
 }
@@ -307,6 +369,17 @@ func mapWaitErr(err error, name, verb string) error {
 					fmt.Sprintf("abandon:       kupe cluster delete %s", name),
 				}, "\n"))
 		}
+	}
+	// A transient API error that outlived the grace window (KC-7): the wait
+	// failed mid-flight, but the operation is almost certainly still
+	// progressing server-side. Attach the same check-status / resume-wait
+	// guidance the timeout path gets so CI doesn't see a bare 502/503.
+	if client.IsUnavailable(err) || client.IsRateLimited(err) || client.IsServerError(err) || !client.IsAPIError(err) {
+		hint := fmt.Sprintf("check status:  kupe cluster get %s\nresume wait:   kupe cluster wait %s", name, name)
+		if verb == "delete" {
+			hint = fmt.Sprintf("check status:  kupe cluster get %s\nresume wait:   kupe cluster wait %s --for=Deleted", name, name)
+		}
+		return cli.Wrap(cli.ExitUnavailable, "lost contact with kupe-api while waiting", err).WithHint(hint)
 	}
 	return err
 }

@@ -152,3 +152,16 @@ func IsUnavailable(err error) bool {
 	e := asAPI(err)
 	return e != nil && e.StatusCode == http.StatusServiceUnavailable
 }
+
+// IsServerError reports whether err is any 5xx from kupe-api (500-599).
+func IsServerError(err error) bool {
+	e := asAPI(err)
+	return e != nil && e.StatusCode >= 500 && e.StatusCode <= 599
+}
+
+// IsAPIError reports whether err is (or wraps) an *APIError — i.e. the server
+// returned a structured non-2xx response, as opposed to a transport/network
+// failure that never reached an HTTP status.
+func IsAPIError(err error) bool {
+	return asAPI(err) != nil
+}

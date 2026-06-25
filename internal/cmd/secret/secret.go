@@ -36,52 +36,16 @@ mirrors the secret into the vcluster as a Kubernetes Secret.`,
 	return cmd
 }
 
-// renderOne writes a single secret in the requested output format.
+// renderOne writes a single secret in the requested output format. Delegates
+// to printer.RenderOne so the output-kind dispatch lives in exactly one place
+// (KC-18) — a new Kind only needs wiring there.
 func renderOne(out io.Writer, colorEnabled bool, format *printer.Format, s *client.Secret) error {
-	switch format.Kind {
-	case printer.Table, printer.Wide:
-		return printer.PrintDetails(out, s, printer.SecretDetailColumns(colorEnabled))
-	case printer.JSON:
-		return printer.PrintJSON(out, s)
-	case printer.YAML:
-		return printer.PrintYAML(out, s)
-	case printer.Name:
-		return printer.PrintNames(out, s, func(v any) string {
-			if s, ok := v.(*client.Secret); ok && s != nil {
-				return s.Name
-			}
-			return ""
-		})
-	case printer.Template:
-		return printer.PrintTemplate(out, s, format.Template)
-	case printer.JSONPath:
-		return printer.PrintJSONPath(out, s, format.Path)
-	}
-	return fmt.Errorf("unhandled output kind %v", format.Kind)
+	return printer.RenderOne(out, format, s, printer.SecretDetailColumns(colorEnabled), func(s *client.Secret) string { return s.Name })
 }
 
-// renderList writes a slice of secrets.
+// renderList writes a slice of secrets, delegating to printer.RenderList.
 func renderList(out io.Writer, colorEnabled bool, format *printer.Format, ss []client.Secret) error {
-	switch format.Kind {
-	case printer.Table, printer.Wide:
-		return printer.PrintTable(out, ss, printer.SecretColumns(colorEnabled), format.Kind == printer.Wide)
-	case printer.JSON:
-		return printer.PrintJSON(out, ss)
-	case printer.YAML:
-		return printer.PrintYAML(out, ss)
-	case printer.Name:
-		return printer.PrintNames(out, ss, func(v any) string {
-			if s, ok := v.(client.Secret); ok {
-				return s.Name
-			}
-			return ""
-		})
-	case printer.Template:
-		return printer.PrintTemplate(out, ss, format.Template)
-	case printer.JSONPath:
-		return printer.PrintJSONPath(out, ss, format.Path)
-	}
-	return fmt.Errorf("unhandled output kind %v", format.Kind)
+	return printer.RenderList(out, format, ss, printer.SecretColumns(colorEnabled), func(s client.Secret) string { return s.Name })
 }
 
 // parseSyncTargets turns a slice of --sync flag values into SyncTargets.

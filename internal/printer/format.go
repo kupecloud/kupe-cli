@@ -75,9 +75,14 @@ func Resolve(f *cli.Factory, raw string) (*Format, error) {
 //	OutputHelpList   — list commands (table, wide, json, yaml, name, ...)
 //	OutputHelpGet    — single-resource get commands (table, json, yaml, ...)
 //	OutputHelpToggle — commands with text-or-json toggle (whoami, get-token-style)
+//
+// jsonpath= is intentionally absent here: PrintJSONPath is still a
+// placeholder, so advertising it in --help would promise a format that always
+// errors (KC-17). Parse still recognises jsonpath= so users who try it get a
+// friendly "not yet implemented" message rather than "unsupported format".
 const (
-	OutputHelpList   = "Output format: table | wide | json | yaml | name | go-template=... | jsonpath=..."
-	OutputHelpGet    = "Output format: table | json | yaml | go-template=... | jsonpath=..."
+	OutputHelpList   = "Output format: table | wide | json | yaml | name | go-template=..."
+	OutputHelpGet    = "Output format: table | json | yaml | go-template=..."
 	OutputHelpToggle = "Output format: text (default) or json"
 )
 

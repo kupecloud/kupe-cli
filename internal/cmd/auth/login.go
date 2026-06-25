@@ -19,9 +19,12 @@ import (
 )
 
 // tenantNameRE loosely validates a tenant name: lowercase DNS-ish label.
-// Authoritative validation happens server-side when Phase 2 lands and the
-// CLI calls GET /tenants/{tenant} after storing the token.
-var tenantNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,61}[a-z0-9]$`)
+// Authoritative validation happens server-side (the CLI calls
+// GET /tenants/{tenant} after storing the token). Mirror kupe-api's rule
+// exactly — `^[a-z][a-z0-9-]{0,61}[a-z0-9]$`, i.e. 2-63 chars — so a legal
+// 2-char tenant isn't rejected client-side before the server is ever asked
+// (KC-22; authoritative pattern in kupe-api/docs/security.md).
+var tenantNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
 
 // tokenPrefix is the API-key prefix kupe-api expects. OIDC access tokens
 // flow through the same login command but use the OIDC method path and

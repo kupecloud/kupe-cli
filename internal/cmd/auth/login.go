@@ -291,6 +291,14 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	if err != nil {
 		return cli.Wrap(cli.ExitGeneral, "initialising auth manager", err)
 	}
+
+	// Re-login over an existing OIDC context: best-effort revoke the previous
+	// refresh token at the IdP before overwriting it locally, mirroring what
+	// logout does (KC-14). Non-fatal — the new login proceeds regardless.
+	if prev := cfg.Context(contextName); prev != nil && prev.AuthMethod == config.AuthMethodOIDC && prev.TokenRef != "" {
+		revokeOIDCRefreshToken(io, mgr, prev)
+	}
+
 	ref, err := mgr.Set(contextName, blob)
 	if err != nil {
 		return cli.Wrap(cli.ExitGeneral, "storing OIDC token set", err)

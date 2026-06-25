@@ -72,10 +72,21 @@ func runLogout(f *cli.Factory, opts *logoutOpts) error {
 		}
 		targets = []string{opts.context}
 	default:
-		if cfg.CurrentContext == "" {
+		// Resolve through the same flag > KUPE_CONTEXT > config.CurrentContext
+		// chain every other command uses, so `KUPE_CONTEXT=staging kupe auth
+		// logout` doesn't silently log out of the config's currentContext
+		// (KC-12).
+		target := cfg.CurrentContext
+		if r, rerr := f.Resolved(); rerr == nil && r != nil && r.ContextName != "" {
+			target = r.ContextName
+		}
+		if target == "" {
 			return cli.NotFoundError("no current context set; pass --context or --all")
 		}
-		targets = []string{cfg.CurrentContext}
+		if cfg.Context(target) == nil {
+			return cli.NotFoundError(fmt.Sprintf("context %q not found", target))
+		}
+		targets = []string{target}
 	}
 
 	if len(targets) == 0 {

@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -23,7 +25,7 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
   kupe cluster list -o name | xargs -I{} kupe cluster delete {} --yes
   kupe cluster list --phase Running`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt, err := printer.Resolve(f, output)
+			pf, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
 			}
@@ -37,16 +39,24 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
 			}
 
 			if phase != "" {
+				// Normalise so --phase is case-insensitive and accepts the same
+				// friendly spellings as `cluster wait --for` (KC-13). An unknown
+				// value is a misuse, not a silently-empty result.
+				want := normalizePhase(phase)
+				if want == "" || want == "Deleted" {
+					return cli.MisuseError(fmt.Sprintf("unknown --phase %q", phase)).
+						WithHint("valid phases: pending | provisioning | running | upgrading | degraded | terminating")
+				}
 				filtered := list[:0]
 				for _, c := range list {
-					if phaseOf(&c) == phase { //nolint:gosec // range-var copy intentional for value semantics
+					if phaseOf(&c) == want { //nolint:gosec // range-var copy intentional for value semantics
 						filtered = append(filtered, c)
 					}
 				}
 				list = filtered
 			}
 
-			return renderList(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmt, list)
+			return renderList(f.IOStreams.Out, f.IOStreams.ColorEnabled, pf, list)
 		},
 	}
 

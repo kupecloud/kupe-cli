@@ -8,6 +8,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/zalando/go-keyring"
 )
@@ -20,8 +21,18 @@ const Service = "cloud.kupe.cli"
 
 // ErrKeyringUnavailable is returned by the keyring backend when the OS
 // doesn't expose a working secrets API — e.g., a headless Linux box without
-// libsecret. Callers can fall back to plaintext or surface the error
-// depending on KUPE_STORAGE policy.
+// libsecret, or a Secret Service whose D-Bus session bus can't be reached.
+// Callers can fall back to plaintext or surface the error depending on
+// KUPE_STORAGE policy.
+//
+// Classification note: zalando/go-keyring only returns its typed
+// ErrUnsupportedPlatform from the no-op fallback provider compiled on
+// genuinely unsupported OSes. On Linux the Secret Service provider is always
+// compiled in and surfaces *raw* D-Bus errors (session-bus dial failure,
+// org.freedesktop.secrets not provided) when no secret service is running.
+// So realKeyring treats any keyring error that is not ErrNotFound and not
+// the size-rejection sentinel as "keyring unavailable", which is what makes
+// the documented keyring→plaintext fallback fire on headless Linux/WSL/CI.
 var ErrKeyringUnavailable = errors.New("keyring unavailable")
 
 // ErrKeyringTooSmall is returned when the OS keyring rejects the value as
@@ -40,45 +51,52 @@ type keyringAPI interface {
 	Delete(service, user string) error
 }
 
+// Low-level keyring functions, indirected through package vars so tests can
+// inject raw backend errors (e.g. a D-Bus connect failure) and assert the
+// classification into ErrKeyringUnavailable that drives the plaintext
+// fallback. Production points these at zalando/go-keyring.
+var (
+	keyringGet    = keyring.Get
+	keyringSet    = keyring.Set
+	keyringDelete = keyring.Delete
+)
+
 // realKeyring is the production implementation backed by zalando/go-keyring.
 type realKeyring struct{}
 
 func (realKeyring) Get(service, user string) (string, error) {
-	v, err := keyring.Get(service, user)
+	v, err := keyringGet(service, user)
 	if err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return "", ErrNotFound
 		}
-		if errors.Is(err, keyring.ErrUnsupportedPlatform) {
-			return "", ErrKeyringUnavailable
-		}
-		return "", err
+		// Any other error (ErrUnsupportedPlatform on a fallback build, or a
+		// raw D-Bus/Secret-Service error on Linux) means the backend can't
+		// serve us — classify as unavailable so the Manager can fall back.
+		return "", fmt.Errorf("%w: %w", ErrKeyringUnavailable, err)
 	}
 	return v, nil
 }
 
 func (realKeyring) Set(service, user, password string) error {
-	if err := keyring.Set(service, user, password); err != nil {
-		if errors.Is(err, keyring.ErrUnsupportedPlatform) {
-			return ErrKeyringUnavailable
-		}
+	if err := keyringSet(service, user, password); err != nil {
 		if errors.Is(err, keyring.ErrSetDataTooBig) {
 			return ErrKeyringTooSmall
 		}
-		return err
+		// Everything else (ErrUnsupportedPlatform, or a raw D-Bus connect /
+		// org.freedesktop.secrets name error on headless Linux) is treated as
+		// keyring-unavailable so the default policy falls back to plaintext.
+		return fmt.Errorf("%w: %w", ErrKeyringUnavailable, err)
 	}
 	return nil
 }
 
 func (realKeyring) Delete(service, user string) error {
-	if err := keyring.Delete(service, user); err != nil {
+	if err := keyringDelete(service, user); err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return nil // idempotent delete
 		}
-		if errors.Is(err, keyring.ErrUnsupportedPlatform) {
-			return ErrKeyringUnavailable
-		}
-		return err
+		return fmt.Errorf("%w: %w", ErrKeyringUnavailable, err)
 	}
 	return nil
 }

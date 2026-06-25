@@ -147,10 +147,48 @@ func Merge(path string, incoming *clientcmdapi.Config, opts MergeOptions) error 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
-	// clientcmd.WriteToFile writes atomically via tempfile+rename and sets
-	// mode 0600 on new files.
-	if err := clientcmd.WriteToFile(*base, path); err != nil {
+	// NB: clientcmd.WriteToFile is a plain os.WriteFile — NOT atomic. Since
+	// this file aggregates every cluster the user has, a crash/SIGKILL/ENOSPC
+	// mid-write would truncate all of them and then trip ErrCorrupt on the
+	// next run. Marshal with clientcmd.Write and persist via an atomic
+	// temp+chmod+rename instead. See KC-5.
+	content, err := clientcmd.Write(*base)
+	if err != nil {
+		return fmt.Errorf("serialising kubeconfig: %w", err)
+	}
+	if err := writeFileAtomic(path, content, 0o600); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// writeFileAtomic writes data to path via a temp file in the same directory
+// followed by an atomic rename, so a partial/crashed write never leaves the
+// target truncated. The temp file is chmod'd to perm before the rename.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".kubeconfig-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp file in %s: %w", dir, err)
+	}
+	tmpName := tmp.Name()
+	if err := os.Chmod(tmpName, perm); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("chmod %s: %w", tmpName, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("writing %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("closing %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("renaming %s to %s: %w", tmpName, path, err)
 	}
 	return nil
 }

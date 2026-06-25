@@ -85,8 +85,11 @@ want more than one context per tenant (e.g., two API environments).`,
       --api-url api.dev.int.kupe.cloud \
       --oidc-base-url auth.dev.int.kupe.cloud
 
-  # Scripted bootstrap with a long-lived API key (CI)
-  kupe auth login --method token --tenant acme --token kupe_... --context prod --set-default`,
+  # Store a long-lived API key as a context. Omit --token to be prompted for
+  # it without echo — passing it inline leaves the token in shell history and
+  # process listings. For pure CI auth, prefer exporting KUPE_API_TOKEN (no
+  # login or config file needed at all).
+  kupe auth login --method token --tenant acme --context prod --set-default`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLogin(cmd, f, opts)
 		},

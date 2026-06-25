@@ -128,6 +128,16 @@ func buildKubeconfig(f *cli.Factory, names kubeconfig.Names, kc *client.ClusterK
 		}
 		return kubeconfig.BuildExecConfig(names, kc.Endpoint, kc.CertificateAuthority, binary, ctxName)
 	}
+	// Token mode embeds whatever f.Token() returns. For an OIDC context that's
+	// a short-lived access token with no in-kubeconfig refresh path, so the
+	// generated file starts 401-ing within minutes. Warn and point at --exec
+	// (KC-6).
+	if r, err := f.Resolved(); err == nil && r != nil && r.AuthMethod == "oidc" {
+		fmt.Fprintln(f.IOStreams.ErrOut,
+			"warning: this is an OIDC context — the embedded access token expires shortly and the kubeconfig has no way to refresh it.")
+		fmt.Fprintln(f.IOStreams.ErrOut,
+			"  re-run with --exec for a token-free kubeconfig that refreshes automatically (safe to commit).")
+	}
 	tok, err := f.Token()
 	if err != nil {
 		return nil, err

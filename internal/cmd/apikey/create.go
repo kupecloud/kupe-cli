@@ -158,13 +158,22 @@ func resolveExpiresAt(raw string, now time.Time) (string, error) {
 	}
 	if strings.HasSuffix(raw, "d") {
 		if days, err := strconv.Atoi(strings.TrimSuffix(raw, "d")); err == nil {
+			if days <= 0 {
+				return "", fmt.Errorf("invalid --expires-at %q: expiry must be in the future", raw)
+			}
 			return now.AddDate(0, 0, days).UTC().Format(time.RFC3339), nil
 		}
 	}
 	if d, err := time.ParseDuration(raw); err == nil {
+		if d <= 0 {
+			return "", fmt.Errorf("invalid --expires-at %q: expiry must be in the future", raw)
+		}
 		return now.Add(d).UTC().Format(time.RFC3339), nil
 	}
-	if _, err := time.Parse(time.RFC3339, raw); err == nil {
+	if t, err := time.Parse(time.RFC3339, raw); err == nil {
+		if !t.After(now) {
+			return "", fmt.Errorf("invalid --expires-at %q: timestamp must be in the future", raw)
+		}
 		return raw, nil
 	}
 	return "", fmt.Errorf("invalid --expires-at %q (want duration like 7d/24h or RFC3339)", raw)

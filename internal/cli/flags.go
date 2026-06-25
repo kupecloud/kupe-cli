@@ -28,7 +28,7 @@ type GlobalFlags struct {
 // from Execute during root-command construction.
 func (g *GlobalFlags) Bind(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVar(&g.APIURL, "api-url", "", "Kupe API base URL (env: KUPE_API_URL)")
-	cmd.PersistentFlags().StringVar(&g.Token, "token", "", "API token; bypasses config (env: KUPE_API_TOKEN)")
+	cmd.PersistentFlags().StringVar(&g.Token, "token", "", "API token; bypasses config. Prefer KUPE_API_TOKEN — a value passed here is visible in shell history and process listings (env: KUPE_API_TOKEN)")
 	cmd.PersistentFlags().StringVar(&g.Tenant, "tenant", "", "Tenant to target (env: KUPE_TENANT)")
 	cmd.PersistentFlags().StringVar(&g.Context, "context", "", "Named context from the config file (env: KUPE_CONTEXT)")
 	cmd.PersistentFlags().StringVar(&g.ConfigPath, "config", "", "Config file path (default ~/.config/kupe/config.yaml; env: KUPE_CONFIG)")

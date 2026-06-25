@@ -35,6 +35,16 @@ type OIDCTokenSet struct {
 // to its expiry between Token() and the API call.
 const refreshSkew = 30 * time.Second
 
+// httpTimeout bounds every auth HTTP call (discovery, refresh, revocation).
+// http.DefaultClient has no timeout of its own, so a wedged IdP would hang
+// indefinitely; callers also pass a context deadline, but a client-level
+// timeout is a belt-and-braces backstop. See KC-3.
+const httpTimeout = 30 * time.Second
+
+// authHTTPClient is the bounded client used for all auth HTTP calls instead of
+// http.DefaultClient.
+var authHTTPClient = &http.Client{Timeout: httpTimeout}
+
 // Valid reports whether the access token is non-empty and not within the
 // refresh skew of expiry.
 func (t OIDCTokenSet) Valid() bool {
@@ -104,7 +114,7 @@ func Discover(ctx context.Context, issuer string) (*Discovery, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building discovery request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching OIDC discovery: %w", err)
 	}
@@ -146,13 +156,24 @@ func Refresh(ctx context.Context, issuer, clientID string, current OIDCTokenSet)
 			AuthStyle: oauth2.AuthStyleInParams, // public client, no secret
 		},
 	}
+	// Route the token exchange through our bounded client too, so the refresh
+	// can't hang on a wedged token endpoint (KC-3).
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, authHTTPClient)
 	src := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: current.RefreshToken})
 	tok, err := src.Token()
 	if err != nil {
-		// oauth2 wraps invalid_grant in a *RetrieveError; the body
-		// contains "invalid_grant" verbatim. Match on substring rather
-		// than reflecting on the type — the surface is stable enough.
-		if strings.Contains(err.Error(), "invalid_grant") {
+		// Classify refresh-token rejection by the typed oauth2 error code
+		// rather than a substring on the rendered message — a proxy error
+		// body containing "invalid_grant" must not trigger the destructive
+		// credential-delete path, and an IdP that omits the body must not
+		// hide a genuine rejection (KC-11). Fall back to the substring only
+		// when no structured error code is available.
+		var re *oauth2.RetrieveError
+		if errors.As(err, &re) {
+			if re.ErrorCode == "invalid_grant" {
+				return OIDCTokenSet{}, fmt.Errorf("%w: %w", ErrRefreshFailed, err)
+			}
+		} else if strings.Contains(err.Error(), "invalid_grant") {
 			return OIDCTokenSet{}, fmt.Errorf("%w: %w", ErrRefreshFailed, err)
 		}
 		return OIDCTokenSet{}, fmt.Errorf("refreshing OIDC token: %w", err)
@@ -210,7 +231,7 @@ func Revoke(ctx context.Context, issuer, clientID, token, hint string) error {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("calling revocation endpoint: %w", err)
 	}

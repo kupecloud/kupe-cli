@@ -14,6 +14,12 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/config"
 )
 
+// authRefreshTimeout bounds the OIDC discovery+refresh round-trip so a stalled
+// IdP can't hang a kupe invocation (and, via the exec-plugin kubeconfig, every
+// kubectl call) indefinitely. Matches the kupe-api client's per-attempt
+// budget. See KC-3.
+const authRefreshTimeout = 30 * time.Second
+
 // Factory is the dependency-injection seam between command bodies and the
 // rest of the runtime. Every subcommand receives a *Factory at construction
 // time. The fields are lazy functions — they memoise results on first call
@@ -265,20 +271,18 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 		if ts.Valid() {
 			return ts.AccessToken, ts.Expiry, nil
 		}
-		ctxBg := context.Background()
-		fresh, err := auth.Refresh(ctxBg, r.OIDCIssuer, r.OIDCClientID, ts)
+		// Bound the refresh so a wedged IdP can't hang every kubectl call that
+		// rides the exec-plugin kubeconfig (KC-3). RefreshLocked serialises the
+		// refresh across concurrent processes and only deletes the stored
+		// credential when the refresh token that failed is still the one on
+		// disk — so a lost rotation race can't clobber the winner (KC-1).
+		refreshCtx, cancel := context.WithTimeout(context.Background(), authRefreshTimeout)
+		defer cancel()
+		fresh, err := m.RefreshLocked(refreshCtx, r.ContextName, ctx.TokenRef, r.OIDCIssuer, r.OIDCClientID, ts)
 		if err != nil {
 			if errors.Is(err, auth.ErrRefreshFailed) {
-				_ = m.DeleteByRef(r.ContextName, ctx.TokenRef)
 				return "", time.Time{}, auth.ErrNotFound
 			}
-			return "", time.Time{}, err
-		}
-		blob, err := fresh.Marshal()
-		if err != nil {
-			return "", time.Time{}, err
-		}
-		if _, err := m.Set(r.ContextName, blob); err != nil {
 			return "", time.Time{}, err
 		}
 		return fresh.AccessToken, fresh.Expiry, nil

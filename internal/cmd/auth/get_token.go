@@ -42,7 +42,11 @@ never call it directly.`,
 
 			tok, expiry, err := f.TokenWithExpiry()
 			if err != nil {
-				return cli.AuthError("no Kupe credentials available for this context")
+				// kubectl surfaces this plugin's stderr verbatim, so a precise
+				// cause matters here more than anywhere (KC-4): distinguish
+				// "log in again" from a keyring outage or a transient refresh
+				// network blip.
+				return cli.TokenResolutionError(err)
 			}
 
 			status := &clientauthv1.ExecCredentialStatus{Token: tok}

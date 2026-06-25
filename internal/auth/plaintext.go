@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -38,7 +39,20 @@ func DefaultCredentialsPath(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "credentials.yaml")
 }
 
+// credsWarnWriter is where load() emits a permissions warning for a
+// group/world-readable credentials file. Defaults to os.Stderr; tests swap it.
+var credsWarnWriter io.Writer = os.Stderr
+
 func (s *plaintextStorage) load() (*credentialsFile, error) {
+	if info, statErr := os.Stat(s.path); statErr == nil {
+		// The file is created 0600; warn if it has become group/world
+		// accessible (backup restore, scp, umask quirks) so the user notices
+		// their tokens are exposed — same spirit as ssh refusing loose key
+		// perms (KC-20).
+		if mode := info.Mode().Perm(); mode&0o077 != 0 {
+			fmt.Fprintf(credsWarnWriter, "warning: %s is group/world accessible (mode %04o); run: chmod 600 %s\n", s.path, mode, s.path)
+		}
+	}
 	data, err := os.ReadFile(s.path) //#nosec G304 -- path is derived from user's config dir, by design
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

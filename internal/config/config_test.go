@@ -1,11 +1,36 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestLoadWarnsOnUnknownKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	// "currentContex" is a typo for "currentContext".
+	data := []byte("apiVersion: kupe.cloud/v1\nkind: Config\ncurrentContex: prod\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	orig := configWarnWriter
+	configWarnWriter = &buf
+	t.Cleanup(func() { configWarnWriter = orig })
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load should not hard-fail on unknown key (forward-compat): %v", err)
+	}
+	if cfg.CurrentContext != "" {
+		t.Fatalf("typo'd key should not apply; CurrentContext = %q", cfg.CurrentContext)
+	}
+	if !strings.Contains(buf.String(), "currentContex") {
+		t.Fatalf("expected unknown-key warning mentioning currentContex; got %q", buf.String())
+	}
+}
 
 func TestLoadMissingFileReturnsEmpty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")

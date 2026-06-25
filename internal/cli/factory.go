@@ -143,12 +143,14 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 	var (
 		resolvedOnce sync.Once
 		resolved     *config.Resolved
+		resolvedErr  error
 	)
 	f.Resolved = func() (*config.Resolved, error) {
 		resolvedOnce.Do(func() {
 			c, err := f.Config()
 			if err != nil {
-				return // resolved stays nil; caller will see the Config error first
+				resolvedErr = err // capture so we don't re-call Config below
+				return
 			}
 			resolved = config.Resolve(config.Flags{
 				APIURL:  flags.APIURL,
@@ -156,15 +158,8 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 				Tenant:  flags.Tenant,
 				Context: flags.Context,
 			}, env, c)
-			_ = c
 		})
-		if resolved == nil {
-			// Re-run Config to surface its error (not cached here).
-			if _, err := f.Config(); err != nil {
-				return nil, err
-			}
-		}
-		return resolved, nil
+		return resolved, resolvedErr
 	}
 
 	var (
@@ -206,7 +201,7 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 			}
 			tok, err := f.Token()
 			if err != nil {
-				clientErr = AuthError("not logged in; run \"kupe auth login\"")
+				clientErr = TokenResolutionError(err)
 				return
 			}
 			opts := []client.Option{}
@@ -295,4 +290,22 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 	f.TokenWithExpiry = resolveToken
 
 	return f
+}
+
+// TokenResolutionError maps a token-resolution failure to a precise,
+// actionable CLI error instead of collapsing every cause into "not logged in"
+// (KC-4). ErrNotFound (no credential, or a refresh that exhausted the token)
+// stays a login prompt; a keyring outage and any other cause (network during
+// refresh, corrupt blob) get their own guidance so a transient blip isn't
+// mistaken for an expired session.
+func TokenResolutionError(err error) error {
+	switch {
+	case errors.Is(err, auth.ErrNotFound):
+		return AuthError("not logged in (or your session expired); run \"kupe auth login\"")
+	case errors.Is(err, auth.ErrKeyringUnavailable):
+		return AuthError("could not read credentials from the OS keyring").
+			WithHint("set KUPE_STORAGE=plaintext to use the file-based credential store, or export KUPE_API_TOKEN")
+	default:
+		return Wrap(ExitAuth, "resolving credentials", err)
+	}
 }

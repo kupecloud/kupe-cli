@@ -1,14 +1,22 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// configWarnWriter is where Load emits non-fatal config warnings (unknown
+// keys). Defaults to os.Stderr; tests swap it out. Kept as a package var so
+// Load doesn't need an IOStreams dependency.
+var configWarnWriter io.Writer = os.Stderr
 
 // DefaultPath returns the path the CLI uses for its config file when no
 // --config / $KUPE_CONFIG override is set. Respects $XDG_CONFIG_HOME on
@@ -49,6 +57,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
+	// Second, strict pass to catch typo'd keys (e.g. `currentContex`) that the
+	// lenient unmarshal above silently ignores. Surfaced as a warning rather
+	// than a hard error so a config written by a newer CLI (with fields this
+	// version doesn't know) still loads — forward-compatible (KC-16).
+	if unknown := unknownConfigKeys(data); len(unknown) > 0 {
+		fmt.Fprintf(configWarnWriter, "warning: %s: ignoring unknown config key(s): %s\n", path, strings.Join(unknown, ", "))
+	}
+
 	if cfg.APIVersion != "" && cfg.APIVersion != APIVersion {
 		return nil, fmt.Errorf("%s: unknown apiVersion %q (expected %q)", path, cfg.APIVersion, APIVersion)
 	}
@@ -65,6 +81,31 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// unknownConfigKeys returns the names of top-level (or nested) keys present in
+// the YAML that the Config schema does not define. It runs a strict decode
+// (KnownFields(true)) and extracts the offending field names from the decoder
+// error. Returns nil on a clean decode or if the error can't be parsed.
+func unknownConfigKeys(data []byte) []string {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var probe Config
+	err := dec.Decode(&probe)
+	if err == nil || errors.Is(err, io.EOF) {
+		return nil
+	}
+	var unknown []string
+	for _, line := range strings.Split(err.Error(), "\n") {
+		const marker = "not found in type"
+		if i := strings.Index(line, "field "); i >= 0 && strings.Contains(line, marker) {
+			rest := line[i+len("field "):]
+			if j := strings.Index(rest, " "); j > 0 {
+				unknown = append(unknown, rest[:j])
+			}
+		}
+	}
+	return unknown
 }
 
 // Save writes the config atomically to path: marshal → temp file with mode

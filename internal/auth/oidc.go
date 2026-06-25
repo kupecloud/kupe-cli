@@ -133,7 +133,21 @@ func Discover(ctx context.Context, issuer string) (*Discovery, error) {
 	if d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" {
 		return nil, fmt.Errorf("OIDC discovery missing authorization/token endpoint")
 	}
+	// OIDC Discovery §4.3: the document's issuer MUST equal the issuer we
+	// requested. Enforcing it stops a tampered/misconfigured discovery doc
+	// from pointing the token exchange at an attacker's endpoints (KC-9).
+	// Compare modulo a single trailing slash — Authentik and the CLI differ
+	// only in that cosmetic detail.
+	if d.Issuer != "" && !issuerEqual(d.Issuer, issuer) {
+		return nil, fmt.Errorf("OIDC discovery issuer %q does not match expected issuer %q", d.Issuer, issuer)
+	}
 	return &d, nil
+}
+
+// issuerEqual compares two issuer URLs treating a single trailing slash as
+// insignificant.
+func issuerEqual(a, b string) bool {
+	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
 
 // Refresh exchanges a refresh_token for a new token set against the

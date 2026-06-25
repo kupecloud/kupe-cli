@@ -96,17 +96,19 @@ func TestEmailFromIDToken(t *testing.T) {
 }
 
 func TestDiscoverReturnsEndpoints(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/application/o/kupe-cli/.well-known/openid-configuration" {
 			t.Errorf("unexpected discovery path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{
-            "issuer": "https://example/application/o/kupe-cli/",
-            "authorization_endpoint": "https://example/application/o/authorize/",
-            "token_endpoint": "https://example/application/o/token/",
-            "jwks_uri": "https://example/application/o/kupe-cli/jwks/"
-        }`)
+		// Issuer must equal the requested issuer (KC-9), so echo the server URL.
+		fmt.Fprintf(w, `{
+            "issuer": "%s/application/o/kupe-cli/",
+            "authorization_endpoint": "%s/application/o/authorize/",
+            "token_endpoint": "%s/application/o/token/",
+            "jwks_uri": "%s/application/o/kupe-cli/jwks/"
+        }`, srv.URL, srv.URL, srv.URL, srv.URL)
 	}))
 	defer srv.Close()
 
@@ -114,11 +116,30 @@ func TestDiscoverReturnsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.AuthorizationEndpoint != "https://example/application/o/authorize/" {
+	if d.AuthorizationEndpoint != srv.URL+"/application/o/authorize/" {
 		t.Errorf("AuthorizationEndpoint = %q", d.AuthorizationEndpoint)
 	}
-	if d.TokenEndpoint != "https://example/application/o/token/" {
+	if d.TokenEndpoint != srv.URL+"/application/o/token/" {
 		t.Errorf("TokenEndpoint = %q", d.TokenEndpoint)
+	}
+}
+
+// TestDiscoverRejectsIssuerMismatch covers the KC-9 guard: a discovery doc
+// whose issuer doesn't match the requested issuer is rejected.
+func TestDiscoverRejectsIssuerMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{
+            "issuer": "https://evil.example/application/o/kupe-cli/",
+            "authorization_endpoint": "https://evil.example/application/o/authorize/",
+            "token_endpoint": "https://evil.example/application/o/token/"
+        }`)
+	}))
+	defer srv.Close()
+
+	_, err := Discover(context.Background(), srv.URL+"/application/o/kupe-cli/")
+	if err == nil || !strings.Contains(err.Error(), "does not match expected issuer") {
+		t.Fatalf("want issuer-mismatch error, got %v", err)
 	}
 }
 

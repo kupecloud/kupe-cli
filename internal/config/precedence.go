@@ -192,10 +192,26 @@ func strictKupeURL(s string) error {
 	if host == "" {
 		return fmt.Errorf("URL %q has no host", s)
 	}
+	// Reject cleartext http:// — bearer tokens, API keys, and refresh tokens
+	// would travel in the clear (KC-8). Permit http only for loopback hosts as
+	// a local-dev escape hatch.
+	if u.Scheme == "http" && !isLoopbackHost(host) {
+		return fmt.Errorf("URL %q uses insecure http:// — Kupe endpoints must be https (http is allowed only for localhost)", s)
+	}
 	if host == "kupe.cloud" || strings.HasSuffix(host, ".kupe.cloud") {
 		return nil
 	}
 	return fmt.Errorf("URL %q is not a Kupe endpoint (host must be kupe.cloud or *.kupe.cloud)", s)
+}
+
+// isLoopbackHost reports whether host is a loopback address/name where an
+// http:// dev endpoint is acceptable.
+func isLoopbackHost(host string) bool {
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
 }
 
 // BuildIssuerURL composes the full Authentik OIDC issuer URL the CLI

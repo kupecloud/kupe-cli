@@ -61,14 +61,14 @@ func newManagerWith(keyring, plaintext Storage, policy string) *Manager {
 	return &Manager{keyring: keyring, plaintext: plaintext, policy: policy}
 }
 
-// GetByRef looks up the token for context using the given TokenRef, which
+// GetByRef looks up the token for ctxName using the given TokenRef, which
 // must match what Set previously wrote into the config's context.
-func (m *Manager) GetByRef(context, ref string) (string, error) {
+func (m *Manager) GetByRef(ctxName, ref string) (string, error) {
 	switch ref {
 	case "keyring":
-		return m.keyring.Get(context)
+		return m.keyring.Get(ctxName)
 	case "plaintext":
-		return m.plaintext.Get(context)
+		return m.plaintext.Get(ctxName)
 	case "":
 		return "", ErrNotFound
 	default:
@@ -85,16 +85,16 @@ func (m *Manager) GetByRef(context, ref string) (string, error) {
 // to the plaintext file. The size-rejection path matters in practice on
 // macOS where Keychain caps a single item at ~3KB and OIDC token sets
 // with verbose custom claims can exceed that.
-func (m *Manager) Set(context, token string) (ref string, err error) {
+func (m *Manager) Set(ctxName, token string) (ref string, err error) {
 	switch m.policy {
 	case "plaintext":
-		return m.plaintext.Kind(), m.plaintext.Set(context, token)
+		return m.plaintext.Kind(), m.plaintext.Set(ctxName, token)
 	case "keyring":
-		return m.keyring.Kind(), m.keyring.Set(context, token)
+		return m.keyring.Kind(), m.keyring.Set(ctxName, token)
 	default:
-		if err := m.keyring.Set(context, token); err != nil {
+		if err := m.keyring.Set(ctxName, token); err != nil {
 			if errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringTooSmall) {
-				return m.plaintext.Kind(), m.plaintext.Set(context, token)
+				return m.plaintext.Kind(), m.plaintext.Set(ctxName, token)
 			}
 			return "", err
 		}
@@ -102,14 +102,14 @@ func (m *Manager) Set(context, token string) (ref string, err error) {
 	}
 }
 
-// DeleteByRef removes the token for context using the given TokenRef.
+// DeleteByRef removes the token for ctxName using the given TokenRef.
 // Idempotent: missing tokens return nil.
-func (m *Manager) DeleteByRef(context, ref string) error {
+func (m *Manager) DeleteByRef(ctxName, ref string) error {
 	switch ref {
 	case "keyring":
-		return m.keyring.Delete(context)
+		return m.keyring.Delete(ctxName)
 	case "plaintext":
-		return m.plaintext.Delete(context)
+		return m.plaintext.Delete(ctxName)
 	case "":
 		return nil
 	default:

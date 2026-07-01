@@ -66,8 +66,15 @@ signs:
       - sign-blob
       - "--yes"
       - "--output-signature=${signature}"
+      # Keyless (Fulcio) verification needs the signing certificate, so emit it
+      # alongside the .sig. scripts/install.sh downloads checksums.txt.pem and
+      # passes it to `cosign verify-blob --certificate`; without this the .pem
+      # 404s at install time and cosign verification silently degrades to
+      # checksum-only (KC-21).
+      - "--output-certificate=${certificate}"
       - "${artifact}"
     artifacts: checksum
+    certificate: "${artifact}.pem"
 
 sboms:
   - artifacts: archive

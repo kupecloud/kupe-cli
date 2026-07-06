@@ -168,6 +168,30 @@ func TestUpdateWithNoFlagsExits2(t *testing.T) {
 	}
 }
 
+// --- review-fable-2 HIGH-1: --wait-timeout exit-code contract --------------
+
+// TestMapWaitErrExitCodes pins the documented exit codes for the two ways a
+// wait ends early: timeout exhaustion → 8, user interrupt (Ctrl-C) → 130.
+// Regression guard for the TTY spinner misclassifying a fired --wait-timeout
+// as context.Canceled (exit 130 with the "stopped waiting" wording).
+func TestMapWaitErrExitCodes(t *testing.T) {
+	timeoutErr := mapWaitErr(ux.ErrWaitTimeout, "prod", "create")
+	if code := cli.ExitCode(timeoutErr); code != cli.ExitTimeout {
+		t.Fatalf("wait timeout exit = %d; want %d", code, cli.ExitTimeout)
+	}
+	if strings.Contains(timeoutErr.Error(), "stopped waiting") {
+		t.Fatalf("timeout must not carry the Ctrl-C wording: %v", timeoutErr)
+	}
+
+	cancelErr := mapWaitErr(context.Canceled, "prod", "create")
+	if code := cli.ExitCode(cancelErr); code != cli.ExitInterrupted {
+		t.Fatalf("interrupt exit = %d; want %d", code, cli.ExitInterrupted)
+	}
+	if !strings.Contains(cancelErr.Error(), "stopped waiting") {
+		t.Fatalf("interrupt should explain the operation continues: %v", cancelErr)
+	}
+}
+
 // --- Helper (separate name so it doesn't collide with cluster_test.go's) ---
 
 func runCmd(cmd interface {

@@ -130,6 +130,23 @@ func (m spinnerModel) View() string {
 	)
 }
 
+// classifySpinnerRunErr maps the error returned by tea.Program.Run onto the
+// wait loop's error vocabulary. The deadline check MUST come before the
+// ErrProgramKilled sentinel: when --wait-timeout fires, bubbletea's event
+// loop is killed by the external context and Run returns ErrProgramKilled
+// *wrapping* context.DeadlineExceeded — checking the kill sentinel first
+// would misreport the timeout as a user interrupt (exit 130 with the Ctrl-C
+// wording) instead of ErrWaitTimeout (exit 8).
+func classifySpinnerRunErr(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrWaitTimeout
+	}
+	if errors.Is(err, tea.ErrProgramKilled) {
+		return context.Canceled
+	}
+	return err
+}
+
 // runSpinner is the TTY-mode progress renderer: a live single-line spinner.
 // Returns on the same terminal state rules as runPlain.
 func runSpinner(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error {
@@ -164,10 +181,7 @@ func runSpinner(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error 
 	p := tea.NewProgram(m, tea.WithOutput(io.ErrOut), tea.WithInput(io.In), tea.WithContext(pollCtx))
 	finalModel, err := p.Run()
 	if err != nil {
-		if errors.Is(err, tea.ErrProgramKilled) {
-			return context.Canceled
-		}
-		return err
+		return classifySpinnerRunErr(err)
 	}
 
 	final, _ := finalModel.(spinnerModel)

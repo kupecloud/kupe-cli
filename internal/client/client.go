@@ -31,6 +31,13 @@ type Client struct {
 	userAgent  string
 	httpClient *http.Client
 	retry      retryPolicy
+	// tokenSource, when set, is consulted per request for the bearer token,
+	// overriding the static token. It lets a long-running command (e.g.
+	// `cluster create --wait` spanning hours) pick up a refreshed OIDC access
+	// token mid-flight instead of 401ing on the one resolved at construction
+	// (MEDIUM-4). nil for apikey / direct-token clients, which never expire
+	// mid-command.
+	tokenSource func(context.Context) (string, error)
 	// trace, if non-nil, is called once per HTTP round-trip with the
 	// method, path, status code, duration, and request-id. Tokens and
 	// bodies are NEVER passed to trace. Wired from --verbose / -v.
@@ -55,6 +62,16 @@ func WithHTTPClient(h *http.Client) Option {
 // shrink backoff to zero for speed.
 func WithRetryPolicy(p retryPolicy) Option {
 	return func(c *Client) { c.retry = p }
+}
+
+// WithTokenSource installs a per-request bearer-token provider. When set, it
+// is called on every attempt (with the request context) and its result is used
+// as the Authorization bearer token in place of the static token passed to New.
+// A returned error fails the request. Used so a running --wait transparently
+// refreshes an expiring OIDC access token instead of aborting with a 401
+// (MEDIUM-4).
+func WithTokenSource(fn func(context.Context) (string, error)) Option {
+	return func(c *Client) { c.tokenSource = fn }
 }
 
 // WithTrace installs a TraceFunc called once per HTTP round-trip. The
@@ -267,9 +284,19 @@ func (c *Client) newRequest(ctx context.Context, method, path, etag string, body
 	// Token is optional: the public plan catalog (/api/v1/plans) accepts
 	// unauthenticated calls, so clients built for that endpoint pass "".
 	// Sending "Bearer " with an empty secret would trip the server's auth
-	// middleware needlessly — skip the header instead.
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+	// middleware needlessly — skip the header instead. A tokenSource, when
+	// present, is resolved per request so a long wait picks up a refreshed
+	// OIDC token (MEDIUM-4).
+	token := c.token
+	if c.tokenSource != nil {
+		t, err := c.tokenSource(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("resolving auth token: %w", err)
+		}
+		token = t
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)

@@ -208,7 +208,26 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 			if flags.Verbose {
 				opts = append(opts, client.WithTrace(verboseTrace(io)))
 			}
-			cli = client.New(r.APIURL, r.Tenant, tok, UserAgent(), opts...)
+			// For OIDC contexts, hand the client a per-request token source
+			// instead of a fixed string. resolveToken refreshes the stored
+			// set when it's within the skew of expiry, so a long-running
+			// command (e.g. `cluster create --wait` spanning hours) that
+			// outlives its access token transparently refreshes mid-flight
+			// rather than 401ing and aborting the wait (MEDIUM-4). Apikey and
+			// direct-token contexts never expire mid-command, so they keep the
+			// static token and its cheaper single resolution.
+			staticTok := tok
+			if r.AuthMethod == config.AuthMethodOIDC && r.DirectToken == "" {
+				// f.TokenWithExpiry (resolveToken) is wired before any command
+				// runs; referencing the field defers the lookup to call time,
+				// avoiding a forward reference to the closure defined below.
+				opts = append(opts, client.WithTokenSource(func(context.Context) (string, error) {
+					t, _, terr := f.TokenWithExpiry()
+					return t, terr
+				}))
+				staticTok = ""
+			}
+			cli = client.New(r.APIURL, r.Tenant, staticTok, UserAgent(), opts...)
 		})
 		return cli, clientErr
 	}

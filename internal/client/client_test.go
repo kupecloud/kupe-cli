@@ -250,6 +250,53 @@ func TestRateLimitedOnLastAttemptDoesNotSleep(t *testing.T) {
 	}
 }
 
+// TestTokenSourceConsultedPerRequest verifies MEDIUM-4's mechanism: when a
+// token source is installed, each request resolves the bearer token afresh —
+// so a long-running command (many polls) transparently picks up a token that
+// the source refreshed mid-flight, instead of reusing the one bound at build.
+func TestTokenSourceConsultedPerRequest(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		fmt.Fprintln(w, `{"name":"acme"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	tokens := []string{"fresh-1", "fresh-2"}
+	var n int32
+	src := func(context.Context) (string, error) {
+		i := atomic.AddInt32(&n, 1)
+		return tokens[i-1], nil
+	}
+	// The static token must be ignored in favour of the source.
+	c := New(srv.URL, "acme", "stale-static", "ua", WithTokenSource(src), WithRetryPolicy(fastRetry))
+
+	for i := 0; i < 2; i++ {
+		if _, _, err := c.GetTenant(context.Background()); err != nil {
+			t.Fatalf("GetTenant #%d: %v", i, err)
+		}
+	}
+	if len(seen) != 2 || seen[0] != "Bearer fresh-1" || seen[1] != "Bearer fresh-2" {
+		t.Fatalf("Authorization headers = %v; want per-request source tokens", seen)
+	}
+}
+
+// TestTokenSourceErrorFailsRequest verifies a token-source failure (e.g. an
+// OIDC refresh that couldn't complete) surfaces as an error rather than
+// sending an empty/stale credential.
+func TestTokenSourceErrorFailsRequest(t *testing.T) {
+	src := func(context.Context) (string, error) { return "", errors.New("refresh exhausted") }
+	c := New("https://api.invalid", "acme", "static", "ua", WithTokenSource(src), WithRetryPolicy(retryPolicy{maxAttempts: 1}))
+
+	_, _, err := c.GetTenant(context.Background())
+	if err == nil {
+		t.Fatal("expected an error when the token source fails")
+	}
+	if !strings.Contains(err.Error(), "resolving auth token") {
+		t.Fatalf("error should name the token-resolution failure; got %v", err)
+	}
+}
+
 func TestTenantPathEscaping(t *testing.T) {
 	c := New("https://api.example", "ten ant", "tok", "ua")
 	if got := c.tenantPath("cluster/with/slashes"); got != "/api/v1/tenants/ten%20ant/cluster%2Fwith%2Fslashes" {

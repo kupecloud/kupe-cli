@@ -30,6 +30,16 @@ import (
 //     or the user denies. golang.org/x/oauth2 handles the
 //     authorization_pending / slow_down RFC 8628 error mapping.
 func DeviceFlow(ctx context.Context, prompt DevicePrompt, issuer, clientID, scopes string) (OIDCTokenSet, error) {
+	// Route every device-flow HTTP call — device authorization and the token
+	// polling loop — through the bounded auth client. http.DefaultClient has
+	// no timeout, and x/oauth2 builds its device requests with a plain
+	// http.NewRequest that isn't bound to ctx, so without this a wedged IdP
+	// hangs `kupe auth login` forever and Ctrl-C can't abort the in-flight
+	// request. The 30s per-request budget is safe for the poll loop too — each
+	// poll is a short POST and the loop's overall deadline is da.Expiry.
+	// See KC-3 / MEDIUM-3.
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, authHTTPClient)
+
 	disc, err := Discover(ctx, issuer)
 	if err != nil {
 		return OIDCTokenSet{}, err

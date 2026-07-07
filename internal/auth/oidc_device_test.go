@@ -157,6 +157,49 @@ func TestDeviceFlowPolls(t *testing.T) {
 	}
 }
 
+// TestDeviceFlowUsesBoundedHTTPClient verifies MEDIUM-3: the device-flow HTTP
+// calls go through the bounded authHTTPClient (injected via oauth2.HTTPClient),
+// so a wedged IdP endpoint can't hang login forever. x/oauth2's device requests
+// aren't bound to the caller ctx, so ONLY the client-level timeout can end a
+// stalled request — the caller context here deliberately has no deadline.
+func TestDeviceFlowUsesBoundedHTTPClient(t *testing.T) {
+	t.Cleanup(SetBrowserOpenerForTest(func(string) error { return nil }))
+
+	// Swap in a tightly-bounded auth client for the duration of the test.
+	prev := authHTTPClient
+	authHTTPClient = &http.Client{Timeout: 200 * time.Millisecond}
+	t.Cleanup(func() { authHTTPClient = prev })
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	discoveryWithDeviceEndpoint(t, mux, srv)
+
+	// The device-authorization endpoint stalls well past the client timeout,
+	// then returns on its own so the test never leaks a handler. With the fix,
+	// the bounded client aborts the request at ~200ms; without it, the request
+	// rides http.DefaultClient (no timeout) and only returns when the handler
+	// finally responds after 3s.
+	mux.HandleFunc("/application/o/device/", func(_ http.ResponseWriter, _ *http.Request) {
+		time.Sleep(3 * time.Second)
+	})
+
+	issuer := srv.URL + "/application/o/kupe-cli/"
+
+	// A caller context with NO deadline: only the client-level timeout can end
+	// the stalled request (x/oauth2's device request isn't bound to ctx).
+	start := time.Now()
+	_, err := DeviceFlow(context.Background(), nil, issuer, "kupe-cli", "openid")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected a timeout error from the stalled device endpoint")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("DeviceFlow took %v: bounded auth HTTP client was not applied to the device request", elapsed)
+	}
+}
+
 // TestDeviceFlowMissingEndpoint verifies the explicit error when the IdP
 // does not advertise a device_authorization_endpoint in its discovery
 // document. The error message must guide the user toward --method token.

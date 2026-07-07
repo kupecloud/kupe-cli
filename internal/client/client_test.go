@@ -179,6 +179,77 @@ func TestContextCancellationStopsRetries(t *testing.T) {
 	}
 }
 
+// errBody is a response body whose Read always fails, simulating a server
+// that sends response headers then stalls / resets mid-transfer.
+type errBody struct{}
+
+func (errBody) Read([]byte) (int, error) { return 0, errors.New("connection reset mid-body") }
+func (errBody) Close() error             { return nil }
+
+// rtFunc adapts a function to http.RoundTripper.
+type rtFunc func(*http.Request) (*http.Response, error)
+
+func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestBodyReadFailureIsSurfaced verifies MEDIUM-1: a 200 whose body can't be
+// read must return an error, not a zero-value result that looks like an
+// empty-but-successful response.
+func TestBodyReadFailureIsSurfaced(t *testing.T) {
+	rt := rtFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       errBody{},
+		}, nil
+	})
+	c := New("https://api.example", "acme", "kupe_test", "ua",
+		WithHTTPClient(&http.Client{Transport: rt}),
+		WithRetryPolicy(retryPolicy{maxAttempts: 1}),
+	)
+
+	tenant, _, err := c.GetTenant(context.Background())
+	if err == nil {
+		t.Fatalf("expected an error on a failed body read, got tenant=%+v", tenant)
+	}
+	if !strings.Contains(err.Error(), "reading response body") {
+		t.Fatalf("error should name the body-read cause; got %v", err)
+	}
+}
+
+// TestRateLimitedOnLastAttemptDoesNotSleep verifies LOW-1: a 429 arriving on
+// the final retry attempt returns immediately instead of burning the full
+// Retry-After before returning the same 429.
+func TestRateLimitedOnLastAttemptDoesNotSleep(t *testing.T) {
+	var hits int32
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		// A large Retry-After: if the code sleeps, the sub-second test
+		// deadline below trips and we fail.
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	// Single attempt: the very first (and only) request is a 429 on the last
+	// attempt, so the Retry-After sleep must be skipped.
+	c.retry = retryPolicy{maxAttempts: 1}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, _, err := c.GetTenant(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil || !IsRateLimited(err) {
+		t.Fatalf("want a 429 error, got %v", err)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("429 on the last attempt slept instead of returning (took %v)", elapsed)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("expected exactly 1 attempt, got %d", got)
+	}
+}
+
 func TestTenantPathEscaping(t *testing.T) {
 	c := New("https://api.example", "ten ant", "tok", "ua")
 	if got := c.tenantPath("cluster/with/slashes"); got != "/api/v1/tenants/ten%20ant/cluster%2Fwith%2Fslashes" {

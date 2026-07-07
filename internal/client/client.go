@@ -210,6 +210,11 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 
 		// 429 — retry once with Retry-After, regardless of method.
 		if resp != nil && resp.StatusCode == http.StatusTooManyRequests && !retried429 {
+			// No attempt left to spend — don't burn the full Retry-After
+			// (up to 30s) just to return the same 429 anyway (LOW-1).
+			if attempt+1 >= c.retry.maxAttempts {
+				break
+			}
 			retried429 = true
 			wait := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 			if wait <= 0 {
@@ -233,7 +238,13 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 		}
 	}
 
-	if lastErr != nil && lastResp == nil {
+	// http.Client.Do never returns both a response and an error, so a non-nil
+	// lastErr here is either a transport failure (lastResp == nil) or a
+	// mid-transfer body-read failure on a response we did receive. Either way
+	// the response is unusable: surface the error instead of handing the caller
+	// a zero-value result that would masquerade as an empty-but-successful
+	// response (MEDIUM-1).
+	if lastErr != nil {
 		return nil, nil, fmt.Errorf("executing request: %w", lastErr)
 	}
 	return lastResp, lastBody, nil

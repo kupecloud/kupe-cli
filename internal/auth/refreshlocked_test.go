@@ -56,6 +56,47 @@ func TestRefreshLockedPersistsRotatedToken(t *testing.T) {
 	}
 }
 
+// TestRefreshLockedPersistsToRefBackendNotPolicy is the MEDIUM-2 regression: a
+// context recorded tokenRef=plaintext (e.g. an SSH login with no D-Bus), but by
+// refresh time the write policy favours the keyring (it recovered in a desktop
+// session). The rotated token must land in plaintext — where the config's
+// tokenRef points and every future read looks — not the keyring, where it would
+// be stranded and force a bogus re-login.
+func TestRefreshLockedPersistsToRefBackendNotPolicy(t *testing.T) {
+	issuer, srv := fakeAuthentik(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}`))
+	})
+	defer srv.Close()
+
+	kr := newFakeStorage("keyring")
+	pt := newFakeStorage("plaintext")
+	// Default policy prefers the keyring; the recorded ref is plaintext.
+	m := newManagerWith(kr, pt, "")
+	current := OIDCTokenSet{RefreshToken: "old-refresh", Expiry: time.Now().Add(-time.Minute)}
+	blob, _ := current.Marshal()
+	pt.tokens["prod"] = blob
+
+	fresh, err := m.RefreshLocked(context.Background(), "prod", "plaintext", issuer, "kupe-cli", current)
+	if err != nil {
+		t.Fatalf("RefreshLocked: %v", err)
+	}
+	if fresh.RefreshToken != "new-refresh" {
+		t.Fatalf("unexpected fresh token: %+v", fresh)
+	}
+	stored, err := m.GetByRef("prod", "plaintext")
+	if err != nil {
+		t.Fatalf("rotated token not found in the ref backend: %v", err)
+	}
+	ts, _ := UnmarshalOIDC(stored)
+	if ts.RefreshToken != "new-refresh" {
+		t.Fatalf("plaintext RefreshToken = %q; want new-refresh", ts.RefreshToken)
+	}
+	if _, leaked := kr.tokens["prod"]; leaked {
+		t.Fatal("rotated token leaked into the keyring (policy backend) instead of the ref backend")
+	}
+}
+
 // TestRefreshLockedSkipsWhenAnotherProcessAlreadyRefreshed simulates the race
 // winner: before the loser refreshes, a fresh valid token is already on disk.
 // RefreshLocked must return the stored fresh set WITHOUT calling the IdP.

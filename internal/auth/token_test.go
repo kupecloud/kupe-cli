@@ -163,6 +163,28 @@ func TestManagerGetByRef(t *testing.T) {
 	}
 }
 
+// TestSetByRefIgnoresPolicy verifies MEDIUM-2's building block: SetByRef writes
+// to the backend named by ref, regardless of the KUPE_STORAGE write policy that
+// Set would apply.
+func TestSetByRefIgnoresPolicy(t *testing.T) {
+	kr := newFakeStorage("keyring")
+	pt := newFakeStorage("plaintext")
+	m := newManagerWith(kr, pt, "keyring") // policy would route Set to keyring
+
+	if err := m.SetByRef("prod", "plaintext", "tok"); err != nil {
+		t.Fatalf("SetByRef: %v", err)
+	}
+	if pt.tokens["prod"] != "tok" {
+		t.Fatalf("plaintext did not receive the token: %+v", pt.tokens)
+	}
+	if _, used := kr.tokens["prod"]; used {
+		t.Fatal("keyring was written despite ref=plaintext")
+	}
+	if err := m.SetByRef("prod", "bogus", "tok"); err == nil {
+		t.Fatal("SetByRef(bogus) should error")
+	}
+}
+
 func TestManagerDeleteByRefIsIdempotent(t *testing.T) {
 	kr := newFakeStorage("keyring")
 	pt := newFakeStorage("plaintext")

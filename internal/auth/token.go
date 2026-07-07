@@ -102,6 +102,27 @@ func (m *Manager) Set(ctxName, token string) (ref string, err error) {
 	}
 }
 
+// SetByRef stores the token for ctxName into the backend named by ref,
+// bypassing the KUPE_STORAGE write policy that Set applies. RefreshLocked
+// uses it so a rotated token always lands in the same backend the config's
+// tokenRef points at. Set picks a backend by policy + availability and
+// discards the ref it chose (the Manager can't update the config), so a
+// backend flip — a keyring that recovered since login, or a blob that
+// outgrew the macOS Keychain item cap and fell back to plaintext — would
+// otherwise strand the fresh credential where no future read looks for it,
+// forcing an bogus re-login (MEDIUM-2). If the named backend rejects the
+// write, the error is returned rather than silently rerouting elsewhere.
+func (m *Manager) SetByRef(ctxName, ref, token string) error {
+	switch ref {
+	case "keyring":
+		return m.keyring.Set(ctxName, token)
+	case "plaintext":
+		return m.plaintext.Set(ctxName, token)
+	default:
+		return errors.New("unknown tokenRef: " + ref)
+	}
+}
+
 // DeleteByRef removes the token for ctxName using the given TokenRef.
 // Idempotent: missing tokens return nil.
 func (m *Manager) DeleteByRef(ctxName, ref string) error {
@@ -180,7 +201,10 @@ func (m *Manager) RefreshLocked(ctx context.Context, ctxName, ref, issuer, clien
 	if mErr != nil {
 		return OIDCTokenSet{}, mErr
 	}
-	if _, sErr := m.Set(ctxName, blob); sErr != nil {
+	// Persist to the backend the config's tokenRef names — NOT via the
+	// policy-based Set, which could route the rotated token to a different
+	// backend and strand it (MEDIUM-2).
+	if sErr := m.SetByRef(ctxName, ref, blob); sErr != nil {
 		return OIDCTokenSet{}, sErr
 	}
 	return fresh, nil

@@ -136,6 +136,17 @@ homebrew_casks:
     # audit --strict` to pass.
     url:
       verified: github.com/kupecloud/kupe-cli/releases/download
+    # `zap trash:` is what `brew uninstall --zap` removes — without it the CLI's
+    # on-disk state survives an uninstall (homebrew-tap LOW-2). The CLI writes
+    # its config to ~/.config/kupe/config.yaml and, when no OS keyring is
+    # available, a plaintext ~/.config/kupe/credentials.yaml alongside it (see
+    # internal/config.DefaultPath + internal/auth.DefaultCredentialsPath), so
+    # trashing the whole directory covers both. Tokens held in the OS keyring
+    # (macOS Keychain / Linux Secret Service / Windows wincred) are not files and
+    # cannot be trashed here — `kupe auth logout` purges those.
+    zap:
+      trash:
+        - "~/.config/kupe"
 
 scoops:
   - repository:

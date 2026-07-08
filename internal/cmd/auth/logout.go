@@ -105,7 +105,7 @@ func runLogout(f *cli.Factory, opts *logoutOpts) error {
 		// but never block local logout — the user expects `auth logout`
 		// to always succeed locally.
 		if ctx.AuthMethod == config.AuthMethodOIDC {
-			revokeOIDCRefreshToken(io, mgr, ctx)
+			RevokeOIDCRefreshToken(io, mgr, ctx)
 		}
 		if err := mgr.DeleteByRef(name, ctx.TokenRef); err != nil {
 			return cli.Wrap(cli.ExitGeneral, fmt.Sprintf("removing token for %q", name), err)
@@ -124,10 +124,12 @@ func runLogout(f *cli.Factory, opts *logoutOpts) error {
 	return nil
 }
 
-// revokeOIDCRefreshToken loads the stored OIDC blob, calls the IdP's
-// revocation endpoint (RFC 7009), and prints a warning on failure. Always
-// returns nil to the caller — local logout proceeds regardless.
-func revokeOIDCRefreshToken(io *cli.IOStreams, mgr *auth.Manager, ctx *config.Context) {
+// RevokeOIDCRefreshToken loads the stored OIDC blob, calls the IdP's
+// revocation endpoint (RFC 7009), and prints a warning on failure. It never
+// blocks the caller's local cleanup — local logout/delete proceeds regardless.
+// Exported so `config delete-context` can revoke before dropping the local
+// credential, matching the logout/re-login posture (LOW-2).
+func RevokeOIDCRefreshToken(io *cli.IOStreams, mgr *auth.Manager, ctx *config.Context) {
 	stored, err := mgr.GetByRef(ctx.Name, ctx.TokenRef)
 	if err != nil {
 		// Token already gone (e.g. keyring deleted manually) — nothing to

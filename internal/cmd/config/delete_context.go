@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	authcmd "github.com/kupecloud/kupe-cli/internal/cmd/auth"
+	"github.com/kupecloud/kupe-cli/internal/config"
 )
 
 func newDeleteContextCmd(f *cli.Factory) *cobra.Command {
@@ -35,6 +37,13 @@ func newDeleteContextCmd(f *cli.Factory) *cobra.Command {
 			mgr, err := f.Auth()
 			if err != nil {
 				return cli.Wrap(cli.ExitGeneral, "initialising auth manager", err)
+			}
+			// For OIDC contexts, best-effort revoke the refresh token at the IdP
+			// before dropping local state — otherwise a still-valid 30-day
+			// refresh token stays live with no local copy left to revoke,
+			// inconsistent with the logout/re-login posture (LOW-2). Non-fatal.
+			if ctx.AuthMethod == config.AuthMethodOIDC {
+				authcmd.RevokeOIDCRefreshToken(io, mgr, ctx)
 			}
 			if err := mgr.DeleteByRef(name, ctx.TokenRef); err != nil {
 				return cli.Wrap(cli.ExitGeneral, "removing token", err)

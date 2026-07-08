@@ -88,17 +88,48 @@ func (m *Manager) GetByRef(ctxName, ref string) (string, error) {
 func (m *Manager) Set(ctxName, token string) (ref string, err error) {
 	switch m.policy {
 	case "plaintext":
-		return m.plaintext.Kind(), m.plaintext.Set(ctxName, token)
-	case "keyring":
-		return m.keyring.Kind(), m.keyring.Set(ctxName, token)
-	default:
-		if err := m.keyring.Set(ctxName, token); err != nil {
-			if errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringTooSmall) {
-				return m.plaintext.Kind(), m.plaintext.Set(ctxName, token)
-			}
+		if err := m.plaintext.Set(ctxName, token); err != nil {
 			return "", err
 		}
-		return m.keyring.Kind(), nil
+		ref = m.plaintext.Kind()
+	case "keyring":
+		if err := m.keyring.Set(ctxName, token); err != nil {
+			return "", err
+		}
+		ref = m.keyring.Kind()
+	default:
+		if err := m.keyring.Set(ctxName, token); err != nil {
+			if !errors.Is(err, ErrKeyringUnavailable) && !errors.Is(err, ErrKeyringTooSmall) {
+				return "", err
+			}
+			if err := m.plaintext.Set(ctxName, token); err != nil {
+				return "", err
+			}
+			ref = m.plaintext.Kind()
+		} else {
+			ref = m.keyring.Kind()
+		}
+	}
+
+	// A backend switch between logins — a headless login that fell back to the
+	// plaintext file, then a later desktop login that reaches the keyring (or
+	// the reverse once a broken keyring recovers) — otherwise leaves the
+	// previous, still-valid credential lingering in the counterpart store
+	// forever, since only the current tokenRef is ever read or expired.
+	// Best-effort purge it; both Delete paths are idempotent and a cleanup
+	// failure must never fail the login that just succeeded (LOW-3).
+	m.deleteCounterpart(ctxName, ref)
+	return ref, nil
+}
+
+// deleteCounterpart best-effort removes ctxName's token from the backend that
+// is NOT wrote (the ref just written to). Idempotent; any error is ignored.
+func (m *Manager) deleteCounterpart(ctxName, wrote string) {
+	switch wrote {
+	case "keyring":
+		_ = m.plaintext.Delete(ctxName)
+	case "plaintext":
+		_ = m.keyring.Delete(ctxName)
 	}
 }
 

@@ -142,6 +142,57 @@ func TestManagerSetHonoursPlaintextPolicy(t *testing.T) {
 	}
 }
 
+// TestManagerSetPurgesPlaintextCounterpartOnKeyringWrite covers LOW-3's forward
+// direction: a headless login left a still-valid credential in the plaintext
+// file; a later login reaches the keyring and must not leave the stale plaintext
+// copy behind.
+func TestManagerSetPurgesPlaintextCounterpartOnKeyringWrite(t *testing.T) {
+	kr := newFakeStorage("keyring")
+	pt := newFakeStorage("plaintext")
+	pt.tokens["prod"] = "stale-headless-token"
+	m := newManagerWith(kr, pt, "")
+
+	ref, err := m.Set("prod", "fresh-token")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if ref != "keyring" {
+		t.Fatalf("ref = %q; want keyring", ref)
+	}
+	if kr.tokens["prod"] != "fresh-token" {
+		t.Fatalf("keyring did not receive token: %+v", kr.tokens)
+	}
+	if _, stranded := pt.tokens["prod"]; stranded {
+		t.Fatalf("stale plaintext credential was not purged: %+v", pt.tokens)
+	}
+}
+
+// TestManagerSetPurgesKeyringCounterpartOnPlaintextFallback covers LOW-3's
+// reverse direction: an earlier login stored to the keyring, then a blob that
+// outgrows the Keychain item cap falls back to plaintext — the keyring copy must
+// be cleaned up rather than left as an orphaned, still-valid credential.
+func TestManagerSetPurgesKeyringCounterpartOnPlaintextFallback(t *testing.T) {
+	kr := newFakeStorage("keyring")
+	kr.tokens["prod"] = "stale-keyring-token"
+	kr.tooSmall = true // this write won't fit; forces the plaintext fallback
+	pt := newFakeStorage("plaintext")
+	m := newManagerWith(kr, pt, "")
+
+	ref, err := m.Set("prod", "grown-token")
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if ref != "plaintext" {
+		t.Fatalf("ref = %q; want plaintext", ref)
+	}
+	if pt.tokens["prod"] != "grown-token" {
+		t.Fatalf("plaintext did not receive fallback: %+v", pt.tokens)
+	}
+	if _, stranded := kr.tokens["prod"]; stranded {
+		t.Fatalf("stale keyring credential was not purged: %+v", kr.tokens)
+	}
+}
+
 func TestManagerGetByRef(t *testing.T) {
 	kr := newFakeStorage("keyring")
 	kr.tokens["prod"] = "from-keyring"

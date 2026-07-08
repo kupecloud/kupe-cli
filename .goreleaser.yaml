@@ -94,6 +94,10 @@ homebrew_casks:
       owner: kupecloud
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Homebrew has no prerelease channel, so an uploaded cask for an rc/alpha
+    # tag would roll out to every `brew upgrade` user. `auto` skips the upload
+    # when the tag is a prerelease (matches release.prerelease: auto below).
+    skip_upload: auto
     # Trailing slash matters: brew audit's HomepageUrlStyling rule rejects
     # bare-domain homepages (e.g. https://kupe.cloud) — must be an absolute
     # path including at least the slash.
@@ -138,6 +142,9 @@ scoops:
       owner: kupecloud
       name: scoop-bucket
       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    # Scoop has no prerelease channel either — skip publishing the manifest
+    # for prerelease tags so an rc doesn't reach `scoop update` users.
+    skip_upload: auto
     homepage: "https://kupe.cloud"
     description: "Official CLI for Kupe Cloud"
     license: Apache-2.0

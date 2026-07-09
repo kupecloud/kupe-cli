@@ -3,8 +3,10 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 )
 
@@ -27,6 +29,12 @@ func TestIsTransientWaitErr(t *testing.T) {
 		{"network error transient", errors.New("dial tcp: connection refused"), true},
 		{"context canceled not transient", context.Canceled, false},
 		{"deadline not transient", context.DeadlineExceeded, false},
+		// C4: a mid-wait OIDC refresh timeout is a transient auth fault, not
+		// the wait's own deadline — it must ride the grace, and must NOT be
+		// wrapped as context.DeadlineExceeded (else the spinner maps it to
+		// ErrWaitTimeout / exit 8).
+		{"auth refresh timeout transient", cli.ErrAuthRefreshTimeout, true},
+		{"wrapped auth refresh timeout transient", fmt.Errorf("resolving auth token: %w", cli.ErrAuthRefreshTimeout), true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -20,6 +20,14 @@ import (
 // budget. See KC-3.
 const authRefreshTimeout = 30 * time.Second
 
+// ErrAuthRefreshTimeout marks an OIDC refresh that hit authRefreshTimeout. It
+// is deliberately NOT wrapped as context.DeadlineExceeded: the refresh runs on
+// its own background-derived deadline (not the caller's wait context), so a
+// mid-wait IdP stall must be classified as a *transient auth fault* that rides
+// the wait's transient grace — never confused with the wait's own deadline
+// (which the spinner maps to ErrWaitTimeout / exit 8). See KC-4 / C4.
+var ErrAuthRefreshTimeout = errors.New("OIDC token refresh timed out")
+
 // Factory is the dependency-injection seam between command bodies and the
 // rest of the runtime. Every subcommand receives a *Factory at construction
 // time. The fields are lazy functions — they memoise results on first call
@@ -296,6 +304,15 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 		if err != nil {
 			if errors.Is(err, auth.ErrRefreshFailed) {
 				return "", time.Time{}, auth.ErrNotFound
+			}
+			// The refresh's own budget fired (refreshCtx derives from
+			// context.Background(), so this is never the caller's wait
+			// deadline). Surface a distinct transient sentinel instead of a
+			// bare DeadlineExceeded so a mid-wait blip rides the wait's
+			// transient grace rather than being misreported as the wait
+			// timeout (ErrWaitTimeout / exit 8). See C4.
+			if refreshCtx.Err() == context.DeadlineExceeded && errors.Is(err, context.DeadlineExceeded) {
+				return "", time.Time{}, fmt.Errorf("%w after %s", ErrAuthRefreshTimeout, authRefreshTimeout)
 			}
 			return "", time.Time{}, err
 		}

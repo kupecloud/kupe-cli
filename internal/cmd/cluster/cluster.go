@@ -159,6 +159,13 @@ func isTransientWaitErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	// A mid-wait OIDC refresh that hit its own 30s budget is a transient auth
+	// fault (an IdP blip on the exec-plugin token path), not the wait's own
+	// deadline — ride it out on the grace instead of aborting the whole
+	// --wait and misattributing it as a wait timeout (exit 8). See C4.
+	if errors.Is(err, cli.ErrAuthRefreshTimeout) {
+		return true
+	}
 	// Context cancellation/deadline is handled by the waiter itself; never
 	// swallow it here.
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

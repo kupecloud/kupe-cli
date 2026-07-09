@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 	"text/template"
 
@@ -59,15 +58,6 @@ func PrintTemplate(w io.Writer, v any, tmpl string) error {
 	}
 	fmt.Fprintln(w)
 	return nil
-}
-
-// PrintTemplateFile reads a template from path and renders v.
-func PrintTemplateFile(w io.Writer, v any, path string) error {
-	data, err := os.ReadFile(path) //#nosec G304 -- path is a user-provided template file
-	if err != nil {
-		return fmt.Errorf("reading template file: %w", err)
-	}
-	return PrintTemplate(w, v, string(data))
 }
 
 // PrintJSONPath is a placeholder for Phase 3.x. Returning a structured error

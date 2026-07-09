@@ -33,7 +33,7 @@ const (
 type Format struct {
 	Kind Kind
 	// Template holds the template string for Kind=Template (source from
-	// `go-template=...` or `go-template-file=...`).
+	// `go-template=...`).
 	Template string
 	// Path holds the jsonpath expression for Kind=JSONPath.
 	Path string

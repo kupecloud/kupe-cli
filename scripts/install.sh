@@ -208,7 +208,10 @@ fi
 # When cosign is absent we fall back to checksum-only and say so.
 SIG_URL="${CHECKSUMS_URL}.sig"
 CERT_URL="${CHECKSUMS_URL}.pem"
-COSIGN_IDENTITY_RE="^https://github.com/${REPO}/\.github/workflows/.+@refs/tags/v${VERSION}$"
+# semantic-release runs publish.yaml on `main`, so the Fulcio SAN is always
+# publish.yaml@refs/heads/main — there is no tag trigger. Pinning @refs/tags/v<ver>
+# never matched and hard-failed every install with cosign on PATH (KC-21).
+COSIGN_IDENTITY_RE="^https://github.com/${REPO}/\.github/workflows/publish\.yaml@refs/heads/main$"
 COSIGN_ISSUER="https://token.actions.githubusercontent.com"
 if command -v cosign >/dev/null 2>&1; then
   if curl -fsSL -o "${tmp}/checksums.txt.sig" "$SIG_URL" \

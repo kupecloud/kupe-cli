@@ -178,7 +178,8 @@ Consumers verify with:
 
 ```bash
 cosign verify-blob \
-  --certificate-identity-regexp "^https://github.com/kupecloud/kupe-cli" \
+  --certificate kupe_0.1.0_checksums.txt.pem \
+  --certificate-identity-regexp "^https://github.com/kupecloud/kupe-cli/\.github/workflows/publish\.yaml@refs/heads/main$" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --signature kupe_0.1.0_checksums.txt.sig \
   kupe_0.1.0_checksums.txt

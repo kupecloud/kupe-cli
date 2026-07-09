@@ -153,11 +153,16 @@ kupe version
 
 # Signature verification (optional, recommended for docs)
 VERSION=0.1.0
+base="https://github.com/kupecloud/kupe-cli/releases/download/v${VERSION}"
+curl -fsSLO "${base}/kupe_${VERSION}_checksums.txt"
+curl -fsSLO "${base}/kupe_${VERSION}_checksums.txt.sig"
+curl -fsSLO "${base}/kupe_${VERSION}_checksums.txt.pem"
 cosign verify-blob \
-  --certificate-identity-regexp "^https://github.com/kupecloud/kupe-cli" \
+  --certificate kupe_${VERSION}_checksums.txt.pem \
+  --certificate-identity-regexp "^https://github.com/kupecloud/kupe-cli/\.github/workflows/publish\.yaml@refs/heads/main$" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  --signature https://github.com/kupecloud/kupe-cli/releases/download/v${VERSION}/kupe_${VERSION}_checksums.txt.sig \
-  <(curl -fsSL https://github.com/kupecloud/kupe-cli/releases/download/v${VERSION}/kupe_${VERSION}_checksums.txt)
+  --signature kupe_${VERSION}_checksums.txt.sig \
+  kupe_${VERSION}_checksums.txt
 ```
 
 `kupe version` should print the new tag, the short commit, and the commit

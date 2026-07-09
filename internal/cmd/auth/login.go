@@ -206,6 +206,16 @@ func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *con
 	if err != nil {
 		return cli.Wrap(cli.ExitGeneral, "initialising auth manager", err)
 	}
+
+	// Token-login over an existing OIDC context: best-effort revoke the
+	// previous refresh token at the IdP before overwriting it locally,
+	// mirroring the OIDC re-login and delete-context paths (LOW-2). Otherwise
+	// a still-valid refresh token is orphaned at the IdP with no local copy
+	// left to revoke. Non-fatal — the new login proceeds regardless.
+	if prev := cfg.Context(contextName); prev != nil && prev.AuthMethod == config.AuthMethodOIDC && prev.TokenRef != "" {
+		RevokeOIDCRefreshToken(io, mgr, prev)
+	}
+
 	ref, err := mgr.Set(contextName, token)
 	if err != nil {
 		return cli.Wrap(cli.ExitGeneral, "storing token", err)

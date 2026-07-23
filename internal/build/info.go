@@ -25,8 +25,10 @@ var (
 	OIDCClientID = "kupe-cli"
 
 	// OIDCScopes are the scopes requested during the device-code flow.
-	// offline_access is required for the refresh_token grant; the rest
-	// match the kupe-cli Authentik application's property mappings
-	// (openid, email, profile, kupe-groups, kupe-tenants).
-	OIDCScopes = "openid email profile offline_access"
+	// offline_access is required for the refresh_token grant. groups is
+	// REQUIRED: kupe-api's OIDC gate rejects any token without a groups
+	// claim ({tenant}-admins / {tenant}-readonly proves tenant scope), and
+	// Authentik only emits the claim when the scope is requested — omitting
+	// it fails every CLI request with 401 missing_groups.
+	OIDCScopes = "openid email profile offline_access groups"
 )

@@ -67,9 +67,11 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 				return err
 			}
 
-			// displayName is required server-side (kupe-api handler_cluster.go:414).
-			// Fall back to NAME when the flag is empty — the flag help text
-			// promises this, and sending an empty string would 400.
+			// displayName is DEPRECATED: the ManagedCluster CRD has no such
+			// field (the cluster name is the identifier) and kupe-api ≥ v1.5.2
+			// accepts and ignores it. Older kupe-api releases still require a
+			// non-empty value, so keep sending NAME as the fallback for
+			// compatibility; the flag itself is hidden/deprecated.
 			displayName := opts.displayName
 			if displayName == "" {
 				displayName = name
@@ -130,7 +132,8 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.displayName, "display-name", "", "Human-readable display name (defaults to NAME)")
+	cmd.Flags().StringVar(&opts.displayName, "display-name", "", "Deprecated and ignored: the cluster NAME is its display name")
+	_ = cmd.Flags().MarkDeprecated("display-name", "clusters have no separate display name; the NAME is used everywhere")
 	cmd.Flags().StringVar(&opts.version, "version", "", "Kubernetes minor version (e.g. 1.32). Defaults to the platform default if unset.")
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "CPU limit for the cluster (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "Memory limit for the cluster (e.g. 8Gi, 512Mi)")

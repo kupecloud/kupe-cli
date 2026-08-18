@@ -359,7 +359,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--type TYPE` | `shared` | `shared` or `dedicated`. Most users can omit this. |
-| `--display-name NAME` | positional NAME | Human-readable name. |
+| `--display-name NAME` | — | **Deprecated, ignored.** Clusters have no separate display name; NAME is used everywhere. |
 | `--version VERSION` | latest | Target Kubernetes version (e.g., `1.32`). Defaults server-side. |
 | `--cpu-limit QUANTITY` | required | CPU limit (e.g., `2`, `500m`, `1.5`). |
 | `--memory-limit QUANTITY` | required | Memory limit (e.g., `8Gi`, `512Mi`). |

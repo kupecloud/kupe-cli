@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -408,8 +409,18 @@ func saveConfig(f *cli.Factory, cfg *config.Config) error {
 func loginValidationError(err error, apiURL, tenant string) error {
 	switch {
 	case client.IsUnauthorized(err):
-		return cli.AuthError(fmt.Sprintf("invalid API token at %s (server returned 401)", apiURL)).
-			WithHint("verify the token at https://console.kupe.cloud/settings/api-keys")
+		// Surface kupe-api's own reason: a 401 after a successful device
+		// flow is NOT an API-key problem (e.g. "token missing groups claim"
+		// from an outdated CLI that didn't request the groups scope), and
+		// pointing at the API-keys page sent people the wrong way.
+		msg := fmt.Sprintf("kupe-api at %s rejected the credential (401)", apiURL)
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.Message != "" {
+			msg += ": " + apiErr.Message
+		}
+		return cli.AuthError(msg).
+			WithHint("OIDC login: make sure you run the latest kupe (curl -fsSL https://get.kupe.cloud | sh) — " +
+				"older builds don't request the groups scope; API token login: verify the token at https://console.kupe.cloud/settings/api-keys")
 	case client.IsForbidden(err):
 		return cli.AuthError(fmt.Sprintf("token does not grant access to tenant %q at %s (403)", tenant, apiURL)).
 			WithHint("check the tenant name and the token's role")

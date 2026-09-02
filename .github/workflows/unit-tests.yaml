@@ -6,3 +6,24 @@ on:
 jobs:
   unit-tests:
     uses: kupecloud/github-workflows/.github/workflows/go-unit-tests.yaml@75f2bc349709d9fec6630dbd937301d1a32708e0 # v1.1.0
+
+  # The live suite (`//go:build live`, test/live) is excluded from
+  # `go test ./...` and `go vet ./...` by its build tag, so nothing else catches
+  # a signature drift that stops it compiling — and the moment it fails to
+  # build is the moment nobody can run it against a real kupe-api. Compile it
+  # here without running it (same as `make vet-live`).
+  vet-live:
+    name: Vet live suite (never executed here)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet live suite
+        run: go vet -mod=vendor -tags=live ./test/live/...

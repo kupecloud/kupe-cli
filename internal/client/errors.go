@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // errorEnvelope matches both kupe-api error body shapes:
@@ -54,6 +55,24 @@ type APIError struct {
 	// Field is the dotted spec path the error applies to
 	// (e.g. "spec.highAvailability"). Empty when Code is empty.
 	Field string
+	// body is the raw response body, kept so endpoint-specific parsers can
+	// pull structured detail (e.g. the tenant list on signup's 409) without
+	// the generic envelope having to know every shape. Never rendered.
+	body []byte
+}
+
+// Body returns the raw response body of the failed request (may be empty).
+func (e *APIError) Body() []byte { return e.body }
+
+// ErrorCode returns the canonical error code carried by err's APIError,
+// lower-cased for case-insensitive comparison, or "" when err is not an
+// APIError or the server sent a legacy envelope without a code.
+func ErrorCode(err error) string {
+	e := asAPI(err)
+	if e == nil {
+		return ""
+	}
+	return strings.ToLower(e.Code)
 }
 
 // Error renders a user-facing message. We deliberately drop the "kupe api:"

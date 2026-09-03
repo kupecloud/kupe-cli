@@ -87,3 +87,39 @@ func (c *Client) GetTenant(ctx context.Context) (*Tenant, string, error) {
 	}
 	return &t, etag, nil
 }
+
+// DeleteTenantRequest is the DELETE /api/v1/tenants/{tenant} body. Confirm
+// must equal the tenant name (typed-name confirmation, enforced server-side
+// as a 400). Cascade asks kupe-api to delete the tenant's clusters first;
+// without it a tenant that still has non-Terminating clusters is refused
+// with 409 clusters_exist.
+type DeleteTenantRequest struct {
+	Confirm string `json:"confirm"`
+	Cascade bool   `json:"cascade,omitempty"`
+}
+
+// Canonical error codes kupe-api returns from DELETE /tenants/{tenant}.
+// Compare via ErrorCode(err) — it lower-cases so a server that capitalises
+// the codes still matches.
+const (
+	// TenantDeleteCodeOwnerRequired: 403 — caller is not spec.contactEmail,
+	// or authenticated with an API key rather than an OIDC token.
+	TenantDeleteCodeOwnerRequired = "owner_required"
+	// TenantDeleteCodeClustersExist: 409 — active clusters and no cascade.
+	TenantDeleteCodeClustersExist = "clusters_exist"
+	// TenantDeleteCodeAlreadyTerminating: 409 — deletionTimestamp already set.
+	TenantDeleteCodeAlreadyTerminating = "already_terminating"
+)
+
+// DeleteTenant sends DELETE /api/v1/tenants/{tenant}. On 202 the returned
+// tenant carries status.phase=Terminating; GetTenant keeps reporting that
+// phase until the CR is gone, then 404s. Errors: 400 bad confirm (IsValidation),
+// 403 owner_required (IsForbidden), 404 (IsNotFound), 409 clusters_exist /
+// already_terminating (IsConflict + ErrorCode), 429 (IsRateLimited).
+func (c *Client) DeleteTenant(ctx context.Context, req DeleteTenantRequest) (*Tenant, error) {
+	var t Tenant
+	if _, err := c.request(ctx, http.MethodDelete, c.tenantPath(), req, &t); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}

@@ -16,6 +16,11 @@ type Interface interface {
 	// GetTenant fetches /api/v1/tenants/{tenant}.
 	GetTenant(ctx context.Context) (*Tenant, string, error)
 
+	// DeleteTenant requests deletion of the tenant the client is scoped
+	// to (owner + OIDC only server-side). Returns the 202 body — the
+	// tenant with status.phase=Terminating.
+	DeleteTenant(ctx context.Context, req DeleteTenantRequest) (*Tenant, error)
+
 	// ListClusters lists every cluster visible to the tenant.
 	ListClusters(ctx context.Context) ([]Cluster, error)
 

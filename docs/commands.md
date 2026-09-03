@@ -17,6 +17,7 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 |----------|-------------|--------|
 | `GET /api/v1/tenants/{tenant}` | `kupe tenant get` (also `kupe auth whoami`) | v1 |
 | `PATCH /api/v1/tenants/{tenant}` | — | deferred |
+| `DELETE /api/v1/tenants/{tenant}` | `kupe tenant delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/members` | `kupe member list` | v1 |
 | `POST /api/v1/tenants/{tenant}/members` | `kupe member add` | v1 |
 | `PATCH /api/v1/tenants/{tenant}/members/{email}` | `kupe member update` | v1 |
@@ -652,19 +653,15 @@ Change a member's role. `--role` is required.
 ### `kupe member remove EMAIL`
 
 Remove a user from the tenant. Prompts on TTY; requires `--yes` on non-TTY.
-The user loses Authentik group membership on the next operator reconcile,
-which revokes console and kubeconfig access.
-
----
-
-## `kupe tenant` — Inspect the current tenant
+The user loses Authentik group membership on the next opera## `kupe tenant` — Inspect or delete the current tenant
 
 `kupe tenant get` surfaces the full tenant record — plan, phase, resource pool,
 current-period usage, and member list — for the context in play. Use it when
 you need more than the thin identity check that `kupe auth whoami` provides.
+`kupe tenant delete` is the owner-only, typed-name deletion.
 
-Writes (rename, plan change, member changes) are not yet exposed; use `kupe
-member` for membership edits, and the web console for the rest. A future
+Other writes (rename, plan change, member changes) are not yet exposed; use
+`kupe member` for membership edits, and the web console for the rest. A future
 `kupe tenant update` may land once the operator stabilises PATCH ergonomics.
 
 ### `kupe tenant get`
@@ -691,6 +688,58 @@ blocks — use `jq .status.billing.currentUsage` to extract just the billing-rel
 
 Backed by `GET /api/v1/tenants/{tenant}`. Exits `4` if the tenant (i.e. the
 current context's tenant) no longer exists on the server, `3` on invalid
+credentials.
+
+### `kupe tenant delete --confirm NAME`
+
+Permanently delete the current context's tenant. Only the tenant **owner**
+(`Contact Email` in `kupe tenant get`) may do this, and only with an OIDC
+login — the CLI refuses API-key contexts and `kupe_…` tokens up front (exit
+`3`) because the API would reject them with `403 owner_required` anyway.
+
+There is no interactive prompt: `--confirm` must equal the current context's
+tenant name (mismatch or missing → exit `2`, no request made).
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
+| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. |
+| `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
+| `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
+
+```bash
+$ kupe tenant delete --confirm acme --cascade
+
+Deleting tenant "acme" will:
+  - Remove every member's access, all API keys, and all managed secrets.
+  - Issue a final invoice for any outstanding usage.
+  - Delete 2 cluster(s), including every workload and volume inside them:
+      prod (Running)
+      staging (Running)
+
+tenant/acme terminating
+```
+
+The warning block goes to stderr; `tenant/<name> terminating` is the only
+stdout line. Deletion is asynchronous — the API answers `202` and
+`kupe tenant get` shows `Phase: Terminating` until the tenant is gone (then
+exits `4`). A tenant that was ever billed is held for its final invoice, up to
+24 hours, so `--wait` is usually only useful with a generous `--wait-timeout`.
+
+**Exit codes:** `0` accepted (with `--wait`: gone), `2` missing/mismatched
+`--confirm` (or `400` from the API), `3` API-key context or `403 owner_required`,
+`4` tenant not found, `5` on `409 clusters_exist` (hint: `--cascade`) or
+`409 already_terminating`, `6` on `429` (one request per minute), `8` `--wait`
+timeout, `130` Ctrl+C while waiting (deletion continues server-side).
+
+Backed by `DELETE /api/v1/tenants/{tenant}` with body
+`{"confirm": "<name>", "cascade": <bool>}`.
+
+---
+
+no longer exists on the server, `3` on invalid
 credentials.
 
 ---

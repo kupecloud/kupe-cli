@@ -140,6 +140,7 @@ func (c *Client) requestWithETag(ctx context.Context, method, path, etag string,
 			RequestID:  requestID,
 			Method:     method,
 			Path:       path,
+			body:       respBody,
 		}
 		// Parse the unified envelope: structured canonical responses carry
 		// a `code` field; legacy responses only carry `error`. The same

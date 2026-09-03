@@ -133,6 +133,7 @@ What runs:
 |------|----------|
 | `auth_test.go` | `auth whoami` + bad-token exit-3 path |
 | `tenant_test.go` | `tenant get` |
+| `tenant_delete_test.go` | `tenant delete` local refusals; full deletion of a throwaway tenant gated on `KUPE_LIVE_DELETE_TENANT=<name>` + an owner OIDC token |
 | `plan_test.go` | `plan list/get` (unauthenticated) |
 | `apikey_test.go` | `apikey create/list/delete` round-trip |
 | `secret_test.go` | `secret create/list/get/update/delete` round-trip |

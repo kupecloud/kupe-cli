@@ -27,6 +27,19 @@ type Fake struct {
 	TenantETag     string
 	TenantErr      error
 
+	// GetTenantSeq scripts successive GetTenant results (e.g. Terminating →
+	// gone) for wait loops; each call consumes one entry and the last entry
+	// is repeated once exhausted. A nil entry renders as a 404. Empty →
+	// TenantResponse/TenantErr apply.
+	GetTenantSeq []*client.Tenant
+
+	// DeleteTenantErr forces DeleteTenant to fail. DeleteTenantResponse is
+	// the 202 body (defaults to TenantResponse with phase Terminating).
+	// DeleteTenantRequests records every body the command sent.
+	DeleteTenantErr      error
+	DeleteTenantResponse *client.Tenant
+	DeleteTenantRequests []client.DeleteTenantRequest
+
 	// Clusters keyed by name. Seed before handing to a test.
 	Clusters map[string]*client.Cluster
 
@@ -124,10 +137,40 @@ func (f *Fake) GetTenant(_ context.Context) (*client.Tenant, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record("GetTenant")
+	if len(f.GetTenantSeq) > 0 {
+		next := f.GetTenantSeq[0]
+		if len(f.GetTenantSeq) > 1 {
+			f.GetTenantSeq = f.GetTenantSeq[1:]
+		}
+		if next == nil {
+			return nil, "", &client.APIError{StatusCode: 404, Message: "tenant not found"}
+		}
+		return next, f.TenantETag, nil
+	}
 	if f.TenantErr != nil {
 		return nil, "", f.TenantErr
 	}
 	return f.TenantResponse, f.TenantETag, nil
+}
+
+// DeleteTenant implements client.Interface. Records the request body so
+// tests can assert on confirm/cascade.
+func (f *Fake) DeleteTenant(_ context.Context, req client.DeleteTenantRequest) (*client.Tenant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("DeleteTenant:" + req.Confirm)
+	f.DeleteTenantRequests = append(f.DeleteTenantRequests, req)
+	if f.DeleteTenantErr != nil {
+		return nil, f.DeleteTenantErr
+	}
+	if f.DeleteTenantResponse != nil {
+		return f.DeleteTenantResponse, nil
+	}
+	name := f.TenantName
+	if f.TenantResponse != nil && f.TenantResponse.Name != "" {
+		name = f.TenantResponse.Name
+	}
+	return &client.Tenant{Name: name, Status: &client.TenantStatus{Phase: client.PhaseTerminating}}, nil
 }
 
 // ListClusters implements client.Interface.

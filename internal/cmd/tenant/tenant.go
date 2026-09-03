@@ -1,7 +1,8 @@
-// Package tenant wires the "kupe tenant" subcommand tree. For v1 the only
-// verb is `get` — the current tenant's full record including plan, phase,
-// resource pool, current-period usage, and member list. `update` (PATCH)
-// may land later; for now the authoritative write path is the console.
+// Package tenant wires the "kupe tenant" subcommand tree: `get` — the
+// current tenant's full record including plan, phase, resource pool,
+// current-period usage, and member list — and `delete`, the owner-only
+// typed-name deletion. `update` (PATCH) may land later; for now the
+// authoritative write path for everything else is the console.
 package tenant
 
 import (
@@ -18,15 +19,17 @@ import (
 func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tenant",
-		Short: "Inspect the current tenant",
+		Short: "Inspect or delete the current tenant",
 		Long: `Read full details for the tenant the current context targets: plan,
-phase, resource pool, current-period usage, and member list.
+phase, resource pool, current-period usage, and member list — or, as the
+tenant owner, delete it.
 
-Unlike "kupe auth whoami" — a quick identity check — this surfaces every
-field the API returns so billing, capacity, and membership questions can
-be answered in one call.`,
+Unlike "kupe auth whoami" — a quick identity check — "kupe tenant get"
+surfaces every field the API returns so billing, capacity, and membership
+questions can be answered in one call.`,
 	}
 	cmd.AddCommand(newGetCmd(f))
+	cmd.AddCommand(newDeleteCmd(f))
 	return cmd
 }
 

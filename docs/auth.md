@@ -54,6 +54,7 @@ contexts:
     authMethod: oidc
     oidcBaseUrl: https://auth.staging.kupe.cloud
     oidcClientId: kupe-cli
+    signupUrl: https://signup.staging.kupe.cloud   # signup service for "kupe user delete"; default signup.kupe.cloud
 preferences:
   output: table                # table | wide | json | yaml | name
   color: auto                  # auto | always | never

@@ -19,6 +19,7 @@ type Env struct {
 	Config       string
 	OIDCBaseURL  string
 	OIDCClientID string
+	SignupURL    string
 }
 
 // LoadEnv reads the KUPE_* variables the CLI cares about.
@@ -31,6 +32,7 @@ func LoadEnv() Env {
 		Config:       os.Getenv("KUPE_CONFIG"),
 		OIDCBaseURL:  os.Getenv("KUPE_OIDC_BASE_URL"),
 		OIDCClientID: os.Getenv("KUPE_OIDC_CLIENT_ID"),
+		SignupURL:    os.Getenv("KUPE_SIGNUP_URL"),
 	}
 }
 
@@ -69,6 +71,9 @@ type Resolved struct {
 	OIDCBaseURL  string
 	OIDCClientID string
 	OIDCIssuer   string
+	// SignupURL is the signup service base URL for self-service user
+	// operations. Precedence: env > context > DefaultSignupURL.
+	SignupURL string
 }
 
 // Resolve merges flags, env vars, and config-file context into the final
@@ -135,6 +140,16 @@ func Resolve(flags Flags, env Env, cfg *Config) *Resolved {
 		r.OIDCClientID = build.OIDCClientID
 	}
 	r.OIDCIssuer = BuildIssuerURL(r.OIDCBaseURL, r.OIDCClientID)
+
+	// Signup service: env > context > default.
+	r.SignupURL = env.SignupURL
+	if r.SignupURL == "" && ctx != nil {
+		r.SignupURL = ctx.SignupURL
+	}
+	if r.SignupURL == "" {
+		r.SignupURL = DefaultSignupURL
+	}
+	r.SignupURL = NormalizeURL(r.SignupURL)
 
 	return r
 }

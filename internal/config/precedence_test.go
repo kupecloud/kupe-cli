@@ -184,3 +184,27 @@ func TestValidateKupeURL(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSignupURLPrecedence(t *testing.T) {
+	cfg := &Config{
+		CurrentContext: "prod",
+		Contexts: []Context{
+			{Name: "prod", APIURL: "https://api.kupe.cloud", Tenant: "acme"},
+			{Name: "dev", APIURL: "https://api.dev.int.kupe.cloud", Tenant: "acme", SignupURL: "signup.dev.int.kupe.cloud"},
+		},
+	}
+	if r := Resolve(Flags{}, Env{}, cfg); r.SignupURL != DefaultSignupURL {
+		t.Errorf("default: SignupURL = %q; want %q", r.SignupURL, DefaultSignupURL)
+	}
+	// Context value wins over the default and gets a scheme prepended.
+	if r := Resolve(Flags{Context: "dev"}, Env{}, cfg); r.SignupURL != "https://signup.dev.int.kupe.cloud" {
+		t.Errorf("context: SignupURL = %q", r.SignupURL)
+	}
+	// Env wins over the context.
+	if r := Resolve(Flags{Context: "dev"}, Env{SignupURL: "https://signup.staging.kupe.cloud"}, cfg); r.SignupURL != "https://signup.staging.kupe.cloud" {
+		t.Errorf("env: SignupURL = %q", r.SignupURL)
+	}
+	if r := Resolve(Flags{}, Env{}, nil); r.SignupURL != DefaultSignupURL {
+		t.Errorf("nil config: SignupURL = %q", r.SignupURL)
+	}
+}

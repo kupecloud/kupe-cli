@@ -79,6 +79,13 @@ type Factory struct {
 	// to config.DefaultAPIURL otherwise, so it never fails on missing
 	// tenant or credentials. Tests override this field with a fake.
 	PublicClient func() (client.Interface, error)
+
+	// SignupClient returns a client for the signup service (self-service
+	// user operations such as `kupe user delete`). Scoped to the resolved
+	// SignupURL and the same bearer token as Client — the signup service
+	// only accepts OIDC tokens, which the command layer enforces up front.
+	// Tests inject a clienttest.FakeSignup here.
+	SignupClient func() (client.SignupInterface, error)
 }
 
 // UserAgent returns the string the CLI sends on every HTTP request. Stable
@@ -257,6 +264,44 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 			pubCli = client.New(apiURL, "", "", UserAgent(), opts...)
 		})
 		return pubCli, nil
+	}
+
+	var (
+		signupOnce sync.Once
+		signupCli  client.SignupInterface
+		signupErr  error
+	)
+	f.SignupClient = func() (client.SignupInterface, error) {
+		signupOnce.Do(func() {
+			r, err := f.Resolved()
+			if err != nil {
+				signupErr = err
+				return
+			}
+			if err := config.ValidateKupeURL(r.SignupURL); err != nil {
+				signupErr = MisuseError(err.Error())
+				return
+			}
+			tok, err := f.Token()
+			if err != nil {
+				signupErr = TokenResolutionError(err)
+				return
+			}
+			opts := []client.Option{}
+			if flags.Verbose {
+				opts = append(opts, client.WithTrace(verboseTrace(io)))
+			}
+			staticTok := tok
+			if r.AuthMethod == config.AuthMethodOIDC && r.DirectToken == "" {
+				opts = append(opts, client.WithTokenSource(func(context.Context) (string, error) {
+					t, _, terr := f.TokenWithExpiry()
+					return t, terr
+				}))
+				staticTok = ""
+			}
+			signupCli = client.NewSignup(r.SignupURL, staticTok, UserAgent(), opts...)
+		})
+		return signupCli, signupErr
 	}
 
 	resolveToken := func() (string, time.Time, error) {

@@ -23,6 +23,7 @@ import (
 	plancmd "github.com/kupecloud/kupe-cli/internal/cmd/plan"
 	secretcmd "github.com/kupecloud/kupe-cli/internal/cmd/secret"
 	tenantcmd "github.com/kupecloud/kupe-cli/internal/cmd/tenant"
+	usercmd "github.com/kupecloud/kupe-cli/internal/cmd/user"
 )
 
 // Execute runs the root command with the given context and returns the exit
@@ -92,6 +93,7 @@ Full reference: https://docs.kupe.cloud/cli`,
 	root.AddCommand(tenantcmd.NewCmd(factory))
 	root.AddCommand(invoicecmd.NewCmd(factory))
 	root.AddCommand(plancmd.NewCmd(factory))
+	root.AddCommand(usercmd.NewCmd(factory))
 
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)

@@ -82,6 +82,9 @@ func applySet(cfg *config.Config, key, value string) error {
 		case "user":
 			ctx.User = value
 			return nil
+		case "signupUrl":
+			ctx.SignupURL = config.NormalizeURL(value)
+			return nil
 		case "tokenRef":
 			return cli.MisuseError("use \"kupe auth login\" or \"kupe config set-context --token\" to change tokenRef safely")
 		}

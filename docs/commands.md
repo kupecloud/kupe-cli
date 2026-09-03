@@ -9,7 +9,7 @@ sidebar:
 
 This is the v1 command reference. Every command follows the grammar in [design.md](./design.md): `kupe <noun> <verb> [NAME] [--flags]`. Every command inherits the auth/config global flags described there. Output flags are local to commands because supported formats differ by command.
 
-Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.json](../../kupe-api/api/swagger.json). Any endpoint not listed here is either in Phase 2 or intentionally not exposed via CLI.
+Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.json](../../kupe-api/api/swagger.json), plus the one self-service endpoint owned by the signup service (`kupe user delete`). Any endpoint not listed here is either in Phase 2 or intentionally not exposed via CLI.
 
 ## Coverage vs. kupe-api endpoints
 
@@ -44,6 +44,7 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET,PUT,DELETE /api/v1/tenants/{tenant}/alertmanager/receivers[/{name}]` | — | planned (see below) |
 | `GET,PUT,DELETE /api/v1/tenants/{tenant}/alertmanager/routes[/{id}]` | — | planned (see below) |
 | `GET,PUT /api/v1/tenants/{tenant}/alertmanager/global` | — | planned (see below) |
+| signup service `DELETE /users/me` | `kupe user delete` | v1 |
 
 ---
 
@@ -265,11 +266,13 @@ Create or update a context. If NAME exists, merge the provided fields.
 | Flag | Description |
 |------|-------------|
 | `--api-url URL` | API base URL. |
+| `--signup-url URL` | Signup service base URL used by `kupe user delete` (default `https://signup.kupe.cloud`; env `KUPE_SIGNUP_URL`). |
 | `--tenant NAME` | Tenant. |
 | `--token TOKEN` | Store token in keyring/plaintext fallback. |
 
 ```bash
 $ kupe config set-context staging --api-url https://api.staging.kupe.cloud --tenant acme-staging
+$ kupe config set-context dev --api-url api.dev.int.kupe.cloud --signup-url signup.dev.int.kupe.cloud
 ```
 
 ### `kupe config delete-context NAME`
@@ -287,9 +290,14 @@ Prompts on TTY; requires `--yes` on non-TTY.
 
 Dotted-path access to the current context or preferences.
 
+Context keys: `apiUrl`, `tenant`, `tokenRef` (read-only), `user`, `signupUrl`.
+Preference keys: `output`, `color`, `wait`, `waitTimeout`.
+
 ```bash
 $ kupe config get contexts.prod.apiUrl
 https://api.kupe.cloud
+
+$ kupe config set contexts.dev.signupUrl signup.dev.int.kupe.cloud
 
 $ kupe config set preferences.waitTimeout 15m
 
@@ -653,7 +661,12 @@ Change a member's role. `--role` is required.
 ### `kupe member remove EMAIL`
 
 Remove a user from the tenant. Prompts on TTY; requires `--yes` on non-TTY.
-The user loses Authentik group membership on the next opera## `kupe tenant` — Inspect or delete the current tenant
+The user loses Authentik group membership on the next operator reconcile,
+which revokes console and kubeconfig access.
+
+---
+
+## `kupe tenant` — Inspect or delete the current tenant
 
 `kupe tenant get` surfaces the full tenant record — plan, phase, resource pool,
 current-period usage, and member list — for the context in play. Use it when
@@ -739,8 +752,61 @@ Backed by `DELETE /api/v1/tenants/{tenant}` with body
 
 ---
 
-no longer exists on the server, `3` on invalid
-credentials.
+## `kupe user` — Your own account
+
+Self-service operations on the logged-in user. These go to the **signup
+service** (`https://signup.kupe.cloud`, per-context `signupUrl`, env
+`KUPE_SIGNUP_URL`), not kupe-api, and require an OIDC login: an API key
+identifies a tenant, not a person.
+
+### `kupe user delete --confirm EMAIL`
+
+Permanently erase your Kupe user: the Authentik account (sessions and tokens
+with it) and the Grafana user row. Idempotent server-side; cannot be undone.
+
+Preconditions the CLI checks before calling out:
+
+- The current context (or `--token`/`KUPE_API_TOKEN`) is an OIDC login —
+  API-key contexts and `kupe_…` tokens exit `3`.
+- `--confirm` equals the logged-in email recorded at login (`kupe auth
+  whoami` → `User:`), compared case-insensitively; mismatch exits `2`. When
+  the email is not known locally (token supplied via env/flag) the CLI says
+  so and lets the service verify it against the token.
+
+The service additionally requires that you belong to **no** tenant, and that
+the login is recent (`auth_time` within 10 minutes).
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--confirm EMAIL` | Your email address, typed out (required). |
+
+```bash
+$ kupe user delete --confirm billy@acme.com
+
+Deleting user "billy@acme.com" will:
+  - Permanently remove the account, its sessions and tokens, and its Grafana user.
+  - Log this CLI out of the current context.
+
+Logged out of "acme".
+user/billy@acme.com deleted
+```
+
+On `204` the CLI removes the stored credentials for the current context
+(the `kupe auth logout` equivalent; the context entry itself is kept) and
+prints the single stdout line `user/<email> deleted`. A failed request never
+touches stored credentials.
+
+**Exit codes:** `0` deleted, `2` missing/mismatched `--confirm` (or `400`
+from the service), `3` API-key auth or `403` (not an OIDC token, stale
+login, refused identity — re-run `kupe auth login` and retry within 10
+minutes), `5` on `409 tenant_memberships` — the message lists the tenants to
+delete (`kupe tenant delete`) or be removed from (`kupe member remove`)
+first, `6` on `429` (one request per minute).
+
+Backed by the signup service's `DELETE /users/me` with body
+`{"confirm": "<email>"}` and the OIDC bearer token.
 
 ---
 

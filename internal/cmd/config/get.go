@@ -32,6 +32,7 @@ Supported keys:
   contexts.<name>.tenant
   contexts.<name>.tokenRef
   contexts.<name>.user
+  contexts.<name>.signupUrl
   preferences.output
   preferences.color
   preferences.wait
@@ -83,6 +84,8 @@ func resolveGet(cfg *config.Config, key string) (string, error) {
 			return ctx.TokenRef, nil
 		case "user":
 			return ctx.User, nil
+		case "signupUrl":
+			return ctx.SignupURL, nil
 		}
 	}
 

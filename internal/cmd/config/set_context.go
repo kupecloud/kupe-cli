@@ -10,9 +10,10 @@ import (
 )
 
 type setContextOpts struct {
-	apiURL string
-	tenant string
-	token  string
+	apiURL    string
+	signupURL string
+	tenant    string
+	token     string
 }
 
 func newSetContextCmd(f *cli.Factory) *cobra.Command {
@@ -40,6 +41,9 @@ a token in one step.`,
 			}
 			if opts.apiURL != "" {
 				ctx.APIURL = opts.apiURL
+			}
+			if opts.signupURL != "" {
+				ctx.SignupURL = config.NormalizeURL(opts.signupURL)
 			}
 			if opts.tenant != "" {
 				ctx.Tenant = opts.tenant
@@ -70,6 +74,7 @@ a token in one step.`,
 	}
 
 	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL")
+	cmd.Flags().StringVar(&opts.signupURL, "signup-url", "", "Signup service base URL used by \"kupe user delete\" (env: KUPE_SIGNUP_URL, default "+config.DefaultSignupURL+")")
 	cmd.Flags().StringVar(&opts.tenant, "tenant", "", "Tenant")
 	cmd.Flags().StringVar(&opts.token, "token", "", "API token to store")
 	return cmd

@@ -30,6 +30,11 @@ const (
 // DefaultAPIURL is the base URL used when nothing else resolves one.
 const DefaultAPIURL = "https://api.kupe.cloud"
 
+// DefaultSignupURL is the base URL of the signup service — the owner of the
+// self-service user endpoints (DELETE /users/me). Per-context like APIURL:
+// KUPE_SIGNUP_URL > contexts.<name>.signupUrl > this default.
+const DefaultSignupURL = "https://signup.kupe.cloud"
+
 // Config is the root document.
 type Config struct {
 	APIVersion     string      `yaml:"apiVersion"`
@@ -64,6 +69,11 @@ type Context struct {
 	// OIDCClientID overrides build.OIDCClientID for this context. The
 	// public client_id registered in Authentik. Rarely changed.
 	OIDCClientID string `yaml:"oidcClientId,omitempty"`
+
+	// SignupURL overrides DefaultSignupURL for this context — the signup
+	// service that owns self-service user operations ("kupe user delete").
+	// Set on dev/staging contexts; empty means the production default.
+	SignupURL string `yaml:"signupUrl,omitempty"`
 }
 
 // Preferences is a bag of global defaults applied to commands unless

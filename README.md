@@ -106,7 +106,7 @@ kubectl --context kupe-<tenant>-dev get pods -A
 kupe cluster delete dev
 ```
 
-Full getting-started guide: [docs.kupe.cloud/cli/getting-started](https://docs.kupe.cloud/cli/getting-started).
+Full getting-started guide: [docs.kupe.cloud/platform/kupe-cli](https://docs.kupe.cloud/platform/kupe-cli/).
 
 ## CI usage
 

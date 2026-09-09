@@ -58,7 +58,7 @@ func newRootCmd(io *cli.IOStreams, flags *cli.GlobalFlags) *cobra.Command {
 Run "kupe auth login" to get started, then "kupe cluster create NAME"
 to provision a cluster.
 
-Full reference: https://docs.kupe.cloud/cli`,
+Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 		Version:       fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.Date),
 		SilenceUsage:  true,
 		SilenceErrors: false,

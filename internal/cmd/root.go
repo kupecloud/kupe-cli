@@ -24,6 +24,8 @@ import (
 	secretcmd "github.com/kupecloud/kupe-cli/internal/cmd/secret"
 	tenantcmd "github.com/kupecloud/kupe-cli/internal/cmd/tenant"
 	usercmd "github.com/kupecloud/kupe-cli/internal/cmd/user"
+	"github.com/kupecloud/kupe-cli/internal/config"
+	"github.com/kupecloud/kupe-cli/internal/update"
 )
 
 // Execute runs the root command with the given context and returns the exit
@@ -34,6 +36,15 @@ func Execute(ctx context.Context) int {
 	root := newRootCmd(io, flags)
 
 	err := root.ExecuteContext(ctx)
+
+	// Version notice, after the command has run (M-11). Deliberately last and
+	// deliberately silent on failure — see internal/update. Gated on
+	// SpinnersEnabled, which is already "stderr is a TTY, not CI, not --quiet,
+	// no KUPE_NO_PROGRESS", so scripts and CI logs never see it.
+	if notice := updateNotice(ctx, io); notice != "" {
+		fmt.Fprintf(io.ErrOut, "\n%s\n", notice)
+	}
+
 	if err != nil {
 		// Cobra has already surfaced the error message; add a hint block for
 		// any *cli.Error that carries one. Multi-line hints are split and
@@ -49,6 +60,25 @@ func Execute(ctx context.Context) int {
 	return cli.ExitCode(err)
 }
 
+// updateNotice returns the "newer version available" message, or "" when the
+// check is suppressed or has nothing to report. It resolves the cache path from
+// the config location so one directory holds everything the CLI writes; an
+// unresolvable path disables caching rather than the check.
+func updateNotice(ctx context.Context, io *cli.IOStreams) string {
+	if !io.SpinnersEnabled {
+		return ""
+	}
+	if os.Getenv("KUPE_NO_UPDATE_CHECK") != "" {
+		return ""
+	}
+	cachePath := ""
+	if configPath, err := config.DefaultPath(); err == nil {
+		cachePath = update.DefaultCachePath(configPath)
+	}
+	checker := &update.Checker{CachePath: cachePath}
+	return checker.Notice(ctx, build.Version)
+}
+
 func newRootCmd(io *cli.IOStreams, flags *cli.GlobalFlags) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "kupe",
@@ -57,6 +87,9 @@ func newRootCmd(io *cli.IOStreams, flags *cli.GlobalFlags) *cobra.Command {
 
 Run "kupe auth login" to get started, then "kupe cluster create NAME"
 to provision a cluster.
+
+Kupe is in alpha: free to use, no SLA, and nothing is charged.
+What that means: https://kupe.cloud/alpha
 
 Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 		Version:       fmt.Sprintf("%s (commit %s, built %s)", build.Version, build.Commit, build.Date),

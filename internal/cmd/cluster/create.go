@@ -2,13 +2,13 @@ package cluster
 
 import (
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
@@ -121,9 +121,9 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, created)
 			}
 
-			final, werr := waitForPhase(cmd.Context(), f.IOStreams, api, name, "cluster "+name, client.PhaseRunning, opts.waitTimeout)
+			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, "cluster", name, client.PhaseRunning, phaseGetter(api, name), opts.waitTimeout)
 			if werr != nil {
-				return mapWaitErr(werr, name, "create")
+				return cmdutil.MapWaitErr(werr, "cluster", name, "create")
 			}
 			if final == nil {
 				final = created
@@ -159,17 +159,6 @@ func resourceRequest(cpu, memory, storage string) *client.ClusterResource {
 	return &client.ClusterResource{CPU: cpu, Memory: memory, Storage: storage}
 }
 
-// cpuFormat permits an integer count of vCPUs ("2"), a millicore value
-// ("500m"), or a fractional vCPU count ("1.5"). Mirrors what the operator
-// will accept once it parses the value with k8s resource.Quantity, but we
-// don't pull in that dependency just for client-side hinting.
-var cpuFormat = regexp.MustCompile(`^\d+(\.\d+)?m?$`)
-
-// memoryFormat / storageFormat require an explicit unit suffix. The webhook
-// rejects bare numbers as ambiguous (8 bytes vs 8 GiB) — we replicate that
-// rule here so the user gets the precise hint without round-tripping.
-var memoryFormat = regexp.MustCompile(`^\d+(\.\d+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)$`)
-
 // validateCreateOpts runs the same checks the operator's admission webhook
 // runs, so the user sees flag-shaped errors instead of K8s field paths. The
 // webhook is still authoritative — this is purely a UX shortcut.
@@ -193,15 +182,15 @@ func validateCreateOpts(opts *createOpts) error {
 		return cli.MisuseError("--storage-limit is required").
 			WithHint("example: --storage-limit 50Gi (the unit suffix Gi/Mi is required)")
 	}
-	if !cpuFormat.MatchString(opts.cpu) {
+	if !cmdutil.IsCPUQuantity(opts.cpu) {
 		return cli.MisuseError("--cpu-limit has an invalid format: " + opts.cpu).
 			WithHint("use a number of vCPUs (e.g. 2, 1.5) or millicores (e.g. 500m)")
 	}
-	if !memoryFormat.MatchString(opts.memory) {
+	if !cmdutil.IsUnitQuantity(opts.memory) {
 		return cli.MisuseError("--memory-limit must include a unit suffix; got: " + opts.memory).
 			WithHint("example: --memory-limit 8Gi or --memory-limit 8192Mi (plain numbers are ambiguous)")
 	}
-	if !memoryFormat.MatchString(opts.storage) {
+	if !cmdutil.IsUnitQuantity(opts.storage) {
 		return cli.MisuseError("--storage-limit must include a unit suffix; got: " + opts.storage).
 			WithHint("example: --storage-limit 50Gi or --storage-limit 50G")
 	}

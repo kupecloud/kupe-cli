@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -127,8 +128,11 @@ func TestUpdateClusterRMWFailsAfterTwoMismatches(t *testing.T) {
 		v := "1.33"
 		return &PatchClusterRequest{Version: &v}
 	})
-	if err != ErrRMWContention { //nolint:errorlint
+	if !errors.Is(err, ErrRMWContention) {
 		t.Fatalf("want ErrRMWContention after two 412s, got %v", err)
+	}
+	if !IsPreconditionFailed(err) {
+		t.Fatalf("contention must keep the final 412 so it exits as a conflict, got %v", err)
 	}
 }
 

@@ -50,14 +50,7 @@ func ClusterDetailColumns(colorEnabled bool) Columns {
 		{Name: "CPU", Get: func(v any) string { return resourceOf(cluster(v)).CPU }},
 		{Name: "Memory", Get: func(v any) string { return resourceOf(cluster(v)).Memory }},
 		{Name: "Storage", Get: func(v any) string { return resourceOf(cluster(v)).Storage }},
-		{Name: "Created", Get: func(v any) string {
-			c := cluster(v)
-			age := ageFromRFC3339(c.CreatedAt)
-			if age == "" {
-				return c.CreatedAt
-			}
-			return c.CreatedAt + " (" + age + " ago)"
-		}},
+		{Name: "Created", Get: func(v any) string { return createdWithAge(cluster(v).CreatedAt) }},
 	}
 	return cols
 }

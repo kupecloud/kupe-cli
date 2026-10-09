@@ -96,24 +96,12 @@ func (c *Client) UpdateSecret(ctx context.Context, name, etag string, req PatchS
 // UpdateSecretRMW is the read-modify-write helper for `secret update`.
 // Mirrors UpdateClusterRMW — one 412 retry, then ErrSecretRMWContention.
 func (c *Client) UpdateSecretRMW(ctx context.Context, name string, mutate SecretMutator) (*Secret, error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		current, etag, err := c.GetSecret(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		patch := mutate(current)
-		if patch == nil {
-			return current, nil
-		}
-		updated, _, err := c.UpdateSecret(ctx, name, etag, *patch)
-		if err == nil {
-			return updated, nil
-		}
-		if !IsPreconditionFailed(err) {
-			return nil, err
-		}
-	}
-	return nil, ErrSecretRMWContention
+	return updateRMW(ctx,
+		func(ctx context.Context) (*Secret, string, error) { return c.GetSecret(ctx, name) },
+		func(ctx context.Context, etag string, req PatchSecretRequest) (*Secret, string, error) {
+			return c.UpdateSecret(ctx, name, etag, req)
+		},
+		mutate, ErrSecretRMWContention)
 }
 
 // DeleteSecret revokes a secret.

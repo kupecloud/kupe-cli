@@ -76,6 +76,27 @@ type Fake struct {
 	UpdateSecretErr error
 	DeleteSecretErr error
 
+	// Databases keyed by name. CreateDatabase stores the request with the
+	// API's defaults applied; UpdateDatabaseRMW applies patches in place.
+	Databases            map[string]*client.Database
+	ListDatabasesErr     error
+	GetDatabaseErr       error
+	CreateDatabaseErr    error
+	UpdateDatabaseErr    error
+	DeleteDatabaseErr    error
+	RotateCredentialsErr error
+
+	// GetDatabaseSeq scripts successive GetDatabase results per name, with
+	// the same semantics as GetClusterSeq.
+	GetDatabaseSeq map[string][]*client.Database
+
+	// DatabaseBindings keyed by binding name (unique across the tenant).
+	DatabaseBindings         map[string]*client.DatabaseBinding
+	ListDatabaseBindingsErr  error
+	GetDatabaseBindingErr    error
+	CreateDatabaseBindingErr error
+	DeleteDatabaseBindingErr error
+
 	// Members keyed by email.
 	Members         map[string]*client.Member
 	ListMembersErr  error
@@ -108,20 +129,36 @@ type Fake struct {
 // New returns a Fake with sensible zero values.
 func New() *Fake {
 	return &Fake{
-		TenantName:    "acme",
-		Clusters:      map[string]*client.Cluster{},
-		GetClusterSeq: map[string][]*client.Cluster{},
-		Kubeconfigs:   map[string]*client.ClusterKubeconfig{},
-		APIKeys:       map[string]*client.APIKey{},
-		Secrets:       map[string]*client.Secret{},
-		Members:       map[string]*client.Member{},
-		Invoices:      map[string]*client.Invoice{},
-		Plans:         map[string]*client.Plan{},
+		TenantName:       "acme",
+		Clusters:         map[string]*client.Cluster{},
+		GetClusterSeq:    map[string][]*client.Cluster{},
+		Kubeconfigs:      map[string]*client.ClusterKubeconfig{},
+		APIKeys:          map[string]*client.APIKey{},
+		Secrets:          map[string]*client.Secret{},
+		Databases:        map[string]*client.Database{},
+		GetDatabaseSeq:   map[string][]*client.Database{},
+		DatabaseBindings: map[string]*client.DatabaseBinding{},
+		Members:          map[string]*client.Member{},
+		Invoices:         map[string]*client.Invoice{},
+		Plans:            map[string]*client.Plan{},
 	}
 }
 
 func (f *Fake) record(call string) {
 	f.Calls = append(f.Calls, call)
+}
+
+// popSeq consumes the next scripted entry for name, repeating the last
+// entry once the sequence is exhausted. ok is false when no sequence is set.
+func popSeq[T any](seqs map[string][]*T, name string) (next *T, ok bool) {
+	seq := seqs[name]
+	if len(seq) == 0 {
+		return nil, false
+	}
+	if len(seq) > 1 {
+		seqs[name] = seq[1:]
+	}
+	return seq[0], true
 }
 
 // Tenant implements client.Interface.
@@ -198,11 +235,7 @@ func (f *Fake) GetCluster(_ context.Context, name string) (*client.Cluster, stri
 	if f.GetClusterErr != nil {
 		return nil, "", f.GetClusterErr
 	}
-	if seq, ok := f.GetClusterSeq[name]; ok && len(seq) > 0 {
-		next := seq[0]
-		if len(seq) > 1 {
-			f.GetClusterSeq[name] = seq[1:]
-		}
+	if next, ok := popSeq(f.GetClusterSeq, name); ok {
 		if next == nil {
 			return nil, "", &client.APIError{StatusCode: 404, Message: "cluster not found"}
 		}
@@ -462,6 +495,242 @@ func (f *Fake) DeleteSecret(_ context.Context, name string) error {
 	}
 	delete(f.Secrets, name)
 	return nil
+}
+
+// ListDatabases implements client.Interface.
+func (f *Fake) ListDatabases(_ context.Context) ([]client.Database, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("ListDatabases")
+	if f.ListDatabasesErr != nil {
+		return nil, f.ListDatabasesErr
+	}
+	out := make([]client.Database, 0, len(f.Databases))
+	for _, db := range f.Databases {
+		out = append(out, *db)
+	}
+	return out, nil
+}
+
+// GetDatabase implements client.Interface. Honours GetDatabaseSeq.
+func (f *Fake) GetDatabase(_ context.Context, name string) (*client.Database, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("GetDatabase:" + name)
+	if f.GetDatabaseErr != nil {
+		return nil, "", f.GetDatabaseErr
+	}
+	db, ok := popSeq(f.GetDatabaseSeq, name)
+	if !ok {
+		db = f.Databases[name]
+	}
+	if db == nil {
+		return nil, "", databaseNotFound()
+	}
+	return db, "etag-fake", nil
+}
+
+// CreateDatabase implements client.Interface. Persists the request at
+// phase Pending with the API's defaults (deletion protection on).
+func (f *Fake) CreateDatabase(_ context.Context, req client.CreateDatabaseRequest) (*client.Database, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("CreateDatabase:" + req.Name)
+	if f.CreateDatabaseErr != nil {
+		return nil, "", f.CreateDatabaseErr
+	}
+	if _, exists := f.Databases[req.Name]; exists {
+		return nil, "", &client.APIError{StatusCode: 409, Message: "database already exists"}
+	}
+	protected := req.DeletionProtection == nil || *req.DeletionProtection
+	db := &client.Database{
+		Name:               req.Name,
+		Engine:             req.Engine,
+		Version:            req.Version,
+		Resources:          req.Resources,
+		HighAvailability:   req.HighAvailability,
+		DeletionProtection: protected,
+		Status:             &client.DatabaseStatus{Phase: client.PhasePending},
+	}
+	f.Databases[req.Name] = db
+	return db, "etag-fake", nil
+}
+
+// UpdateDatabaseRMW implements client.Interface: GET, mutate, then apply
+// the patch to the stored database.
+func (f *Fake) UpdateDatabaseRMW(ctx context.Context, name string, mutate client.DatabaseMutator) (*client.Database, error) {
+	current, _, err := f.GetDatabase(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	patch := mutate(current)
+	if patch == nil {
+		return current, nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("UpdateDatabase:" + name)
+	if f.UpdateDatabaseErr != nil {
+		return nil, f.UpdateDatabaseErr
+	}
+	db, ok := f.Databases[name]
+	if !ok {
+		return nil, databaseNotFound()
+	}
+	applyDatabasePatch(db, patch)
+	return db, nil
+}
+
+func applyDatabasePatch(db *client.Database, patch *client.PatchDatabaseRequest) {
+	if patch.Version != nil {
+		db.Version = *patch.Version
+	}
+	if r := patch.Resources; r != nil {
+		if db.Resources == nil {
+			db.Resources = &client.DatabaseResources{}
+		}
+		if r.CPU != "" {
+			db.Resources.CPU = r.CPU
+		}
+		if r.Memory != "" {
+			db.Resources.Memory = r.Memory
+		}
+		if r.Storage != "" {
+			db.Resources.Storage = r.Storage
+		}
+	}
+	if patch.HighAvailability != nil {
+		db.HighAvailability = *patch.HighAvailability
+	}
+	if patch.DeletionProtection != nil {
+		db.DeletionProtection = *patch.DeletionProtection
+	}
+}
+
+// DeleteDatabase implements client.Interface. A protected database is
+// refused with the API's 409 deletion_protected.
+func (f *Fake) DeleteDatabase(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("DeleteDatabase:" + name)
+	if f.DeleteDatabaseErr != nil {
+		return f.DeleteDatabaseErr
+	}
+	db, ok := f.Databases[name]
+	if !ok {
+		return databaseNotFound()
+	}
+	if db.DeletionProtection {
+		return &client.APIError{
+			StatusCode: 409,
+			Code:       client.DatabaseDeleteCodeProtected,
+			Message:    "database has deletionProtection enabled: set it to false before deleting",
+		}
+	}
+	delete(f.Databases, name)
+	return nil
+}
+
+// RotateDatabaseCredentials implements client.Interface. The call is
+// recorded as "RotateDatabaseCredentials:<name>:<role>".
+func (f *Fake) RotateDatabaseCredentials(_ context.Context, name, role string) (*client.CredentialRotation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("RotateDatabaseCredentials:" + name + ":" + role)
+	if f.RotateCredentialsErr != nil {
+		return nil, f.RotateCredentialsErr
+	}
+	if _, ok := f.Databases[name]; !ok {
+		return nil, databaseNotFound()
+	}
+	return &client.CredentialRotation{Database: name, Role: role, RequestedAt: "2026-10-09T12:00:00Z"}, nil
+}
+
+// ListDatabaseBindings implements client.Interface.
+func (f *Fake) ListDatabaseBindings(_ context.Context, database string) ([]client.DatabaseBinding, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("ListDatabaseBindings:" + database)
+	if f.ListDatabaseBindingsErr != nil {
+		return nil, f.ListDatabaseBindingsErr
+	}
+	if _, ok := f.Databases[database]; !ok {
+		return nil, databaseNotFound()
+	}
+	out := make([]client.DatabaseBinding, 0, len(f.DatabaseBindings))
+	for _, b := range f.DatabaseBindings {
+		if b.Database == database {
+			out = append(out, *b)
+		}
+	}
+	return out, nil
+}
+
+// GetDatabaseBinding implements client.Interface. A binding of another
+// database is a 404, as in the API.
+func (f *Fake) GetDatabaseBinding(_ context.Context, database, name string) (*client.DatabaseBinding, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("GetDatabaseBinding:" + database + "/" + name)
+	if f.GetDatabaseBindingErr != nil {
+		return nil, f.GetDatabaseBindingErr
+	}
+	b, ok := f.DatabaseBindings[name]
+	if !ok || b.Database != database {
+		return nil, bindingNotFound()
+	}
+	return b, nil
+}
+
+// CreateDatabaseBinding implements client.Interface.
+func (f *Fake) CreateDatabaseBinding(_ context.Context, database string, req client.CreateDatabaseBindingRequest) (*client.DatabaseBinding, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("CreateDatabaseBinding:" + database + "/" + req.Name)
+	if f.CreateDatabaseBindingErr != nil {
+		return nil, f.CreateDatabaseBindingErr
+	}
+	if _, ok := f.Databases[database]; !ok {
+		return nil, databaseNotFound()
+	}
+	if _, exists := f.DatabaseBindings[req.Name]; exists {
+		return nil, &client.APIError{StatusCode: 409, Message: "binding already exists"}
+	}
+	b := &client.DatabaseBinding{
+		Name:       req.Name,
+		Database:   database,
+		Cluster:    req.Cluster,
+		Namespace:  req.Namespace,
+		Role:       req.Role,
+		SecretName: req.SecretName,
+		Status:     &client.DatabaseBindingStatus{Phase: "Pending"},
+	}
+	f.DatabaseBindings[req.Name] = b
+	return b, nil
+}
+
+// DeleteDatabaseBinding implements client.Interface.
+func (f *Fake) DeleteDatabaseBinding(_ context.Context, database, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("DeleteDatabaseBinding:" + database + "/" + name)
+	if f.DeleteDatabaseBindingErr != nil {
+		return f.DeleteDatabaseBindingErr
+	}
+	b, ok := f.DatabaseBindings[name]
+	if !ok || b.Database != database {
+		return bindingNotFound()
+	}
+	delete(f.DatabaseBindings, name)
+	return nil
+}
+
+func databaseNotFound() error {
+	return &client.APIError{StatusCode: 404, Message: "database not found"}
+}
+
+func bindingNotFound() error {
+	return &client.APIError{StatusCode: 404, Message: "binding not found"}
 }
 
 // ListMembers implements client.Interface.

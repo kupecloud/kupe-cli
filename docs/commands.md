@@ -36,6 +36,16 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret get` | v1 |
 | `PATCH /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
+| `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
+| `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
+| `PATCH /api/v1/tenants/{tenant}/databases/{name}` | `kupe database update`, `kupe database upgrade` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/databases/{name}` | `kupe database delete` | v1 |
+| `POST /api/v1/tenants/{tenant}/databases/{name}/rotate-credentials` | `kupe database rotate-credentials` | v1 |
+| `GET /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding list` | v1 |
+| `POST /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding add` | v1 |
+| `GET /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding get` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/invoices` | `kupe invoice list` | v1 |
 | `GET /api/v1/tenants/{tenant}/invoices/{name}` | `kupe invoice get` | v1 |
 | `GET /api/v1/plans` | `kupe plan list` | v1 |
@@ -628,6 +638,171 @@ Delete a managed secret. Only the `ManagedSecret` resource and its mirrored
 Kubernetes Secrets are removed — the underlying OpenBao value is untouched.
 
 Prompts on TTY; requires `--yes` on non-TTY.
+
+---
+
+## `kupe database` — Managed databases
+
+Alias: `kupe db`. Manages managed PostgreSQL databases and their bindings into
+cluster namespaces. A database belongs to the tenant, not to a cluster:
+deleting a cluster never deletes a database. Applications reach a database
+through a **binding**, which delivers a Service named after the database and a
+credentials Secret into one namespace of one cluster. The CLI never shows a
+password.
+
+Resources (`--cpu`, `--memory`, `--storage`) are **per instance** and are
+billed at the standard unit rates for every hour the database exists. A highly
+available database runs two instances, each with the requested resources.
+
+When managed databases are not enabled on the platform, every `kupe database`
+command exits `4` with "managed databases are not available on this platform"
+followed by the API's message. This is a platform setting, not an outage, so
+retrying does not help.
+
+### `kupe database list`
+
+```
+NAME        ENGINE    VERSION  RUNNING  PHASE    HA   AGE
+orders-db   postgres  18       18.0     Running  off  3d
+users-db    postgres  17       17.6     Running  on   12d
+```
+
+`VERSION` is the requested major; `RUNNING` is the full version the platform
+reports. `-o wide` adds `CPU`, `MEMORY`, `STORAGE`, `INSTANCES` (ready/desired)
+and `PROTECTED` (deletion protection). `-o name`, `-o json`, `-o yaml` and
+`-o go-template=...` behave as for clusters.
+
+### `kupe database get NAME`
+
+```
+$ kupe db get orders-db
+Name:                 orders-db
+Engine:               postgres
+Version:              18 (running 18.0)
+Phase:                Running
+High Availability:    off
+Instances:            1/1
+CPU:                  500m
+Memory:               1Gi
+Storage:              10Gi
+Deletion Protection:  on
+Created:              2026-10-09T10:00:00Z (3d ago)
+```
+
+Exits `4` if the database doesn't exist.
+
+### `kupe database create NAME`
+
+Create a database and wait for `status.phase=Running` by default.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--engine ENGINE` | `postgres` | Database engine. Only `postgres` is supported. |
+| `--version MAJOR` | platform default | Engine major version (e.g. `18`). |
+| `--cpu QUANTITY` | required | CPU per instance, without a unit (`500m`, `2`). |
+| `--memory QUANTITY` | required | Memory per instance, with a unit (`1Gi`, `512Mi`). |
+| `--storage QUANTITY` | required | Storage per instance, with a unit (`10Gi`). Grows later, never shrinks. |
+| `--ha` | off | Two instances with a synchronous standby; resources are reserved and billed per instance. |
+| `--no-deletion-protection` | off | Create without deletion protection (it is on by default). |
+| `--wait` | `true` | Wait for `status.phase=Running`. |
+| `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
+| `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
+
+Platform floors and ceilings and the plan's database limit are enforced by the
+API; its message, including any per-field reasons, is shown as returned. While
+the platform pauses database creation the command exits `7` with "database
+creation is paused". A `Degraded` phase fails the wait.
+
+```bash
+kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
+```
+
+**Exit codes:** `0` success, `2` missing or malformed flags (no request made)
+or an API validation error, `5` name exists, `7` creation paused, `8` wait
+timeout, `130` Ctrl+C while waiting (creation continues), `1` on `Degraded`.
+
+### `kupe database update NAME`
+
+Change per-instance resources, high availability or deletion protection. Only
+the flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
+retried once, then exits `5`).
+
+| Flag | Description |
+|------|-------------|
+| `--cpu`, `--memory`, `--storage` | New per-instance resources. Storage grows only. |
+| `--ha` / `--ha=false` | Turn high availability on or off. |
+| `--deletion-protection` / `--deletion-protection=false` | Turn deletion protection on or off. |
+| `-o, --output FORMAT` | Single-resource formats. |
+
+Changes apply asynchronously; follow them with `kupe database get NAME`. A
+refused change (for example a smaller `--storage`) exits `2` with the API's
+message, which names the field and the rule it broke.
+
+### `kupe database upgrade NAME --version MAJOR`
+
+Request an in-place major version upgrade (upward only; the database is
+offline while it runs). **Major version upgrades are not available yet:** the
+command says so on stderr before sending the request, and when the platform
+refuses it (`400 major_upgrade_unavailable`) exits `7` with "major version
+upgrades are not available yet" followed by the API's message. Requesting the
+current major is a no-op.
+
+### `kupe database delete NAME`
+
+Delete a database and its data. On a TTY you must type the database
+name; `--yes` skips the prompt and is required in non-interactive mode.
+Deletion is asynchronous: stdout is `database/NAME delete requested`; follow it
+with `kupe database wait NAME --for deleted`. The database's storage is kept
+for 7 days after deletion, then permanently deleted.
+
+```
+$ kupe db delete orders-db
+
+Deleting database "orders-db" will:
+  - Remove the database; its storage is kept for 7 days, then permanently deleted.
+  - Remove its Service and credentials Secrets from every bound cluster namespace.
+
+This will delete database "orders-db". Type the name to confirm: orders-db
+database/orders-db delete requested
+```
+
+**Exit codes:** `0` accepted, `2` confirmation missing or mismatched, `4` not
+found, `5` on `409 deletion_protected` (hint:
+`kupe db update NAME --deletion-protection=false`) or when the database changed
+while the delete was in flight (hint: retry).
+
+### `kupe database rotate-credentials NAME --role owner|app`
+
+Request a new password for one role: `owner` (schema changes) or `app` (read
+and write data). The current password stops working once the rotation
+completes; bound credentials Secrets are updated, but applications using the
+old password must restart. Prompts on TTY (type `yes`); `--yes` is required in
+non-interactive mode. Stdout: `database/NAME ROLE credentials rotation
+requested`. Exits `5` when the database is being deleted.
+
+### `kupe database wait NAME`
+
+As `kupe cluster wait`: `--for running|pending|provisioning|upgrading|degraded|terminating|deleted`
+(default `running`), `--timeout` (default `30m`, exit `8`).
+
+### `kupe database binding` — Bind a database into a cluster namespace
+
+A binding grants one role of one database to one namespace of one cluster. All
+fields are fixed; to change one, delete the binding and add another. Removing a
+binding removes the Service, the Secret and the network path, but not
+knowledge of the password: rotate the role afterwards if that matters.
+
+| Command | Description |
+|---------|-------------|
+| `kupe db binding add DATABASE --cluster C --namespace NS --role owner\|app [--secret-name S] [--name N]` | Create a binding. `--name` defaults to `DATABASE-CLUSTER-NAMESPACE-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
+| `kupe db binding list DATABASE` | `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds `HOST` and `MESSAGE`. Exits `4` if the database doesn't exist. |
+| `kupe db binding get DATABASE BINDING` | Details including the in-cluster host and the Secret name. A binding of another database exits `4`. |
+| `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Stdout: `binding/NAME deleted`. |
+
+```bash
+kupe db binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
+kupe db binding add orders-db --cluster prod --namespace api --role app
+```
 
 ---
 

@@ -101,6 +101,10 @@ internal/
 │   ├── cluster/                 — list, get, create, delete, update, kubeconfig, wait.
 │   ├── apikey/                  — list, create, delete.
 │   ├── secret/                  — list, get, create, update, delete.
+│   ├── database/                — list, get, create, update, upgrade, delete,
+│   │                              rotate-credentials, wait, binding add/list/get/delete.
+│   ├── cmdutil/                 — Shared helpers: phase waits, wait-error mapping,
+│   │                              resource-quantity checks.
 │   ├── member/                  — list, add, update, remove.
 │   ├── tenant/                  — get.
 │   ├── invoice/                 — list, get.
@@ -110,7 +114,7 @@ internal/
 │   ├── iostreams.go             — Stdin/stdout/stderr with TTY + color + spinner gating.
 │   ├── flags.go                 — GlobalFlags struct + Bind helper.
 │   ├── exit.go                  — Error → exit-code mapping (incl. client.APIError dispatch).
-│   ├── confirm.go               — Shared TTY/non-TTY delete-confirmation helper.
+│   ├── confirm.go               — Shared TTY/non-TTY confirmation helpers (yes, typed name).
 │   └── verbose.go               — Factory helper wiring --verbose to client.TraceFunc.
 ├── client/                      — HTTP client, lifted from terraform-provider-kupe and extended.
 │   ├── client.go                — Base request/response plumbing, retry, 429 handling, TraceFunc.
@@ -120,6 +124,9 @@ internal/
 │   ├── apikey.go                — ListAPIKeys, CreateAPIKey, DeleteAPIKey.
 │   ├── secret.go                — ListSecrets, GetSecret, CreateSecret, UpdateSecret,
 │   │                              DeleteSecret, UpdateSecretRMW.
+│   ├── database.go              — Database + binding CRUD, UpdateDatabaseRMW,
+│   │                              RotateDatabaseCredentials.
+│   ├── rmw.go                   — Generic ETag read-modify-write loop behind every *RMW helper.
 │   ├── member.go                — ListMembers, AddMember, UpdateMember, RemoveMember.
 │   ├── invoice.go               — ListInvoices, GetInvoice.
 │   ├── plan.go                  — ListPlans, GetPlan.
@@ -147,6 +154,7 @@ internal/
 │   ├── cluster.go               — Cluster column specs + age helpers.
 │   ├── apikey.go                — APIKey column specs + ID truncation.
 │   ├── secret.go                — Secret column specs + sync-target rendering.
+│   ├── database.go              — Database and binding column specs.
 │   ├── member.go                — Member column specs.
 │   ├── tenant.go                — Tenant detail rows.
 │   ├── invoice.go               — Invoice column specs.

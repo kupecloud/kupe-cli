@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 )
 
 type deleteOpts struct {
@@ -62,8 +63,8 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 				return nil
 			}
 
-			if err := waitForGone(cmd.Context(), io, api, name, "cluster "+name, opts.waitTimeout); err != nil {
-				return mapWaitErr(err, name, "delete")
+			if err := cmdutil.WaitForGone(cmd.Context(), io, "cluster", name, phaseGetter(api, name), opts.waitTimeout); err != nil {
+				return cmdutil.MapWaitErr(err, "cluster", name, "delete")
 			}
 			// No additional stdout line — the spinner/plain renderer's
 			// "✓ cluster <name> deleted (00:12)" success line is the

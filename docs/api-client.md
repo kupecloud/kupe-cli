@@ -177,6 +177,8 @@ func (c *Client) UpdateClusterRMW(ctx context.Context, name string, mutate Clust
 }
 ```
 
+The loop itself lives once in `rmw.go` (`updateRMW`); `UpdateClusterRMW`, `UpdateSecretRMW` and `UpdateDatabaseRMW` are thin wrappers. After the second 412 the returned error wraps both the contention sentinel and that 412, so it exits `5` (conflict).
+
 Commands call `UpdateClusterRMW`. The explicit form (`--if-match <ETAG>`) bypasses the RMW loop and hands the ETag through directly — advanced users who want to detect drift explicitly.
 
 `--force` fetches current, skips the `If-Match` header, and sends the patch unconditionally. Used sparingly — documented with a warning in `commands.md`.

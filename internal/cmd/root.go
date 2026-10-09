@@ -18,6 +18,7 @@ import (
 	authcmd "github.com/kupecloud/kupe-cli/internal/cmd/auth"
 	clustercmd "github.com/kupecloud/kupe-cli/internal/cmd/cluster"
 	configcmd "github.com/kupecloud/kupe-cli/internal/cmd/config"
+	databasecmd "github.com/kupecloud/kupe-cli/internal/cmd/database"
 	invoicecmd "github.com/kupecloud/kupe-cli/internal/cmd/invoice"
 	membercmd "github.com/kupecloud/kupe-cli/internal/cmd/member"
 	plancmd "github.com/kupecloud/kupe-cli/internal/cmd/plan"
@@ -122,6 +123,7 @@ Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 	root.AddCommand(clustercmd.NewCmd(factory))
 	root.AddCommand(apikeycmd.NewCmd(factory))
 	root.AddCommand(secretcmd.NewCmd(factory))
+	root.AddCommand(databasecmd.NewCmd(factory))
 	root.AddCommand(membercmd.NewCmd(factory))
 	root.AddCommand(tenantcmd.NewCmd(factory))
 	root.AddCommand(invoicecmd.NewCmd(factory))

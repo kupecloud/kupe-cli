@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
@@ -42,8 +43,8 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
 				// Normalise so --phase is case-insensitive and accepts the same
 				// friendly spellings as `cluster wait --for` (KC-13). An unknown
 				// value is a misuse, not a silently-empty result.
-				want := normalizePhase(phase)
-				if want == "" || want == "Deleted" {
+				want := cmdutil.NormalizePhase(phase)
+				if want == "" || want == cmdutil.PhaseDeleted {
 					return cli.MisuseError(fmt.Sprintf("unknown --phase %q", phase)).
 						WithHint("valid phases: pending | provisioning | running | upgrading | degraded | terminating")
 				}

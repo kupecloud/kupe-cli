@@ -27,16 +27,17 @@ var DefaultPalette = Palette{
 	Dim:     lipgloss.NewStyle().Faint(true),
 }
 
-// PhaseStyle returns the palette entry that maps to a ManagedCluster phase.
-// Unknown phases fall through to Dim so future server-side phases don't
-// break rendering.
+// PhaseStyle returns the palette entry that maps to a resource phase
+// (clusters and databases share Running..Terminating; database bindings
+// use Pending/Ready/Failed). Unknown phases fall through to Dim so future
+// server-side phases don't break rendering.
 func PhaseStyle(phase string) lipgloss.Style {
 	switch phase {
-	case "Running":
+	case "Running", "Ready":
 		return DefaultPalette.Success
 	case "Provisioning", "Pending", "Upgrading":
 		return DefaultPalette.Warn
-	case "Degraded", "Terminating":
+	case "Degraded", "Terminating", "Failed":
 		return DefaultPalette.Error
 	}
 	return DefaultPalette.Dim

@@ -76,6 +76,39 @@ type Interface interface {
 	// DeleteSecret revokes a managed secret.
 	DeleteSecret(ctx context.Context, name string) error
 
+	// ListDatabases lists every managed database in the tenant.
+	ListDatabases(ctx context.Context) ([]Database, error)
+
+	// GetDatabase returns a single managed database + its ETag.
+	GetDatabase(ctx context.Context, name string) (*Database, string, error)
+
+	// CreateDatabase creates a new managed database.
+	CreateDatabase(ctx context.Context, req CreateDatabaseRequest) (*Database, string, error)
+
+	// UpdateDatabaseRMW is the read-modify-write helper for `database
+	// update` and `database upgrade`; one retry on 412 before
+	// ErrRMWContention.
+	UpdateDatabaseRMW(ctx context.Context, name string, mutate DatabaseMutator) (*Database, error)
+
+	// DeleteDatabase deletes a managed database (409
+	// DatabaseDeleteCodeProtected while deletion protection is on).
+	DeleteDatabase(ctx context.Context, name string) error
+
+	// RotateDatabaseCredentials requests a new password for one role.
+	RotateDatabaseCredentials(ctx context.Context, name, role string) (*CredentialRotation, error)
+
+	// ListDatabaseBindings lists the bindings of one database.
+	ListDatabaseBindings(ctx context.Context, database string) ([]DatabaseBinding, error)
+
+	// GetDatabaseBinding returns one binding of a database.
+	GetDatabaseBinding(ctx context.Context, database, name string) (*DatabaseBinding, error)
+
+	// CreateDatabaseBinding binds a database into a cluster namespace.
+	CreateDatabaseBinding(ctx context.Context, database string, req CreateDatabaseBindingRequest) (*DatabaseBinding, error)
+
+	// DeleteDatabaseBinding removes a binding.
+	DeleteDatabaseBinding(ctx context.Context, database, name string) error
+
 	// ListMembers lists every tenant member.
 	ListMembers(ctx context.Context) ([]Member, error)
 

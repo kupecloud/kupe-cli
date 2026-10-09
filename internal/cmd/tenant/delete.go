@@ -11,6 +11,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
@@ -173,7 +174,7 @@ func waitForGone(ctx context.Context, streams *cli.IOStreams, api client.Interfa
 			if client.IsNotFound(err) {
 				return "Deleted", true, nil
 			}
-			if isTransientWaitErr(err) {
+			if cmdutil.IsTransientWaitErr(err) {
 				return lastPhase, false, nil
 			}
 			return "", false, err
@@ -190,19 +191,6 @@ func waitForGone(ctx context.Context, streams *cli.IOStreams, api client.Interfa
 		Poll:     poll,
 		Timeout:  timeout,
 	})
-}
-
-func isTransientWaitErr(err error) bool {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	if errors.Is(err, cli.ErrAuthRefreshTimeout) {
-		return true
-	}
-	if client.IsUnavailable(err) || client.IsRateLimited(err) || client.IsServerError(err) {
-		return true
-	}
-	return !client.IsAPIError(err)
 }
 
 // mapWaitErr mirrors cluster's wait mapping: timeout → exit 8, Ctrl-C →

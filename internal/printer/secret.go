@@ -35,13 +35,7 @@ func SecretDetailColumns(colorEnabled bool) Columns {
 			return ux.ColorPhase(secretPhase(secret(v)), colorEnabled)
 		}},
 		{Name: "Sync targets", Get: func(v any) string { return renderSync(secret(v).Sync) }},
-		{Name: "Created", Get: func(v any) string {
-			s := secret(v).CreatedAt
-			if age := ageFromRFC3339(s); age != "" {
-				return s + " (" + age + " ago)"
-			}
-			return s
-		}},
+		{Name: "Created", Get: func(v any) string { return createdWithAge(secret(v).CreatedAt) }},
 	}
 }
 

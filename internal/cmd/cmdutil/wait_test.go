@@ -39,6 +39,7 @@ func TestIsTransientWaitErr_ClassifiesErrors(t *testing.T) {
 		{"auth refresh timeout transient", cli.ErrAuthRefreshTimeout, true},
 		{"wrapped auth refresh timeout transient", fmt.Errorf("resolving auth token: %w", cli.ErrAuthRefreshTimeout), true},
 		// A resource that failed is an answer from kupe-api, not a blip.
+		{"stalled request attempt transient", fmt.Errorf("executing request: %w", client.ErrAttemptTimeout), true},
 		{"terminal phase not transient", &TerminalPhaseError{Noun: "database", Name: "orders-db", Phase: client.PhaseDegraded}, false},
 	}
 	for _, c := range cases {

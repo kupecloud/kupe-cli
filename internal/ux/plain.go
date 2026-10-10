@@ -20,6 +20,11 @@ func runPlain(ctx context.Context, io *cli.IOStreams, opts WaitForOpts) error {
 	for {
 		phase, done, err := opts.Poll(ctx)
 		if err != nil {
+			// A request cut short by the wait's own deadline is the wait
+			// timing out, as the spinner reports it.
+			if errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return ErrWaitTimeout
+			}
 			return err
 		}
 		// In override mode the user has told us the live phase is unhelpful

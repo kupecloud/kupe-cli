@@ -3,6 +3,7 @@ package ux
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -107,6 +108,38 @@ func TestWaitForTimeout(t *testing.T) {
 	})
 	if !errors.Is(err, ErrWaitTimeout) {
 		t.Fatalf("want ErrWaitTimeout, got %v", err)
+	}
+}
+
+// TestWaitForPlainDeadlineMidPoll pins that a poll cut short by the wait's
+// own deadline reports ErrWaitTimeout (exit 8), while a deadline error from
+// a poll whose wait is still live passes through untouched.
+func TestWaitForPlainDeadlineMidPoll(t *testing.T) {
+	tests := []struct {
+		name        string
+		poll        PollFunc
+		wantTimeout bool
+	}{
+		{"the wait's deadline fires during a poll", func(ctx context.Context) (string, bool, error) {
+			<-ctx.Done()
+			return "", false, fmt.Errorf("executing request: %w", ctx.Err())
+		}, true},
+		{"a poll's own deadline while the wait is live", func(context.Context) (string, bool, error) {
+			return "", false, fmt.Errorf("executing request: %w", context.DeadlineExceeded)
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			io, _, _ := cli.Test()
+			err := WaitFor(context.Background(), io, WaitForOpts{
+				Label:   "cluster prod",
+				Poll:    tt.poll,
+				Timeout: 50 * time.Millisecond,
+			})
+			if got := errors.Is(err, ErrWaitTimeout); got != tt.wantTimeout {
+				t.Fatalf("errors.Is(err, ErrWaitTimeout) = %v; want %v (err: %v)", got, tt.wantTimeout, err)
+			}
+		})
 	}
 }
 

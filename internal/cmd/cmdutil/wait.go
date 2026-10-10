@@ -160,7 +160,9 @@ const transientWaitGrace = 90 * time.Second
 // transport / context-independent I/O) or a 5xx / 429 from kupe-api. A 404,
 // 401, 403, or 400 is authoritative and must stay terminal — callers handle
 // 404 themselves (e.g. delete-wait treats it as success). So is a
-// *TerminalPhaseError: the API answered, and the resource has failed.
+// *TerminalPhaseError: the API answered, and the resource has failed. A
+// stalled attempt (client.ErrAttemptTimeout) is not an APIError, so it is
+// transient.
 func IsTransientWaitErr(err error) bool {
 	if err == nil {
 		return false

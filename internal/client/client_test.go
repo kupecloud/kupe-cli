@@ -303,3 +303,74 @@ func TestTenantPathEscaping(t *testing.T) {
 		t.Fatalf("tenantPath escaped wrong: %s", got)
 	}
 }
+
+// stallFirst returns a handler whose first n requests hang until the client
+// abandons them; later requests answer 200 with an empty JSON object.
+func stallFirst(n int64, hits *atomic.Int64) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) <= n {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(10 * time.Second):
+			}
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}
+}
+
+// TestAttemptTimeout pins how a stalled HTTP attempt is classified: retried
+// only for a GET, reported as ErrAttemptTimeout (never as the caller's
+// context.DeadlineExceeded), and kept apart from the caller's own deadline.
+func TestAttemptTimeout(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		stalls         int64
+		attemptTimeout time.Duration
+		callerTimeout  time.Duration
+		policy         retryPolicy
+		wantRequests   int64
+		wantAttemptErr bool
+		wantDeadline   bool
+	}{
+		{"a GET whose first attempt stalls is retried", http.MethodGet, 1,
+			100 * time.Millisecond, 0, fastRetry, 2, false, false},
+		{"a DELETE whose attempt stalls is not retried", http.MethodDelete, 1,
+			100 * time.Millisecond, 0, fastRetry, 1, true, false},
+		{"a POST whose attempt stalls is not retried", http.MethodPost, 1,
+			100 * time.Millisecond, 0, fastRetry, 1, true, false},
+		{"the caller's deadline is not an attempt timeout", http.MethodGet, 1,
+			3 * time.Second, 100 * time.Millisecond, retryPolicy{maxAttempts: 1}, 1, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var hits atomic.Int64
+			srv := httptest.NewServer(stallFirst(tt.stalls, &hits))
+			t.Cleanup(srv.Close)
+			c := New(srv.URL, "acme", "kupe_test", "kupe-cli-test/0.0.0",
+				WithHTTPClient(&http.Client{Timeout: tt.attemptTimeout}), WithRetryPolicy(tt.policy))
+			ctx := context.Background()
+			if tt.callerTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.callerTimeout)
+				defer cancel()
+			}
+
+			_, err := c.request(ctx, tt.method, "/api/v1/tenants/acme/clusters/prod", nil, nil)
+
+			if got := hits.Load(); got != tt.wantRequests {
+				t.Errorf("requests = %d; want %d", got, tt.wantRequests)
+			}
+			if got := errors.Is(err, ErrAttemptTimeout); got != tt.wantAttemptErr {
+				t.Errorf("errors.Is(err, ErrAttemptTimeout) = %v; want %v (err: %v)", got, tt.wantAttemptErr, err)
+			}
+			if got := errors.Is(err, context.DeadlineExceeded); got != tt.wantDeadline {
+				t.Errorf("errors.Is(err, context.DeadlineExceeded) = %v; want %v (err: %v)", got, tt.wantDeadline, err)
+			}
+			if !tt.wantAttemptErr && !tt.wantDeadline && err != nil {
+				t.Errorf("err = %v; want success", err)
+			}
+		})
+	}
+}

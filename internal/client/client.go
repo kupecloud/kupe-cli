@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,13 @@ const maxResponseBody = 10 << 20 // 10 MiB
 // requestTimeout is the per-attempt deadline. The retry loop may make
 // several attempts, each capped at this value.
 const requestTimeout = 30 * time.Second
+
+// ErrAttemptTimeout marks one HTTP attempt that hit the per-attempt timeout
+// while the caller's context was still live: kupe-api is slow or
+// unreachable, which a wait rides out. It deliberately does not match
+// context.DeadlineExceeded, which means the caller's own deadline (a wait's
+// --wait-timeout, exit 8). Same reasoning as cli.ErrAuthRefreshTimeout.
+var ErrAttemptTimeout = errors.New("request attempt timed out")
 
 // Client is the authenticated HTTP client for one tenant. Concurrent use by
 // multiple goroutines is safe: httpClient and all fields are immutable after
@@ -214,6 +222,11 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 			if readErr != nil && err == nil {
 				err = fmt.Errorf("reading response body: %w", readErr)
 			}
+		}
+		if err != nil && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+			// The transport's text is kept but not its identity, so the
+			// error stops matching context.DeadlineExceeded.
+			err = fmt.Errorf("%w: %s", ErrAttemptTimeout, err.Error())
 		}
 		if c.trace != nil {
 			status := 0

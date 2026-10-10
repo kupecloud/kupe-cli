@@ -39,6 +39,11 @@ func (p retryPolicy) shouldRetry(method string, resp *http.Response, err error) 
 	// Transport errors: retry on timeout / temporary / connection errors.
 	// Context cancellation is not retried — caller meant to stop.
 	if err != nil {
+		// A stalled attempt is retried only for a GET: a DELETE that timed
+		// out may still have been carried out.
+		if errors.Is(err, ErrAttemptTimeout) {
+			return method == http.MethodGet
+		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return false
 		}

@@ -112,13 +112,18 @@ type retryPolicy struct {
 Retries on:
 
 - Network errors (any `net.Error` with `Timeout()` or `Temporary()`).
+- A GET whose attempt hit the 30s per-attempt timeout while the caller's
+  context was still live. The client reports such an attempt as
+  `ErrAttemptTimeout`, which deliberately does not match
+  `context.DeadlineExceeded`. A DELETE that timed out is not retried: it may
+  have been carried out.
 - HTTP `502 Bad Gateway`, `503 Service Unavailable`, `504 Gateway Timeout`.
 
 Does **not** retry on:
 
 - `4xx` errors (including `429` — handled separately, see below).
 - `500 Internal Server Error` — we'd rather fail loudly and surface the `X-Request-Id` than mask a real bug.
-- `context.Canceled` / `context.DeadlineExceeded`.
+- `context.Canceled` / `context.DeadlineExceeded` from the caller's context.
 
 Jitter: equal jitter (`sleep = rand(backoff/2, backoff)`) to avoid thundering herd on a shared `kupe-api`.
 
@@ -239,7 +244,7 @@ The request ID is included in the API error text, so support tickets can referen
 | Single HTTP request | 30s | Hardcoded in `Client` constructor; matches tf provider. |
 | Command-level context | Command-specific | `--wait-timeout` for long-ops, no explicit flag for one-shots (Cobra's `--timeout` deferred to Phase 2). |
 
-A long-running command (`cluster create --wait`) applies `--wait-timeout` via `context.WithTimeout` on the top-level context. Individual polls inside the waiter each get 30s. If `kupe-api` itself is slow, a poll can fail and be retried on the next interval.
+A long-running command (`cluster create --wait`) applies `--wait-timeout` via `context.WithTimeout` on the top-level context. Each HTTP attempt inside a poll gets 30s. A stalled GET attempt is retried by the client; if every attempt stalls, the poll fails with `ErrAttemptTimeout`, which the waiter treats as transient and rides out for 90 seconds before exiting `7`. A request cut short by `--wait-timeout` itself exits `8`, and Ctrl+C exits `130`.
 
 ## Observability hooks
 

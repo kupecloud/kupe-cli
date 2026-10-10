@@ -29,9 +29,9 @@ func newUpgradeCmd(f *cli.Factory) *cobra.Command {
 		Long: `Request an in-place upgrade of a database to a newer engine major version.
 Upgrades go upward only, and the database is offline while the upgrade runs.
 
-Major version upgrades are not available yet. The command sends the request
-so that it starts working as soon as the platform allows it; until then the
-platform refuses it and the CLI shows the platform's reason unchanged.`,
+If the platform does not offer the upgrade, it refuses the request and the
+command exits 7 with the platform's reason. Requesting the current major
+version changes nothing.`,
 		Args:    cobra.ExactArgs(1),
 		Example: `  kupe database upgrade orders-db --version 18`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,7 +48,6 @@ platform refuses it and the CLI shows the platform's reason unchanged.`,
 				return err
 			}
 
-			fmt.Fprintln(f.IOStreams.ErrOut, "Note: major version upgrades are not available yet; the platform may refuse this request.")
 			updated, err := api.UpdateDatabaseRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
 				if current.Version == opts.version {
 					return nil

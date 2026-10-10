@@ -178,6 +178,27 @@ func IsServerError(err error) bool {
 	return e != nil && e.StatusCode >= 500 && e.StatusCode <= 599
 }
 
+// CodeCreationPaused is the 400 kupe-api returns from POST /clusters and
+// POST /databases while the platform pauses creation.
+const CodeCreationPaused = "creation_paused"
+
+// creationPausedText identifies the same refusal from servers that predate
+// CodeCreationPaused. Lower-case: the API and webhook capitalise it
+// differently.
+const creationPausedText = "creation is temporarily paused"
+
+// IsCreationPaused reports whether err is the platform refusing to create a
+// cluster or database for now. The code is authoritative; the message match
+// only covers older servers that send a 400 without it.
+func IsCreationPaused(err error) bool {
+	if ErrorCode(err) == CodeCreationPaused {
+		return true
+	}
+	e := asAPI(err)
+	return e != nil && e.StatusCode == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(e.Message), creationPausedText)
+}
+
 // IsAPIError reports whether err is (or wraps) an *APIError — i.e. the server
 // returned a structured non-2xx response, as opposed to a transport/network
 // failure that never reached an HTTP status.

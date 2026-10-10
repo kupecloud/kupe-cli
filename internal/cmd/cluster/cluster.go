@@ -141,6 +141,9 @@ func translateClusterErr(err error) error {
 	}
 	msg := err.Error()
 	switch {
+	case client.IsCreationPaused(err):
+		return cli.Wrap(cli.ExitUnavailable, "cluster creation is paused", err).
+			WithHint("retry later; status updates are posted at https://status.kupe.cloud")
 	case strings.Contains(msg, "spec.resources.cpu is required"):
 		return cli.MisuseError("--cpu-limit is required").
 			WithHint("example: --cpu-limit 2 (use a number of vCPUs, or a millicore value like 500m)")
@@ -174,25 +177,57 @@ func translateClusterErr(err error) error {
 	case strings.Contains(msg, "maximum cluster limit reached"):
 		return cli.New(cli.ExitConflict, extractWebhookMessage(msg)).
 			WithHint("delete a cluster (\"kupe cluster delete <name>\") or upgrade your plan")
-	case strings.Contains(msg, "Cluster creation is temporarily paused"):
-		return cli.New(cli.ExitUnavailable, extractWebhookMessage(msg)).
-			WithHint("retry in a few minutes; status updates are posted at https://status.kupe.cloud")
 	case strings.Contains(msg, "is being deleted; cannot create new ManagedClusters"):
 		return cli.New(cli.ExitConflict, "your tenant is being deleted; cannot create new clusters")
 	case strings.Contains(msg, "spec.tenantRef is immutable"):
 		return cli.MisuseError("a cluster's tenant cannot be changed after creation")
 	case strings.Contains(msg, "tenantRef.namespace must match"):
 		return cli.MisuseError("internal: tenantRef namespace mismatch — please file an issue")
-	case strings.Contains(msg, "check field values and constraints"):
-		// kupe-api's fallback for K8s validation errors that didn't come
-		// from a webhook (or whose webhook prefix wasn't matched). The
-		// most common cause for cluster create/update is bad --cpu-limit /
-		// --memory-limit / --storage-limit values; point users there rather than
-		// re-printing the opaque server message.
-		return cli.MisuseError("invalid cluster spec").
-			WithHint("check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values")
+	case client.IsValidation(err) && strings.HasPrefix(msg, clusterSpecRejectedPrefix):
+		// A spec the platform refused field by field. The API's reasons
+		// ("resources.cpu: Invalid value: ...") are kept; the hint names
+		// the flags that set those fields.
+		return cli.Wrap(cli.ExitMisuse, "cluster spec rejected", err).WithHint(clusterFieldHint(msg))
 	}
 	return err
+}
+
+// clusterSpecRejectedPrefix starts kupe-api's message for a cluster spec
+// that failed validation: `invalid cluster "NAME": field: reason; ...`, or
+// `invalid cluster "NAME": check field values and constraints` when no
+// field was named.
+const clusterSpecRejectedPrefix = "invalid cluster "
+
+// clusterFieldFlags maps the spec fields a validation reason can name to the
+// flag that sets them, in the order the hint lists them.
+var clusterFieldFlags = []struct{ field, flag string }{
+	{"resources.cpu", "--cpu-limit (e.g. 2 or 500m)"},
+	{"resources.memory", "--memory-limit (e.g. 8Gi)"},
+	{"resources.storage", "--storage-limit (e.g. 50Gi)"},
+	{"version", "--version (\"kupe plan list\" shows supported versions)"},
+	{"highAvailability", "--high-availability"},
+}
+
+// clusterFieldHint points at the flags behind the fields named in msg, or at
+// every resource flag when no known field is named.
+func clusterFieldHint(msg string) string {
+	named := make(map[string]bool)
+	if _, reasons, ok := strings.Cut(msg, `": `); ok {
+		for _, reason := range strings.Split(reasons, "; ") {
+			field, _, _ := strings.Cut(reason, ":")
+			named[strings.TrimPrefix(field, "spec.")] = true
+		}
+	}
+	var flags []string
+	for _, ff := range clusterFieldFlags {
+		if named[ff.field] {
+			flags = append(flags, ff.flag)
+		}
+	}
+	if len(flags) == 0 {
+		return "check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values"
+	}
+	return "check " + strings.Join(flags, ", ")
 }
 
 // extractWebhookMessage returns the substring that's the actual webhook

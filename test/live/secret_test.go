@@ -31,7 +31,7 @@ func TestSecretLifecycle(t *testing.T) {
 		t.Errorf("created.secretPath = %v; want %q", created["secretPath"], path)
 	}
 	t.Cleanup(func() {
-		_ = runCLI(t, "secret", "delete", name)
+		_ = runCLI(t, "secret", "delete", name, "--yes")
 	})
 
 	// Listed.
@@ -72,7 +72,7 @@ func TestSecretLifecycle(t *testing.T) {
 	}
 
 	// Delete.
-	r := runCLI(t, "secret", "delete", name)
+	r := runCLI(t, "secret", "delete", name, "--yes")
 	if r.exitCode != 0 {
 		t.Fatalf("delete exit=%d\nstderr:\n%s", r.exitCode, r.stderr)
 	}

@@ -69,7 +69,7 @@ automatically. Changes apply asynchronously; follow them with
 				return &patch
 			})
 			if err != nil {
-				return translateErr(err)
+				return translateUpdateErr(err, name)
 			}
 			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, updated)
 		},

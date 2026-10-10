@@ -42,7 +42,7 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	t.Cleanup(func() {
 		// Best-effort delete; the explicit delete below should already
 		// have run in the happy path.
-		_ = runCLI(t, "apikey", "delete", created.ID)
+		_ = runCLI(t, "apikey", "delete", created.ID, "--yes")
 	})
 
 	// List should contain our new key.
@@ -63,7 +63,7 @@ func TestAPIKeyLifecycle(t *testing.T) {
 	}
 
 	// Delete.
-	r := runCLI(t, "apikey", "delete", created.ID)
+	r := runCLI(t, "apikey", "delete", created.ID, "--yes")
 	if r.exitCode != 0 {
 		t.Fatalf("delete exit=%d\nstderr:\n%s", r.exitCode, r.stderr)
 	}

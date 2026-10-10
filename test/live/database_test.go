@@ -5,6 +5,7 @@ package live
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // smallestDatabase is the smallest shape the platform floors admit.
@@ -17,6 +18,24 @@ func cleanupDatabase(t *testing.T, name string) {
 		_ = runCLI(t, "database", "update", name, "--deletion-protection=false")
 		_ = runCLI(t, "database", "delete", name, "--yes")
 	})
+}
+
+// waitForBindingGone polls "db binding get" until it exits 4 (not found),
+// failing the test if the binding is still there after timeout.
+func waitForBindingGone(t *testing.T, database, binding string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		r := runCLI(t, "db", "binding", "get", database, binding)
+		if r.exitCode == 4 {
+			return
+		}
+		if r.exitCode != 0 || time.Now().After(deadline) {
+			t.Errorf("deleted binding get exit = %d; want 4 within %s\nstderr:\n%s", r.exitCode, timeout, r.stderr)
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // TestDatabaseLifecycle covers the database and binding command surface
@@ -83,10 +102,12 @@ func TestDatabaseLifecycle(t *testing.T) {
 	if gotBinding["namespace"] != "api" {
 		t.Errorf("binding get = %+v", gotBinding)
 	}
-	runCLIExpectOK(t, "db", "binding", "delete", name, binding, "--yes")
-	if r := runCLI(t, "db", "binding", "get", name, binding); r.exitCode != 4 {
-		t.Errorf("deleted binding get exit = %d; want 4\nstderr:\n%s", r.exitCode, r.stderr)
+	if out := runCLIExpectOK(t, "db", "binding", "delete", name, binding, "--yes"); out != "binding/"+binding+" delete requested\n" {
+		t.Errorf("binding delete stdout = %q", out)
 	}
+	// The delete is asynchronous: the binding stays readable until the
+	// platform has removed its Service and Secret.
+	waitForBindingGone(t, name, binding, 2*time.Minute)
 
 	if out := runCLIExpectOK(t, "db", "delete", name, "--yes"); out != "database/"+name+" delete requested\n" {
 		t.Errorf("delete stdout = %q", out)

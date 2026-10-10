@@ -126,8 +126,17 @@ func validateCreateOpts(opts *createOpts) error {
 	return validateResources(opts.cpu, opts.memory, opts.storage)
 }
 
+// maxQuantityLength is the longest CPU, memory or storage value the
+// database API accepts.
+const maxQuantityLength = 20
+
 // validateResources checks the format of each quantity that is set.
 func validateResources(cpu, memory, storage string) error {
+	for _, q := range []struct{ flag, value string }{{"--cpu", cpu}, {"--memory", memory}, {"--storage", storage}} {
+		if len(q.value) > maxQuantityLength {
+			return cli.MisuseError(fmt.Sprintf("%s is longer than %d characters: %s", q.flag, maxQuantityLength, q.value))
+		}
+	}
 	if cpu != "" && !cmdutil.IsCPUQuantity(cpu) {
 		return cli.MisuseError("--cpu has an invalid format: " + cpu).
 			WithHint("use cores or millicores without a unit (e.g. 2, 0.5, 500m)")

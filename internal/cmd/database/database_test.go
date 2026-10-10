@@ -179,6 +179,8 @@ func TestCreate_Validation(t *testing.T) {
 		{"memory is required", []string{"--cpu", "1", "--storage", "10Gi"}, "--memory is required"},
 		{"storage is required", []string{"--cpu", "1", "--memory", "1Gi"}, "--storage is required"},
 		{"cpu has no unit", []string{"--cpu", "1Gi", "--memory", "1Gi", "--storage", "10Gi"}, "--cpu has an invalid format"},
+		{"fractional millicores are refused", []string{"--cpu", "1.5m", "--memory", "1Gi", "--storage", "10Gi"}, "--cpu has an invalid format"},
+		{"cpu longer than 20 characters", []string{"--cpu", strings.Repeat("1", 21), "--memory", "1Gi", "--storage", "10Gi"}, "--cpu is longer than 20 characters"},
 		{"memory needs a unit", []string{"--cpu", "1", "--memory", "1024", "--storage", "10Gi"}, "--memory must include a unit"},
 		{"storage needs a unit", []string{"--cpu", "1", "--memory", "1Gi", "--storage", "10"}, "--storage must include a unit"},
 	}
@@ -186,7 +188,9 @@ func TestCreate_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
 			f := factoryWith(t, fake)
-			_, _, err := run(f, newCreateCmd(f), append([]string{"orders-db"}, tt.args...)...)
+			// --wait=false: a value that slips past validation must fail
+			// the assertions below, not block on a phase the fake never sets.
+			_, _, err := run(f, newCreateCmd(f), append([]string{"orders-db", "--wait=false"}, tt.args...)...)
 			assertExit(t, err, cli.ExitMisuse)
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("err = %v; want %q", err, tt.want)
@@ -265,14 +269,28 @@ func TestCreate_DegradedFailsTheWait(t *testing.T) {
 }
 
 func TestCreate_PausedCreationExits7(t *testing.T) {
-	fake := clienttest.New()
-	fake.CreateDatabaseErr = &client.APIError{StatusCode: 400,
-		Message: "Database creation is temporarily paused while we expand platform capacity. Please try again later."}
-	f := factoryWith(t, fake)
-	_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait=false")
-	assertExit(t, err, cli.ExitUnavailable)
-	if !strings.Contains(err.Error(), "Please try again later") {
-		t.Fatalf("API message should be kept: %v", err)
+	tests := []struct {
+		name string
+		err  *client.APIError
+	}{
+		{"creation_paused code", &client.APIError{StatusCode: 400, Code: client.CodeCreationPaused,
+			Message: "Database creation is temporarily paused while we expand platform capacity. Please try again later."}},
+		{"older server: API wording without a code", &client.APIError{StatusCode: 400,
+			Message: "Database creation is temporarily paused while we expand platform capacity. Please try again later."}},
+		{"older server: lower-case webhook wording", &client.APIError{StatusCode: 400,
+			Message: "database creation is temporarily paused while we expand platform capacity, please try again later"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.CreateDatabaseErr = tt.err
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait=false")
+			assertExit(t, err, cli.ExitUnavailable)
+			if !strings.Contains(err.Error(), "database creation is paused") || !strings.Contains(err.Error(), tt.err.Message) {
+				t.Fatalf("should say creation is paused and keep the API message: %v", err)
+			}
+		})
 	}
 }
 
@@ -347,6 +365,22 @@ func TestUpdate_ShowsAPIFieldReasons(t *testing.T) {
 	}
 }
 
+func TestUpdate_StorageShrinkIsMisuseWithAHint(t *testing.T) {
+	fake := clienttest.New()
+	fake.Databases["orders-db"] = running("orders-db")
+	fake.UpdateDatabaseErr = &client.APIError{StatusCode: 400, Code: client.DatabaseCodeStorageShrinkUnsupported,
+		Message: "storage can only grow: 5Gi is smaller than the current 10Gi"}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newUpdateCmd(f), "orders-db", "--storage", "5Gi")
+	assertExit(t, err, cli.ExitMisuse)
+	if !strings.Contains(err.Error(), "storage can grow but never shrink") || !strings.Contains(err.Error(), "smaller than the current 10Gi") {
+		t.Fatalf("should explain and keep the API text: %v", err)
+	}
+	if !strings.Contains(hint(err), "kupe db get orders-db") {
+		t.Fatalf("hint = %q; want the get command", hint(err))
+	}
+}
+
 func TestUpgrade(t *testing.T) {
 	refused := &client.APIError{StatusCode: 400, Code: client.DatabaseCodeMajorUpgradeUnavailable, Message: "changing the major version is not supported yet"}
 	tests := []struct {
@@ -360,8 +394,8 @@ func TestUpgrade(t *testing.T) {
 		{"sets the new major", "19", nil, cli.ExitOK, "19", nil},
 		{"same major is a no-op", "18", nil, cli.ExitOK, "18", nil},
 		{"rejects a non-major version", "18.1", nil, cli.ExitMisuse, "18", []string{"major version"}},
-		{"a platform refusal says upgrades are unavailable and keeps the API text", "19", refused, cli.ExitUnavailable, "18",
-			[]string{"major version upgrades are not available yet", "changing the major version is not supported yet"}},
+		{"a platform refusal exits 7 with the API's reason", "19", refused, cli.ExitUnavailable, "18",
+			[]string{"the platform refused the major version upgrade: changing the major version is not supported yet"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -379,8 +413,8 @@ func TestUpgrade(t *testing.T) {
 					t.Errorf("error %q missing %q", err, w)
 				}
 			}
-			if tt.wantExit != cli.ExitMisuse && !strings.Contains(stderr, "major version upgrades are not available yet") {
-				t.Errorf("stderr should warn up front:\n%s", stderr)
+			if stderr != "" {
+				t.Errorf("stderr should be empty; the platform's refusal is the only notice:\n%s", stderr)
 			}
 		})
 	}
@@ -429,6 +463,27 @@ func TestDelete(t *testing.T) {
 				t.Fatalf("hint = %q; want containing %q", hint(err), tt.wantHint)
 			}
 		})
+	}
+}
+
+func TestDelete_StatesRetentionVerbatimInHelpAndWarning(t *testing.T) {
+	const notice = "Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1."
+	fake := clienttest.New()
+	db := running("orders-db")
+	db.DeletionProtection = false
+	fake.Databases["orders-db"] = db
+	f := factoryWith(t, fake)
+	interactive(f, "orders-db\n")
+	cmd := newDeleteCmd(f)
+	if !strings.Contains(cmd.Long, notice) {
+		t.Errorf("help is missing the retention notice:\n%s", cmd.Long)
+	}
+	_, stderr, err := run(f, cmd, "orders-db")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !strings.Contains(stderr, notice) {
+		t.Errorf("warning is missing the retention notice:\n%s", stderr)
 	}
 }
 
@@ -603,7 +658,7 @@ func TestBindingListGetDelete(t *testing.T) {
 		assertExit(t, err, cli.ExitMisuse)
 		assertNoCall(t, fake, "DeleteDatabaseBinding")
 	})
-	t.Run("delete removes the binding and points at rotation", func(t *testing.T) {
+	t.Run("delete is requested and points at rotation", func(t *testing.T) {
 		fake := seed()
 		f := factoryWith(t, fake)
 		out, stderr, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-app", "--yes")
@@ -613,7 +668,7 @@ func TestBindingListGetDelete(t *testing.T) {
 		if _, still := fake.DatabaseBindings["orders-db-prod-api-app"]; still {
 			t.Fatal("binding still present")
 		}
-		if out != "binding/orders-db-prod-api-app deleted\n" || !strings.Contains(stderr, "rotate-credentials orders-db") {
+		if out != "binding/orders-db-prod-api-app delete requested\n" || !strings.Contains(stderr, "rotate-credentials orders-db") {
 			t.Fatalf("stdout=%q stderr=%q", out, stderr)
 		}
 	})

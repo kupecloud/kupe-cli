@@ -71,7 +71,8 @@ For OIDC end-to-end testing, see [docs/testing.md](./docs/testing.md).
 - **Positional arg for the resource name.** `kupe cluster get NAME`, never
   `--name`.
 - **Exit codes.** `0` success, `1` general, `2` misuse, `3` auth, `4` not-
-  found, `5` conflict, `6` rate-limited, `7` unavailable. Defined in
+  found, `5` conflict, `6` rate-limited, `7` platform refused (paused or
+  unavailable). Defined in
   [internal/cli/exit.go](./internal/cli/exit.go) and surveyed in
   [docs/design.md](./docs/design.md).
 - **Structured stderr errors.** `Error: message\n  (request-id: abc123)\n`

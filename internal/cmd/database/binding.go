@@ -185,8 +185,9 @@ and its network path to the database closes. The role's password does not
 change; rotate it with "kupe database rotate-credentials" if the namespace
 should also lose knowledge of it.
 
-Prompts on a TTY; pass --yes to skip (required in non-interactive
-environments).`,
+The request is asynchronous: the Service and Secret are removed in the
+background. Prompts on a TTY; pass --yes to skip (required in
+non-interactive environments).`,
 		Args:    cobra.ExactArgs(2),
 		Example: `  kupe database binding delete orders-db orders-db-prod-api-app --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -202,7 +203,7 @@ environments).`,
 			if err := api.DeleteDatabaseBinding(cmd.Context(), database, name); err != nil {
 				return translateErr(err)
 			}
-			fmt.Fprintf(io.Out, "binding/%s deleted\n", name)
+			fmt.Fprintf(io.Out, "binding/%s delete requested\n", name)
 			fmt.Fprintf(io.ErrOut, "The role's password is unchanged; to revoke it too: kupe database rotate-credentials %s --role ROLE\n", database)
 			return nil
 		},

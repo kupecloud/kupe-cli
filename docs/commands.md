@@ -423,7 +423,11 @@ In CI/non-TTY, progress is written to stderr and the final resource render remai
 [02:04] cluster prod ready
 ```
 
-**Exit codes:** `0` success, `5` on 409 (name exists), `8` on timeout, `1` on degraded.
+**Exit codes:** `0` success, `2` invalid flags or a spec the API rejected (the
+API's per-field reasons are shown and the hint names the flags to check), `5`
+on 409 (name exists), `7` while the platform pauses cluster creation
+(`400 creation_paused`; "cluster creation is paused"), `8` on timeout, `1` on
+degraded.
 
 ### `kupe cluster update NAME`
 
@@ -654,10 +658,12 @@ Resources (`--cpu`, `--memory`, `--storage`) are **per instance** and are
 billed at the standard unit rates for every hour the database exists. A highly
 available database runs two instances, each with the requested resources.
 
-When managed databases are not enabled on the platform, every `kupe database`
-command exits `4` with "managed databases are not available on this platform"
-followed by the API's message. This is a platform setting, not an outage, so
-retrying does not help.
+When managed databases are not enabled on the platform, `list`, `get`,
+`delete` and `update NAME --deletion-protection=false` keep working so
+existing databases can still be cleaned up. Other `kupe database` commands
+exit `4` with "managed databases are not available on this platform" followed
+by the API's message (`404 databases_unavailable`). This is a platform
+setting, not an outage, so retrying does not help.
 
 ### `kupe database list`
 
@@ -699,7 +705,7 @@ Create a database and wait for `status.phase=Running` by default.
 |------|---------|-------------|
 | `--engine ENGINE` | `postgres` | Database engine. Only `postgres` is supported. |
 | `--version MAJOR` | platform default | Engine major version (e.g. `18`). |
-| `--cpu QUANTITY` | required | CPU per instance, without a unit (`500m`, `2`). |
+| `--cpu QUANTITY` | required | CPU per instance, without a unit (`500m`, `2`, `0.5`). |
 | `--memory QUANTITY` | required | Memory per instance, with a unit (`1Gi`, `512Mi`). |
 | `--storage QUANTITY` | required | Storage per instance, with a unit (`10Gi`). Grows later, never shrinks. |
 | `--ha` | off | Two instances with a synchronous standby; resources are reserved and billed per instance. |
@@ -710,8 +716,9 @@ Create a database and wait for `status.phase=Running` by default.
 
 Platform floors and ceilings and the plan's database limit are enforced by the
 API; its message, including any per-field reasons, is shown as returned. While
-the platform pauses database creation the command exits `7` with "database
-creation is paused". A `Degraded` phase fails the wait.
+the platform pauses database creation (`400 creation_paused`) the command
+exits `7` with "database creation is paused". A `Degraded` phase fails the
+wait.
 
 ```bash
 kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
@@ -735,32 +742,36 @@ retried once, then exits `5`).
 | `-o, --output FORMAT` | Single-resource formats. |
 
 Changes apply asynchronously; follow them with `kupe database get NAME`. A
-refused change (for example a smaller `--storage`) exits `2` with the API's
-message, which names the field and the rule it broke.
+smaller `--storage` (`400 storage_shrink_unsupported`) exits `2` with
+"database storage can grow but never shrink" and the API's message. Any other
+refused change exits `2` with the API's message, which names the field and
+the rule it broke.
 
 ### `kupe database upgrade NAME --version MAJOR`
 
 Request an in-place major version upgrade (upward only; the database is
-offline while it runs). **Major version upgrades are not available yet:** the
-command says so on stderr before sending the request, and when the platform
-refuses it (`400 major_upgrade_unavailable`) exits `7` with "major version
-upgrades are not available yet" followed by the API's message. Requesting the
-current major is a no-op.
+offline while it runs). When the platform does not offer the upgrade
+(`400 major_upgrade_unavailable`) the command exits `7` with "the platform
+refused the major version upgrade" followed by the API's message. Requesting
+the current major is a no-op.
 
 ### `kupe database delete NAME`
 
 Delete a database and its data. On a TTY you must type the database
 name; `--yes` skips the prompt and is required in non-interactive mode.
-Deletion is asynchronous: stdout is `database/NAME delete requested`; follow it
-with `kupe database wait NAME --for deleted`. The database's storage is kept
-for 7 days after deletion, then permanently deleted.
+
+Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1.
+
+The request is asynchronous: stdout is `database/NAME delete requested`; follow
+it with `kupe database wait NAME --for deleted`.
 
 ```
 $ kupe db delete orders-db
 
-Deleting database "orders-db" will:
-  - Remove the database; its storage is kept for 7 days, then permanently deleted.
-  - Remove its Service and credentials Secrets from every bound cluster namespace.
+Deleting database "orders-db" also removes its Service and credentials Secrets from
+every bound cluster namespace.
+
+Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1.
 
 This will delete database "orders-db". Type the name to confirm: orders-db
 database/orders-db delete requested
@@ -768,8 +779,8 @@ database/orders-db delete requested
 
 **Exit codes:** `0` accepted, `2` confirmation missing or mismatched, `4` not
 found, `5` on `409 deletion_protected` (hint:
-`kupe db update NAME --deletion-protection=false`) or when the database changed
-while the delete was in flight (hint: retry).
+`kupe db update NAME --deletion-protection=false`) or when the database kept
+changing while the delete was in flight (hint: retry).
 
 ### `kupe database rotate-credentials NAME --role owner|app`
 
@@ -797,7 +808,7 @@ knowledge of the password: rotate the role afterwards if that matters.
 | `kupe db binding add DATABASE --cluster C --namespace NS --role owner\|app [--secret-name S] [--name N]` | Create a binding. `--name` defaults to `DATABASE-CLUSTER-NAMESPACE-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
 | `kupe db binding list DATABASE` | `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds `HOST` and `MESSAGE`. Exits `4` if the database doesn't exist. |
 | `kupe db binding get DATABASE BINDING` | Details including the in-cluster host and the Secret name. A binding of another database exits `4`. |
-| `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Stdout: `binding/NAME deleted`. |
+| `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
 
 ```bash
 kupe db binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
@@ -893,7 +904,7 @@ tenant name (mismatch or missing → exit `2`, no request made).
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
-| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. |
+| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. `--cascade` never deletes databases. |
 | `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
 | `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
@@ -906,9 +917,14 @@ Deleting tenant "acme" will:
   - Delete 2 cluster(s), including every workload and volume inside them:
       prod (Running)
       staging (Running)
+  - Not delete databases: --cascade never does, and the tenant is refused while it has any.
 
 tenant/acme terminating
 ```
+
+A tenant that still has databases is refused with or without `--cascade`
+(`409 databases_exist`). Delete each database first: `kupe db list`, then
+`kupe db update NAME --deletion-protection=false` and `kupe db delete NAME`.
 
 The warning block goes to stderr; `tenant/<name> terminating` is the only
 stdout line. Deletion is asynchronous — the API answers `202` and
@@ -918,7 +934,8 @@ exits `4`). A tenant that was ever billed is held for its final invoice, up to
 
 **Exit codes:** `0` accepted (with `--wait`: gone), `2` missing/mismatched
 `--confirm` (or `400` from the API), `3` API-key context or `403 owner_required`,
-`4` tenant not found, `5` on `409 clusters_exist` (hint: `--cascade`) or
+`4` tenant not found, `5` on `409 clusters_exist` (hint: `--cascade`),
+`409 databases_exist` (hint: delete each database first) or
 `409 already_terminating`, `6` on `429` (one request per minute), `8` `--wait`
 timeout, `130` Ctrl+C while waiting (deletion continues server-side).
 

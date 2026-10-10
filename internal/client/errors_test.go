@@ -188,3 +188,31 @@ func TestWarningRoundTrip(t *testing.T) {
 		t.Fatalf("round trip mismatch: %+v vs %+v", in, out)
 	}
 }
+
+func TestIsCreationPaused_CodeFirstMessageAsFallback(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"creation_paused code", &APIError{StatusCode: http.StatusBadRequest, Code: "creation_paused", Message: "try later"}, true},
+		{"code matches case-insensitively", &APIError{StatusCode: http.StatusBadRequest, Code: "CREATION_PAUSED"}, true},
+		{"older server: API wording", &APIError{StatusCode: http.StatusBadRequest,
+			Message: "Database creation is temporarily paused while we expand platform capacity. Please try again later."}, true},
+		{"older server: cluster webhook wording", &APIError{StatusCode: http.StatusBadRequest,
+			Message: "Cluster creation is temporarily paused while we expand platform capacity. Please try again later."}, true},
+		{"older server: lower-case database webhook wording", &APIError{StatusCode: http.StatusBadRequest,
+			Message: "database creation is temporarily paused while we expand platform capacity, please try again later"}, true},
+		{"the wording on a non-400 is not a pause", &APIError{StatusCode: http.StatusInternalServerError, Message: "creation is temporarily paused"}, false},
+		{"another validation error", &APIError{StatusCode: http.StatusBadRequest, Message: "resources.cpu: Invalid value"}, false},
+		{"not an API error", errors.New("creation is temporarily paused"), false},
+		{"nil", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsCreationPaused(tt.err); got != tt.want {
+				t.Fatalf("IsCreationPaused = %v; want %v", got, tt.want)
+			}
+		})
+	}
+}

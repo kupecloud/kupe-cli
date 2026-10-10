@@ -82,8 +82,9 @@ type DatabaseMutator func(current *Database) *PatchDatabaseRequest
 
 // Error codes the database endpoints return. Compare via ErrorCode(err).
 const (
-	// DatabaseCodeUnavailable: 404 from every database route when managed
-	// databases are not enabled on the platform.
+	// DatabaseCodeUnavailable: 404 when managed databases are not enabled
+	// on the platform. Listing, getting and deleting databases, and turning
+	// deletion protection off, still work so existing ones can be removed.
 	DatabaseCodeUnavailable = "databases_unavailable"
 	// DatabaseDeleteCodeProtected: 409 from DELETE while the database has
 	// deletion protection on.
@@ -91,6 +92,9 @@ const (
 	// DatabaseCodeMajorUpgradeUnavailable: 400 from PATCH when the version
 	// changes and the platform does not offer major upgrades.
 	DatabaseCodeMajorUpgradeUnavailable = "major_upgrade_unavailable"
+	// DatabaseCodeStorageShrinkUnsupported: 400 from PATCH when the
+	// requested storage is smaller than the current size.
+	DatabaseCodeStorageShrinkUnsupported = "storage_shrink_unsupported"
 )
 
 // Database roles: owner can change the schema, app can read and write data.

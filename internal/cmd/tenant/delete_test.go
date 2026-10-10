@@ -132,7 +132,7 @@ func TestDeleteCascadeListsClustersAndSendsCascade(t *testing.T) {
 		t.Fatalf("delete --cascade: %v", err)
 	}
 	errOut := stderr(f)
-	for _, want := range []string{"2 cluster(s)", "prod", "staging"} {
+	for _, want := range []string{"2 cluster(s)", "prod", "staging", "Not delete databases"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr missing %q:\n%s", want, errOut)
 		}
@@ -155,6 +155,8 @@ func TestDeleteErrorMapping(t *testing.T) {
 	}{
 		{"403 owner_required", &client.APIError{StatusCode: 403, Code: "owner_required", Message: "not the owner", RequestID: "r1"}, cli.ExitAuth, "only the tenant owner", "kupe tenant get"},
 		{"409 clusters_exist", &client.APIError{StatusCode: 409, Code: "clusters_exist", Message: "2 active clusters"}, cli.ExitConflict, "still has clusters", "--cascade"},
+		{"409 databases_exist", &client.APIError{StatusCode: 409, Code: "databases_exist", Message: "1 active database"}, cli.ExitConflict,
+			"--cascade never deletes them", "kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME"},
 		{"409 already_terminating", &client.APIError{StatusCode: 409, Code: "ALREADY_TERMINATING", Message: "deleting"}, cli.ExitConflict, "already being deleted", "kupe tenant get"},
 		{"409 unknown code", &client.APIError{StatusCode: 409, Message: "something else"}, cli.ExitConflict, "cannot delete tenant", ""},
 		{"429", &client.APIError{StatusCode: 429, Message: "slow down"}, cli.ExitRateLimited, "rate limited", "retry"},
@@ -241,5 +243,15 @@ func TestDeleteWaitTerminalErrorSurfaces(t *testing.T) {
 	err := run(NewCmd(f), "delete", "--confirm", "acme", "--wait", "--wait-timeout", "5s")
 	if code := cli.ExitCode(err); code != cli.ExitAuth {
 		t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitAuth, err)
+	}
+}
+
+func TestDeleteHelpSaysCascadeNeverDeletesDatabases(t *testing.T) {
+	cmd := newDeleteCmd(oidcFactory(t, clienttest.New()))
+	if usage := cmd.Flag("cascade").Usage; !strings.Contains(usage, "never databases") {
+		t.Errorf("--cascade usage = %q; want it to say databases are never deleted", usage)
+	}
+	if long := strings.Join(strings.Fields(cmd.Long), " "); !strings.Contains(long, "--cascade never deletes databases") {
+		t.Errorf("Long text should say --cascade never deletes databases:\n%s", cmd.Long)
 	}
 }

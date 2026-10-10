@@ -49,9 +49,10 @@ func PollPhase[T any](get PhaseGetter[T], decide func(resource T, phase string) 
 	}
 }
 
-// WaitForPhase polls get until the phase equals target. Degraded is a
-// terminal failure unless it is the target. Returns the last observed
-// resource (the zero value if none was seen).
+// WaitForPhase polls get until the phase equals target. Degraded and a
+// binding's Failed are terminal failures unless they are the target: waiting
+// does not clear them. Returns the last observed resource (the zero value if
+// none was seen).
 func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name, target string, get PhaseGetter[T], timeout time.Duration) (T, error) {
 	var latest T
 	poll := PollPhase(get, func(resource T, phase string) (bool, error) {
@@ -59,8 +60,8 @@ func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name
 		if phase == target {
 			return true, nil
 		}
-		if phase == client.PhaseDegraded {
-			return false, fmt.Errorf("%s %q entered Degraded state", noun, name)
+		if phase == client.PhaseDegraded || phase == client.PhaseFailed {
+			return false, fmt.Errorf("%s %q entered %s state", noun, name, phase)
 		}
 		return false, nil
 	})

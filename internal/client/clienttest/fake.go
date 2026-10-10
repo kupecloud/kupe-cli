@@ -97,6 +97,10 @@ type Fake struct {
 	CreateDatabaseBindingErr error
 	DeleteDatabaseBindingErr error
 
+	// GetDatabaseBindingSeq scripts successive GetDatabaseBinding results
+	// per binding name, with the same semantics as GetClusterSeq.
+	GetDatabaseBindingSeq map[string][]*client.DatabaseBinding
+
 	// Members keyed by email.
 	Members         map[string]*client.Member
 	ListMembersErr  error
@@ -141,6 +145,8 @@ func New() *Fake {
 		Members:          map[string]*client.Member{},
 		Invoices:         map[string]*client.Invoice{},
 		Plans:            map[string]*client.Plan{},
+
+		GetDatabaseBindingSeq: map[string][]*client.DatabaseBinding{},
 	}
 }
 
@@ -666,8 +672,9 @@ func (f *Fake) ListDatabaseBindings(_ context.Context, database string) ([]clien
 	return out, nil
 }
 
-// GetDatabaseBinding implements client.Interface. A binding of another
-// database is a 404, as in the API.
+// GetDatabaseBinding implements client.Interface. Honours
+// GetDatabaseBindingSeq. A binding of another database is a 404, as in the
+// API.
 func (f *Fake) GetDatabaseBinding(_ context.Context, database, name string) (*client.DatabaseBinding, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -675,8 +682,11 @@ func (f *Fake) GetDatabaseBinding(_ context.Context, database, name string) (*cl
 	if f.GetDatabaseBindingErr != nil {
 		return nil, f.GetDatabaseBindingErr
 	}
-	b, ok := f.DatabaseBindings[name]
-	if !ok || b.Database != database {
+	b, ok := popSeq(f.GetDatabaseBindingSeq, name)
+	if !ok {
+		b = f.DatabaseBindings[name]
+	}
+	if b == nil || b.Database != database {
 		return nil, bindingNotFound()
 	}
 	return b, nil

@@ -429,3 +429,44 @@ func TestDeleteDatabaseBinding(t *testing.T) {
 		})
 	}
 }
+
+func TestDatabaseBindingStatus_Conflicted(t *testing.T) {
+	tests := []struct {
+		name   string
+		status *DatabaseBindingStatus
+		want   bool
+	}{
+		{"no status", nil, false},
+		{"no conditions", &DatabaseBindingStatus{Phase: "Failed"}, false},
+		{"conflict true", &DatabaseBindingStatus{Conditions: []Condition{
+			{Type: "Ready", Status: "False", Reason: "SyncConflict"}, {Type: "Conflict", Status: "True", Reason: "SyncConflict"},
+		}}, true},
+		{"conflict false", &DatabaseBindingStatus{Conditions: []Condition{{Type: "Conflict", Status: "False", Reason: "NoConflict"}}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.status.Conflicted(); got != tt.want {
+				t.Errorf("Conflicted() = %v; want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDatabaseBinding_EffectiveSecretName(t *testing.T) {
+	tests := []struct {
+		name    string
+		binding DatabaseBinding
+		want    string
+	}{
+		{"the platform's name wins", DatabaseBinding{SecretName: "asked", Status: &DatabaseBindingStatus{SecretName: "orders-db-app"}}, "orders-db-app"},
+		{"the requested name before the platform reports one", DatabaseBinding{SecretName: "asked", Status: &DatabaseBindingStatus{}}, "asked"},
+		{"no status", DatabaseBinding{SecretName: "asked"}, "asked"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.binding.EffectiveSecretName(); got != tt.want {
+				t.Errorf("EffectiveSecretName() = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -85,10 +85,11 @@ func TestDatabaseLifecycle(t *testing.T) {
 		t.Errorf("rotate stdout = %q", out)
 	}
 
-	// The cluster need not exist; the binding reports it until it does.
+	// The cluster need not exist; the binding stays Pending until it does,
+	// so the add does not wait for Ready.
 	binding := name + "-api-app"
 	var bound map[string]any
-	runCLIJSON(t, &bound, "db", "binding", "add", name, "--cluster", "nonexistent-cluster", "--namespace", "api", "--role", "app", "--name", binding)
+	runCLIJSON(t, &bound, "db", "binding", "add", name, "--cluster", "nonexistent-cluster", "--namespace", "api", "--role", "app", "--name", binding, "--wait=false")
 	if bound["name"] != binding || bound["role"] != "app" {
 		t.Fatalf("binding = %+v", bound)
 	}

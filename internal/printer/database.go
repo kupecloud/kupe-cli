@@ -54,7 +54,7 @@ func DatabaseBindingColumns(colorEnabled bool) Columns {
 		{Name: "CLUSTER", Get: func(v any) string { return databaseBinding(v).Cluster }},
 		{Name: "NAMESPACE", Get: func(v any) string { return databaseBinding(v).Namespace }},
 		{Name: "ROLE", Get: func(v any) string { return databaseBinding(v).Role }},
-		{Name: "SECRET", Get: func(v any) string { return bindingSecretName(databaseBinding(v)) }},
+		{Name: "SECRET", Get: func(v any) string { return databaseBinding(v).EffectiveSecretName() }},
 		{Name: "PHASE", Get: func(v any) string {
 			return ux.ColorPhase(bindingStatus(databaseBinding(v)).Phase, colorEnabled)
 		}},
@@ -73,7 +73,7 @@ func DatabaseBindingDetailColumns(colorEnabled bool) Columns {
 		{Name: "Cluster", Get: func(v any) string { return databaseBinding(v).Cluster }},
 		{Name: "Namespace", Get: func(v any) string { return databaseBinding(v).Namespace }},
 		{Name: "Role", Get: func(v any) string { return databaseBinding(v).Role }},
-		{Name: "Secret", Get: func(v any) string { return bindingSecretName(databaseBinding(v)) }},
+		{Name: "Secret", Get: func(v any) string { return databaseBinding(v).EffectiveSecretName() }},
 		{Name: "Host", Get: func(v any) string { return bindingStatus(databaseBinding(v)).Host }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(bindingStatus(databaseBinding(v)).Phase, colorEnabled)
@@ -148,15 +148,6 @@ func databaseInstances(db *client.Database) string {
 		return ""
 	}
 	return fmt.Sprintf("%d/%d", st.InstancesReady, st.InstancesDesired)
-}
-
-// bindingSecretName prefers the effective name the platform reports and
-// falls back to the requested one.
-func bindingSecretName(b *client.DatabaseBinding) string {
-	if s := bindingStatus(b).SecretName; s != "" {
-		return s
-	}
-	return b.SecretName
 }
 
 func onOff(b bool) string {

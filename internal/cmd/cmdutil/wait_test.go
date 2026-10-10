@@ -176,6 +176,7 @@ func TestWaitForPhase(t *testing.T) {
 		{"returns the resource once the target is reached", []string{"Running"}, client.PhaseRunning, "", "resource-Running"},
 		{"degraded fails a wait for running", []string{"Degraded"}, client.PhaseRunning, "entered Degraded state", "resource-Degraded"},
 		{"degraded satisfies a wait for degraded", []string{"Degraded"}, client.PhaseDegraded, "", "resource-Degraded"},
+		{"a failed binding fails a wait for ready", []string{"Failed"}, client.PhaseReady, "entered Failed state", "resource-Failed"},
 		{"a 404 is terminal", []string{""}, client.PhaseRunning, "Not Found", ""},
 	}
 	for _, tt := range tests {

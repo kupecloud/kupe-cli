@@ -128,6 +128,15 @@ type DatabaseBinding struct {
 	CreatedAt       string                 `json:"createdAt" yaml:"createdAt"`
 }
 
+// EffectiveSecretName is the credentials Secret name in the namespace: the
+// one the platform reports, else the one requested.
+func (b *DatabaseBinding) EffectiveSecretName() string {
+	if b.Status != nil && b.Status.SecretName != "" {
+		return b.Status.SecretName
+	}
+	return b.SecretName
+}
+
 // DatabaseBindingStatus is the observed state. Phase: Pending | Ready | Failed.
 type DatabaseBindingStatus struct {
 	Phase string `json:"phase,omitempty" yaml:"phase,omitempty"`
@@ -137,6 +146,23 @@ type DatabaseBindingStatus struct {
 	SecretName string      `json:"secretName,omitempty" yaml:"secretName,omitempty"`
 	Message    string      `json:"message,omitempty" yaml:"message,omitempty"`
 	Conditions []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+}
+
+// bindingConditionConflict is True while an object the platform did not
+// create holds the binding's Service or Secret name in the namespace.
+const bindingConditionConflict = "Conflict"
+
+// Conflicted reports whether the binding's Conflict condition is True.
+func (s *DatabaseBindingStatus) Conflicted() bool {
+	if s == nil {
+		return false
+	}
+	for _, c := range s.Conditions {
+		if c.Type == bindingConditionConflict {
+			return c.Status == "True"
+		}
+	}
+	return false
 }
 
 // CreateDatabaseBindingRequest is the POST body. The database comes from

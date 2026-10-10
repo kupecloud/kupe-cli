@@ -1,14 +1,20 @@
 package database
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/printer"
+	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
 // maxNameLength is the longest resource name the API accepts.
@@ -43,13 +49,18 @@ func renderBindings(out io.Writer, colorEnabled bool, format *printer.Format, bs
 }
 
 type bindingAddOpts struct {
-	cluster    string
-	namespace  string
-	role       string
-	secretName string
-	name       string
-	output     string
+	cluster     string
+	namespace   string
+	role        string
+	secretName  string
+	name        string
+	wait        bool
+	waitTimeout time.Duration
+	output      string
 }
+
+// bindingNoun labels a binding in progress output.
+const bindingNoun = "database binding"
 
 func newBindingAddCmd(f *cli.Factory) *cobra.Command {
 	opts := &bindingAddOpts{}
@@ -61,13 +72,23 @@ func newBindingAddCmd(f *cli.Factory) *cobra.Command {
 namespace connect to the host named after the database and read their
 credentials from the Secret (default name: DATABASE-ROLE).
 
-The cluster does not have to exist yet; the binding reports it until it does.
+By default the command waits for the binding to become Ready. It is Pending
+while the database or the cluster does not exist yet or is not running; the
+platform keeps trying, so the cluster does not have to exist yet. It is
+Failed when the namespace already has a Service named after the database, or
+a Secret of the binding's Secret name, that the platform did not create: the
+command exits at once and says which names clash. Pass --wait=false to return
+as soon as the request is accepted.
+
 The binding name defaults to DATABASE-CLUSTER-NAMESPACE-ROLE; pass --name if
 that is longer than 63 characters.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Migrations run with the owner role, the API with the app role
   kupe database binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
-  kupe db binding add orders-db --cluster prod --namespace api --role app`,
+  kupe db binding add orders-db --cluster prod --namespace api --role app
+
+  # Bind into a cluster that is still being created, without waiting
+  kupe db binding add orders-db --cluster staging --namespace api --role app --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			database := args[0]
 			if opts.cluster == "" || opts.namespace == "" {
@@ -102,7 +123,16 @@ that is longer than 63 characters.`,
 			if err != nil {
 				return translateErr(err)
 			}
-			return renderBinding(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, b)
+			if !opts.wait {
+				return renderBinding(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, b)
+			}
+
+			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, bindingNoun, name, client.PhaseReady,
+				bindingPhaseGetter(api, database, name), opts.waitTimeout)
+			if werr != nil {
+				return bindingWaitErr(werr, database, name, final)
+			}
+			return renderBinding(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, final)
 		},
 	}
 
@@ -111,8 +141,73 @@ that is longer than 63 characters.`,
 	cmd.Flags().StringVar(&opts.role, "role", "", "Role granted: owner (schema changes) or app (read and write data) (required)")
 	cmd.Flags().StringVar(&opts.secretName, "secret-name", "", "Name of the credentials Secret in the namespace (default DATABASE-ROLE)")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Binding name (default DATABASE-CLUSTER-NAMESPACE-ROLE)")
+	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the binding to become Ready before returning")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 5*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
+}
+
+func bindingPhaseGetter(api client.Interface, database, name string) cmdutil.PhaseGetter[*client.DatabaseBinding] {
+	return func(ctx context.Context) (*client.DatabaseBinding, string, error) {
+		b, err := api.GetDatabaseBinding(ctx, database, name)
+		if err != nil {
+			return nil, "", translateErr(err)
+		}
+		if b.Status == nil {
+			return b, "", nil
+		}
+		return b, b.Status.Phase, nil
+	}
+}
+
+// bindingWaitErr explains why waiting for a new binding ended without it
+// being Ready. last is the binding as last seen, nil if never seen. The
+// binding exists in every case: the request was accepted before the wait.
+func bindingWaitErr(err error, database, name string, last *client.DatabaseBinding) error {
+	var status client.DatabaseBindingStatus
+	if last != nil && last.Status != nil {
+		status = *last.Status
+	}
+	check := fmt.Sprintf("check status:  kupe database binding get %s %s", database, name)
+	switch {
+	case status.Phase == client.PhaseFailed:
+		return bindingFailedErr(last, check)
+	case errors.Is(err, ux.ErrWaitTimeout):
+		msg := fmt.Sprintf("binding %q is not Ready yet", name)
+		if status.Phase != "" {
+			msg = fmt.Sprintf("binding %q is still %s", name, status.Phase)
+		}
+		if status.Message != "" {
+			msg += ": " + status.Message
+		}
+		return cli.TimeoutError(msg).WithHint("the binding was created and the platform keeps trying; it becomes Ready on its own once that clears\n" + check)
+	case errors.Is(err, context.Canceled):
+		return cli.New(cli.ExitInterrupted, fmt.Sprintf("stopped waiting; binding %q was created and is still being set up", name)).
+			WithHint(check)
+	case cmdutil.IsTransientWaitErr(err):
+		return cli.Wrap(cli.ExitUnavailable, "lost contact with kupe-api while waiting", err).WithHint(check)
+	}
+	return err
+}
+
+// bindingFailedErr reports a Failed binding with the platform's message. A
+// name conflict exits like any other conflict, with what to change.
+func bindingFailedErr(b *client.DatabaseBinding, check string) error {
+	msg := fmt.Sprintf("binding %q failed", b.Name)
+	if b.Status.Message != "" {
+		msg += ": " + b.Status.Message
+	}
+	if !b.Status.Conflicted() {
+		return cli.New(cli.ExitGeneral, msg).WithHint(check)
+	}
+	return cli.ConflictError(msg).WithHint(strings.Join([]string{
+		fmt.Sprintf("namespace %s of cluster %s already has a Service %q or a Secret %q that the platform did not create",
+			b.Namespace, b.Cluster, b.Database, b.EffectiveSecretName()),
+		"rename or remove that object, and the binding becomes Ready on its own",
+		fmt.Sprintf("or, if the Secret is the clash, choose another Secret name:  kupe database binding delete %s %s --yes", b.Database, b.Name),
+		"  then add the binding again with --secret-name",
+		check,
+	}, "\n"))
 }
 
 func newBindingListCmd(f *cli.Factory) *cobra.Command {

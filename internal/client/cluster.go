@@ -112,7 +112,8 @@ type PatchClusterRequest struct {
 }
 
 // Phase helper constants for waiter comparisons. Defined alongside the
-// types they describe so command code doesn't have to stringify.
+// types they describe so command code doesn't have to stringify. Database
+// bindings use Pending, Ready and Failed.
 const (
 	PhasePending      = "Pending"
 	PhaseProvisioning = "Provisioning"
@@ -120,6 +121,8 @@ const (
 	PhaseUpgrading    = "Upgrading"
 	PhaseDegraded     = "Degraded"
 	PhaseTerminating  = "Terminating"
+	PhaseReady        = "Ready"
+	PhaseFailed       = "Failed"
 )
 
 // ListClusters returns every cluster visible to the tenant.

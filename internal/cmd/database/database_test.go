@@ -600,7 +600,10 @@ func TestBindingAdd(t *testing.T) {
 			fake := clienttest.New()
 			fake.Databases["orders-db"] = running("orders-db")
 			f := factoryWith(t, fake)
-			_, _, err := run(f, newBindingAddCmd(f), tt.args...)
+			// --wait=false: these cases check the request; TestBindingAdd_Wait
+			// covers the wait. The short timeout bounds the test if
+			// --wait=false were ignored.
+			_, _, err := run(f, newBindingAddCmd(f), append(tt.args, "--wait=false", "--wait-timeout", "50ms")...)
 			assertExit(t, err, tt.wantExit)
 			if tt.wantName == "" {
 				return
@@ -611,6 +614,113 @@ func TestBindingAdd(t *testing.T) {
 			}
 			if b.Database != "orders-db" || b.Cluster != "prod" || b.Namespace != "api" || b.SecretName != tt.wantSecret {
 				t.Fatalf("binding = %+v", b)
+			}
+		})
+	}
+}
+
+// boundAs is the binding `binding add orders-db --cluster prod --namespace
+// api --role app` creates, as the API reports it in phase.
+func boundAs(phase, message string, conditions ...client.Condition) *client.DatabaseBinding {
+	return &client.DatabaseBinding{
+		Name: "orders-db-prod-api-app", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "app",
+		Status: &client.DatabaseBindingStatus{
+			Phase: phase, SecretName: "orders-db-app", Message: message, Conditions: conditions,
+		},
+	}
+}
+
+func TestBindingAdd_Wait(t *testing.T) {
+	const conflictMessage = "the namespace already has a Service or Secret of the binding's name that the platform " +
+		"did not create; remove it, or bind with another secretName"
+	conflict := []client.Condition{
+		{Type: "Ready", Status: "False", Reason: "SyncConflict", Message: conflictMessage},
+		{Type: "Conflict", Status: "True", Reason: "SyncConflict", Message: conflictMessage},
+	}
+	check := "kupe database binding get orders-db orders-db-prod-api-app"
+	tests := []struct {
+		name     string
+		seq      []*client.DatabaseBinding
+		args     []string
+		wantExit int
+		wantGets int
+		wantOut  string
+		wantErr  []string
+		wantHint []string
+		noHint   string
+	}{
+		{
+			name: "ready renders the bound binding", seq: []*client.DatabaseBinding{boundAs("Ready", "the database is available in the namespace")},
+			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitOK, wantGets: 1, wantOut: "Ready",
+		},
+		{
+			name: "a name conflict fails at once with what to change",
+			seq:  []*client.DatabaseBinding{boundAs("Failed", conflictMessage, conflict...)},
+			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitConflict, wantGets: 1,
+			wantErr: []string{`binding "orders-db-prod-api-app" failed: ` + conflictMessage},
+			wantHint: []string{
+				`namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-app" that the platform did not create`,
+				"rename or remove that object",
+				"kupe database binding delete orders-db orders-db-prod-api-app --yes",
+				"--secret-name",
+				check,
+			},
+		},
+		{
+			name:     "a failure without a conflict gives no conflict advice",
+			seq:      []*client.DatabaseBinding{boundAs("Failed", "something else went wrong")},
+			args:     []string{"--wait-timeout", "5s"},
+			wantExit: cli.ExitGeneral, wantGets: 1,
+			wantErr:  []string{"something else went wrong"},
+			wantHint: []string{check},
+			noHint:   "rename or remove",
+		},
+		{
+			name: "pending past the timeout shows why and how to check",
+			seq:  []*client.DatabaseBinding{boundAs("Pending", "cluster prod does not exist")},
+			args: []string{"--wait-timeout", "50ms"}, wantExit: cli.ExitTimeout, wantGets: 1,
+			wantErr:  []string{`binding "orders-db-prod-api-app" is still Pending: cluster prod does not exist`},
+			wantHint: []string{"becomes Ready on its own", check},
+		},
+		{
+			name: "--wait=false returns the accepted binding without polling",
+			// The short timeout bounds the test if --wait=false were ignored.
+			args: []string{"--wait=false", "--wait-timeout", "50ms"}, wantExit: cli.ExitOK, wantGets: 0, wantOut: "Pending",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.Databases["orders-db"] = running("orders-db")
+			fake.GetDatabaseBindingSeq["orders-db-prod-api-app"] = tt.seq
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, tt.args...)
+			out, _, err := run(f, newBindingAddCmd(f), args...)
+			assertExit(t, err, tt.wantExit)
+			gets := 0
+			for _, c := range fake.Calls {
+				if strings.HasPrefix(c, "GetDatabaseBinding:") {
+					gets++
+				}
+			}
+			if gets != tt.wantGets {
+				t.Errorf("GetDatabaseBinding calls = %d; want %d", gets, tt.wantGets)
+			}
+			if tt.wantOut != "" && !strings.Contains(out, tt.wantOut) {
+				t.Errorf("stdout should contain %q:\n%s", tt.wantOut, out)
+			}
+			for _, want := range tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("error should contain %q: %v", want, err)
+				}
+			}
+			for _, want := range tt.wantHint {
+				if !strings.Contains(hint(err), want) {
+					t.Errorf("hint should contain %q:\n%s", want, hint(err))
+				}
+			}
+			if tt.noHint != "" && strings.Contains(hint(err), tt.noHint) {
+				t.Errorf("hint should not contain %q:\n%s", tt.noHint, hint(err))
 			}
 		})
 	}

@@ -192,7 +192,7 @@ The CLI's `--wait` behavior (default on for `create`/`delete`/`update`) implemen
 
 1. After the initial write, poll `GET /clusters/{name}` every 2s (exponential to 10s cap, capped at `--wait-timeout`).
 2. Compare `status.phase` transitions for create/delete. Updates wait for `status.observedGeneration >= metadata.generation` and `phase == Running`, so resource-only updates that never leave Running still converge.
-3. On a terminal phase, return success. On `Degraded`, return a non-zero exit with the cluster's latest condition messages on stderr.
+3. On the target phase, return success. On `Degraded`, exit `1` naming the cluster and its phase, with a `kupe cluster get <name>` hint. Transient API errors are ridden out for 90 seconds before exiting `7`.
 4. On Ctrl+C, cancel the context, print a `Use "kupe cluster get <name>" to check status` hint, and exit cleanly.
 
 See [output.md](./output.md) for the TTY/CI split of how these transitions are rendered.

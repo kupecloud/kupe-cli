@@ -18,6 +18,18 @@ import (
 // (the API returns 404). It is not a server-side phase.
 const PhaseDeleted = "Deleted"
 
+// TerminalPhaseError reports that a waited-on resource entered a phase that
+// waiting does not clear: Degraded, or a binding's Failed. It is the
+// resource's outcome, not a fault reaching kupe-api, so it must never be
+// classified as transient.
+type TerminalPhaseError struct {
+	Noun, Name, Phase string
+}
+
+func (e *TerminalPhaseError) Error() string {
+	return fmt.Sprintf("%s %q entered %s state", e.Noun, e.Name, e.Phase)
+}
+
 // PhaseGetter fetches a resource and reports its lifecycle phase. Clusters
 // and databases share the phase vocabulary in the client.Phase* constants.
 type PhaseGetter[T any] func(ctx context.Context) (resource T, phase string, err error)
@@ -50,9 +62,9 @@ func PollPhase[T any](get PhaseGetter[T], decide func(resource T, phase string) 
 }
 
 // WaitForPhase polls get until the phase equals target. Degraded and a
-// binding's Failed are terminal failures unless they are the target: waiting
-// does not clear them. Returns the last observed resource (the zero value if
-// none was seen).
+// binding's Failed end the wait with a *TerminalPhaseError unless they are
+// the target. Returns the last observed resource (the zero value if none was
+// seen).
 func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name, target string, get PhaseGetter[T], timeout time.Duration) (T, error) {
 	var latest T
 	poll := PollPhase(get, func(resource T, phase string) (bool, error) {
@@ -61,7 +73,7 @@ func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name
 			return true, nil
 		}
 		if phase == client.PhaseDegraded || phase == client.PhaseFailed {
-			return false, fmt.Errorf("%s %q entered %s state", noun, name, phase)
+			return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
 		}
 		return false, nil
 	})
@@ -147,9 +159,14 @@ const transientWaitGrace = 90 * time.Second
 // should ride out rather than treat as terminal: any non-APIError (network /
 // transport / context-independent I/O) or a 5xx / 429 from kupe-api. A 404,
 // 401, 403, or 400 is authoritative and must stay terminal — callers handle
-// 404 themselves (e.g. delete-wait treats it as success).
+// 404 themselves (e.g. delete-wait treats it as success). So is a
+// *TerminalPhaseError: the API answered, and the resource has failed.
 func IsTransientWaitErr(err error) bool {
 	if err == nil {
+		return false
+	}
+	var terminal *TerminalPhaseError
+	if errors.As(err, &terminal) {
 		return false
 	}
 	// A mid-wait OIDC refresh that hit its own 30s budget is a transient auth
@@ -209,6 +226,8 @@ func TolerateTransient(poll ux.PollFunc) ux.PollFunc {
 //   - cancellation (Ctrl-C): the API call already succeeded; the resource
 //     is being created/updated/deleted on Kupe Cloud regardless of whether
 //     we kept watching. Say so explicitly, exit 130
+//   - the resource entered a terminal phase (*TerminalPhaseError): it has
+//     failed, so exit 1 naming it and its phase, with the check-status hint
 //   - a transient API error that outlived the grace window: exit 7 with the
 //     same check-status / resume-wait guidance
 //
@@ -245,6 +264,10 @@ func MapWaitErr(err error, noun, name, verb string) error {
 					fmt.Sprintf("abandon:       kupe %s delete %s", noun, name),
 				}, "\n"))
 		}
+	}
+	var terminal *TerminalPhaseError
+	if errors.As(err, &terminal) {
+		return cli.New(cli.ExitGeneral, terminal.Error()).WithHint(check)
 	}
 	if client.IsUnavailable(err) || client.IsRateLimited(err) || client.IsServerError(err) || !client.IsAPIError(err) {
 		return cli.Wrap(cli.ExitUnavailable, "lost contact with kupe-api while waiting", err).WithHint(check + "\n" + resume)

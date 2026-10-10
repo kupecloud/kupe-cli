@@ -137,13 +137,13 @@ Inspired by kubectl and gh. Stable across versions.
 | Code | Meaning | Example |
 |------|---------|---------|
 | `0` | Success | Any command that completed as requested |
-| `1` | General error | Network failure, internal error, unclassified 5xx |
+| `1` | General error | Network failure, internal error, unclassified 5xx; a resource entered `Degraded` while a command waited for it (a `Failed` binding too, unless it is a name conflict: `5`) |
 | `2` | Misuse | Unknown flag, missing required arg, invalid combination (Cobra sets this automatically for flag errors) |
 | `3` | Auth error | 401 Unauthorized, 403 Forbidden, missing token, logged-out context |
 | `4` | Not found | 404 on the requested resource |
 | `5` | Conflict | 409 (already exists, concurrent modification) or 412 (ETag mismatch) |
 | `6` | Rate limited | 429; rare because the client retries once internally |
-| `7` | Platform refused: paused or unavailable | 503 (e.g., cluster kubeconfig requested before provisioning completes); cluster or database creation paused (`creation_paused`); major version upgrade not offered (`major_upgrade_unavailable`) |
+| `7` | Platform refused: paused or unavailable | 503 (e.g., cluster kubeconfig requested before provisioning completes); cluster or database creation paused (`creation_paused`); major version upgrade not offered (`major_upgrade_unavailable`); kupe-api unreachable for 90 seconds while a command waits ("lost contact") |
 | `8` | Timeout | `--wait-timeout` elapsed before the resource reached the target phase |
 | `130` | Interrupt | User pressed Ctrl+C (standard Unix convention, `128 + SIGINT`) |
 

@@ -38,6 +38,8 @@ func TestIsTransientWaitErr_ClassifiesErrors(t *testing.T) {
 		// ErrWaitTimeout / exit 8).
 		{"auth refresh timeout transient", cli.ErrAuthRefreshTimeout, true},
 		{"wrapped auth refresh timeout transient", fmt.Errorf("resolving auth token: %w", cli.ErrAuthRefreshTimeout), true},
+		// A resource that failed is an answer from kupe-api, not a blip.
+		{"terminal phase not transient", &TerminalPhaseError{Noun: "database", Name: "orders-db", Phase: client.PhaseDegraded}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -89,8 +91,9 @@ func TestTolerateTransient_PassesTerminalThrough(t *testing.T) {
 }
 
 // TestMapWaitErr_ExitCodesAndWording pins the exit codes for the ways a wait
-// ends early (timeout → 8, Ctrl-C → 130, lost API → 7) and that the hints
-// name the command noun, so a database wait never points at cluster commands.
+// ends early (terminal phase → 1, timeout → 8, Ctrl-C → 130, lost API → 7)
+// and that the hints name the command noun, so a database wait never points
+// at cluster commands.
 func TestMapWaitErr_ExitCodesAndWording(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -100,6 +103,15 @@ func TestMapWaitErr_ExitCodesAndWording(t *testing.T) {
 		wantText   []string
 		rejectText string
 	}{
+		{"degraded exits 1 naming the resource, not lost contact",
+			&TerminalPhaseError{Noun: "database", Name: "prod", Phase: client.PhaseDegraded}, "database", "create", cli.ExitGeneral,
+			[]string{`database "prod" entered Degraded state`, "kupe database get prod"}, "lost contact"},
+		{"failed exits 1 naming the resource, not lost contact",
+			&TerminalPhaseError{Noun: "cluster", Name: "prod", Phase: client.PhaseFailed}, "cluster", "wait", cli.ExitGeneral,
+			[]string{`cluster "prod" entered Failed state`, "kupe cluster get prod"}, "lost contact"},
+		{"a wrapped terminal phase still exits 1",
+			fmt.Errorf("polling: %w", &TerminalPhaseError{Noun: "cluster", Name: "prod", Phase: client.PhaseDegraded}), "cluster", "update", cli.ExitGeneral,
+			[]string{"entered Degraded state", "kupe cluster get prod"}, "lost contact"},
 		{"timeout exits 8 without Ctrl-C wording", ux.ErrWaitTimeout, "cluster", "create", cli.ExitTimeout,
 			[]string{"kupe cluster get prod", "kupe cluster wait prod"}, "stopped waiting"},
 		{"interrupt during create explains the operation continues", context.Canceled, "database", "create", cli.ExitInterrupted,
@@ -112,6 +124,8 @@ func TestMapWaitErr_ExitCodesAndWording(t *testing.T) {
 			[]string{"may still be transitioning", "kupe database get prod"}, ""},
 		{"lost API exits 7", &client.APIError{StatusCode: 503}, "database", "create", cli.ExitUnavailable,
 			[]string{"lost contact", "kupe database wait prod"}, ""},
+		{"network error exits 7", errors.New("dial tcp: connection refused"), "cluster", "create", cli.ExitUnavailable,
+			[]string{"lost contact", "kupe cluster get prod", "kupe cluster wait prod"}, ""},
 		{"a 404 passes through", &client.APIError{StatusCode: 404, Message: "database not found"}, "database", "wait", cli.ExitNotFound,
 			nil, "lost contact"},
 	}
@@ -167,17 +181,18 @@ func scriptedGetter(phases ...string) PhaseGetter[string] {
 
 func TestWaitForPhase(t *testing.T) {
 	tests := []struct {
-		name     string
-		phases   []string
-		target   string
-		wantErr  string
-		wantLast string
+		name         string
+		phases       []string
+		target       string
+		wantErr      string
+		wantTerminal bool
+		wantLast     string
 	}{
-		{"returns the resource once the target is reached", []string{"Running"}, client.PhaseRunning, "", "resource-Running"},
-		{"degraded fails a wait for running", []string{"Degraded"}, client.PhaseRunning, "entered Degraded state", "resource-Degraded"},
-		{"degraded satisfies a wait for degraded", []string{"Degraded"}, client.PhaseDegraded, "", "resource-Degraded"},
-		{"a failed binding fails a wait for ready", []string{"Failed"}, client.PhaseReady, "entered Failed state", "resource-Failed"},
-		{"a 404 is terminal", []string{""}, client.PhaseRunning, "Not Found", ""},
+		{"returns the resource once the target is reached", []string{"Running"}, client.PhaseRunning, "", false, "resource-Running"},
+		{"degraded fails a wait for running", []string{"Degraded"}, client.PhaseRunning, "entered Degraded state", true, "resource-Degraded"},
+		{"degraded satisfies a wait for degraded", []string{"Degraded"}, client.PhaseDegraded, "", false, "resource-Degraded"},
+		{"a failed binding fails a wait for ready", []string{"Failed"}, client.PhaseReady, "entered Failed state", true, "resource-Failed"},
+		{"a 404 is terminal", []string{""}, client.PhaseRunning, "Not Found", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -188,6 +203,10 @@ func TestWaitForPhase(t *testing.T) {
 			}
 			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
 				t.Fatalf("err = %v; want containing %q", err, tt.wantErr)
+			}
+			var terminal *TerminalPhaseError
+			if got := errors.As(err, &terminal); got != tt.wantTerminal {
+				t.Fatalf("err = %v is a *TerminalPhaseError: %v; want %v", err, got, tt.wantTerminal)
 			}
 			if last != tt.wantLast {
 				t.Fatalf("last = %q; want %q", last, tt.wantLast)
@@ -228,6 +247,7 @@ func TestRunWait(t *testing.T) {
 		{"prints the reached phase", "running", []string{"Running"}, "database/orders-db running\n", cli.ExitOK},
 		{"prints deleted once gone", "deleted", []string{""}, "database/orders-db deleted\n", cli.ExitOK},
 		{"rejects an unknown phase as misuse", "bogus", []string{"Running"}, "", cli.ExitMisuse},
+		{"degraded fails a wait for running with exit 1", "running", []string{"Degraded"}, "", cli.ExitGeneral},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

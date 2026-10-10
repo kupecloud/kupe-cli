@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -235,5 +236,53 @@ func TestWaitRejectsUnknownPhase(t *testing.T) {
 	}
 	if code := cli.ExitCode(err); code != cli.ExitMisuse {
 		t.Fatalf("exit = %d; want %d", code, cli.ExitMisuse)
+	}
+}
+
+// TestWaitingCommands_DegradedExits1WithGetHint pins that a cluster reaching
+// Degraded while a command waits is the cluster's failure (exit 1, pointing
+// at "kupe cluster get"), not lost contact with kupe-api (exit 7).
+func TestWaitingCommands_DegradedExits1WithGetHint(t *testing.T) {
+	degraded := &client.Cluster{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseDegraded, ObservedGeneration: 5}}
+	tests := []struct {
+		name  string
+		newFn func(*cli.Factory) *cobra.Command
+		seed  *client.Cluster
+		seq   []*client.Cluster
+		args  []string
+	}{
+		{"create", newCreateCmd, nil, []*client.Cluster{degraded},
+			[]string{"prod", "--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi", "--wait-timeout", "5s"}},
+		{"update", newUpdateCmd, &client.Cluster{Name: "prod", Version: "1.32", Status: &client.ClusterStatus{Phase: client.PhaseRunning}},
+			[]*client.Cluster{{Name: "prod", Version: "1.32", Status: &client.ClusterStatus{Phase: client.PhaseRunning}}, degraded},
+			[]string{"prod", "--version", "1.33", "--wait-timeout", "5s"}},
+		{"wait", newWaitCmd, nil, []*client.Cluster{degraded},
+			[]string{"prod", "--for", "running", "--timeout", "5s"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			if tt.seed != nil {
+				fake.Clusters["prod"] = tt.seed
+			}
+			fake.GetClusterSeq["prod"] = tt.seq
+			f := factoryWith(t, fake)
+			cmd := tt.newFn(f)
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			err := executeCmd(cmd, tt.args...)
+			if code := cli.ExitCode(err); code != cli.ExitGeneral {
+				t.Fatalf("exit = %d; want %d (err: %v)", code, cli.ExitGeneral, err)
+			}
+			var cliErr *cli.Error
+			if !errors.As(err, &cliErr) {
+				t.Fatalf("err = %T %v; want a *cli.Error with a hint", err, err)
+			}
+			if !strings.Contains(cliErr.Error(), `cluster "prod" entered Degraded state`) || strings.Contains(cliErr.Error(), "lost contact") {
+				t.Errorf("message = %q; want the Degraded phase, not lost contact", cliErr.Error())
+			}
+			if !strings.Contains(cliErr.Hint, "kupe cluster get prod") {
+				t.Errorf("hint = %q; want the get command", cliErr.Hint)
+			}
+		})
 	}
 }

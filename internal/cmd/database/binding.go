@@ -169,8 +169,10 @@ func bindingWaitErr(err error, database, name string, last *client.DatabaseBindi
 		status = *last.Status
 	}
 	check := fmt.Sprintf("check status:  kupe database binding get %s %s", database, name)
+	var terminal *cmdutil.TerminalPhaseError
 	switch {
-	case status.Phase == client.PhaseFailed:
+	case errors.As(err, &terminal):
+		// Only a seen Failed binding ends the wait this way, so last is set.
 		return bindingFailedErr(last, check)
 	case errors.Is(err, ux.ErrWaitTimeout):
 		msg := fmt.Sprintf("binding %q is not Ready yet", name)

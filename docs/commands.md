@@ -426,7 +426,10 @@ In CI/non-TTY, progress is written to stderr and the final resource render remai
 **Exit codes:** `0` success, `2` invalid flags or a spec the API rejected (the
 hint names the flags to check), `5` on 409 (name exists), `7` while the
 platform pauses cluster creation (`400 creation_paused`; "cluster creation is
-paused"), `8` on timeout, `1` on degraded.
+paused") or when kupe-api stays unreachable for 90 seconds while waiting
+("lost contact with kupe-api while waiting"), `8` on timeout, `130` Ctrl+C
+while waiting (creation continues), `1` when the cluster enters `Degraded`
+(`cluster "NAME" entered Degraded state`, hint: `kupe cluster get NAME`).
 
 ### `kupe cluster update NAME`
 
@@ -452,6 +455,10 @@ Version:      1.33 (running 1.33.0)
 Phase:        Running
 ```
 
+**Exit codes (waiting):** as for `create`: `1` when the cluster enters
+`Degraded`, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C (the
+update continues).
+
 ### `kupe cluster delete NAME`
 
 Delete a cluster. Prompts on TTY; requires `--yes` on non-TTY.
@@ -470,6 +477,9 @@ $ kupe cluster delete prod
 ```
 
 `--wait=false` returns immediately with `cluster/prod delete requested` on stdout. The wait path uses stderr progress and does not print an extra stdout line after the resource is gone.
+
+**Exit codes (waiting):** `7` lost contact with kupe-api, `8` on timeout,
+`130` Ctrl+C (deletion continues).
 
 ### `kupe cluster kubeconfig NAME`
 
@@ -522,7 +532,9 @@ $ kupe cluster wait prod --for running --timeout 10m
 cluster/prod running
 ```
 
-Ctrl+C exits `130` cleanly with a hint.
+Ctrl+C exits `130` cleanly with a hint. A cluster that enters `Degraded`
+while waiting for another phase exits `1` (`--for degraded` succeeds instead);
+kupe-api unreachable for 90 seconds exits `7`.
 
 ---
 
@@ -725,8 +737,10 @@ kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
 ```
 
 **Exit codes:** `0` success, `2` missing or malformed flags (no request made)
-or an API validation error, `5` name exists, `7` creation paused, `8` wait
-timeout, `130` Ctrl+C while waiting (creation continues), `1` on `Degraded`.
+or an API validation error, `5` name exists, `7` creation paused or lost
+contact with kupe-api while waiting, `8` wait timeout, `130` Ctrl+C while
+waiting (creation continues), `1` when the database enters `Degraded`
+(`database "NAME" entered Degraded state`, hint: `kupe database get NAME`).
 
 ### `kupe database update NAME`
 
@@ -849,8 +863,9 @@ Error: binding "orders-db-prod-api-app" failed: the namespace already has a Serv
 
 **Exit codes (`binding add`):** `0` `Ready` (or accepted with `--wait=false`),
 `2` missing or malformed flags, `4` database not found, `5` name exists or the
-binding is `Failed` on a name conflict, `1` `Failed` for any other reason, `8`
-wait timeout, `130` Ctrl+C while waiting (the binding was created).
+binding is `Failed` on a name conflict, `1` `Failed` for any other reason, `7`
+lost contact with kupe-api while waiting, `8` wait timeout, `130` Ctrl+C while
+waiting (the binding was created).
 
 ---
 

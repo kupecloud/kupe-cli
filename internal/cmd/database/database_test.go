@@ -260,15 +260,24 @@ func TestCreate_WaitsForRunning(t *testing.T) {
 	}
 }
 
-func TestCreate_DegradedFailsTheWait(t *testing.T) {
+// TestCreate_DegradedExits1WithGetHint pins that a database reaching
+// Degraded during the create wait is the database's failure (exit 1, naming
+// the database and its phase, pointing at "kupe database get"), not lost
+// contact with kupe-api (exit 7).
+func TestCreate_DegradedExits1WithGetHint(t *testing.T) {
 	fake := clienttest.New()
 	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		{Name: "orders-db", Status: &client.DatabaseStatus{Phase: client.PhaseProvisioning}},
 		{Name: "orders-db", Status: &client.DatabaseStatus{Phase: client.PhaseDegraded}},
 	}
 	f := factoryWith(t, fake)
-	_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait-timeout", "30s")
-	if err == nil || !strings.Contains(err.Error(), "Degraded") {
-		t.Fatalf("err = %v; want a Degraded failure", err)
+	_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait-timeout", "5s")
+	assertExit(t, err, cli.ExitGeneral)
+	if msg := err.Error(); !strings.Contains(msg, `database "orders-db" entered Degraded state`) || strings.Contains(msg, "lost contact") {
+		t.Errorf("message = %q; want the Degraded phase, not lost contact", msg)
+	}
+	if h := hint(err); !strings.Contains(h, "kupe database get orders-db") {
+		t.Errorf("hint = %q; want the get command", h)
 	}
 }
 

@@ -4,7 +4,6 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -98,7 +97,7 @@ func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api cli
 	poll := cmdutil.PollPhase(phaseGetter(api, name), func(c *client.Cluster, phase string) (bool, error) {
 		latest = c
 		if phase == client.PhaseDegraded {
-			return false, fmt.Errorf("cluster %q entered Degraded state", name)
+			return false, &cmdutil.TerminalPhaseError{Noun: "cluster", Name: name, Phase: phase}
 		}
 		if phase != client.PhaseRunning {
 			return false, nil

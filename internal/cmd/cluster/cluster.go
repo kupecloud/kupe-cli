@@ -184,51 +184,18 @@ func translateClusterErr(err error) error {
 	case strings.Contains(msg, "tenantRef.namespace must match"):
 		return cli.MisuseError("internal: tenantRef namespace mismatch — please file an issue")
 	case client.IsValidation(err) && strings.HasPrefix(msg, clusterSpecRejectedPrefix):
-		// A spec the platform refused field by field. The API's reasons
-		// ("resources.cpu: Invalid value: ...") are kept; the hint names
-		// the flags that set those fields.
-		return cli.Wrap(cli.ExitMisuse, "cluster spec rejected", err).WithHint(clusterFieldHint(msg))
+		// The platform refused the spec. The API's reason is kept as the
+		// cause; the hint names the flags that set the validated fields.
+		return cli.Wrap(cli.ExitMisuse, "cluster spec rejected", err).
+			WithHint("check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values")
 	}
 	return err
 }
 
-// clusterSpecRejectedPrefix starts kupe-api's message for a cluster spec
-// that failed validation: `invalid cluster "NAME": field: reason; ...`, or
-// `invalid cluster "NAME": check field values and constraints` when no
-// field was named.
-const clusterSpecRejectedPrefix = "invalid cluster "
-
-// clusterFieldFlags maps the spec fields a validation reason can name to the
-// flag that sets them, in the order the hint lists them.
-var clusterFieldFlags = []struct{ field, flag string }{
-	{"resources.cpu", "--cpu-limit (e.g. 2 or 500m)"},
-	{"resources.memory", "--memory-limit (e.g. 8Gi)"},
-	{"resources.storage", "--storage-limit (e.g. 50Gi)"},
-	{"version", "--version (\"kupe plan list\" shows supported versions)"},
-	{"highAvailability", "--high-availability"},
-}
-
-// clusterFieldHint points at the flags behind the fields named in msg, or at
-// every resource flag when no known field is named.
-func clusterFieldHint(msg string) string {
-	named := make(map[string]bool)
-	if _, reasons, ok := strings.Cut(msg, `": `); ok {
-		for _, reason := range strings.Split(reasons, "; ") {
-			field, _, _ := strings.Cut(reason, ":")
-			named[strings.TrimPrefix(field, "spec.")] = true
-		}
-	}
-	var flags []string
-	for _, ff := range clusterFieldFlags {
-		if named[ff.field] {
-			flags = append(flags, ff.flag)
-		}
-	}
-	if len(flags) == 0 {
-		return "check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values"
-	}
-	return "check " + strings.Join(flags, ", ")
-}
+// clusterSpecRejectedPrefix starts kupe-api's message for a cluster spec that
+// failed validation (`invalid cluster "NAME": ...`). The quote keeps name
+// rejections (`invalid cluster name "NAME": ...`) out of the spec hint.
+const clusterSpecRejectedPrefix = "invalid cluster \""
 
 // extractWebhookMessage returns the substring that's the actual webhook
 // message — strips a leading status-class word our APIError formatter may

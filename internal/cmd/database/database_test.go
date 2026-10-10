@@ -167,6 +167,10 @@ func TestCommands_DatabasesUnavailableSaysSo(t *testing.T) {
 		!strings.Contains(err.Error(), "managed databases are not enabled") {
 		t.Fatalf("message should explain and keep the API text: %v", err)
 	}
+	var ce *cli.Error
+	if !errors.As(err, &ce) || !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted") {
+		t.Fatalf("hint should name the clean-up that still works: %v", err)
+	}
 }
 
 func TestCreate_Validation(t *testing.T) {

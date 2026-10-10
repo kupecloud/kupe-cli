@@ -424,10 +424,9 @@ In CI/non-TTY, progress is written to stderr and the final resource render remai
 ```
 
 **Exit codes:** `0` success, `2` invalid flags or a spec the API rejected (the
-API's per-field reasons are shown and the hint names the flags to check), `5`
-on 409 (name exists), `7` while the platform pauses cluster creation
-(`400 creation_paused`; "cluster creation is paused"), `8` on timeout, `1` on
-degraded.
+hint names the flags to check), `5` on 409 (name exists), `7` while the
+platform pauses cluster creation (`400 creation_paused`; "cluster creation is
+paused"), `8` on timeout, `1` on degraded.
 
 ### `kupe cluster update NAME`
 
@@ -659,11 +658,12 @@ billed at the standard unit rates for every hour the database exists. A highly
 available database runs two instances, each with the requested resources.
 
 When managed databases are not enabled on the platform, `list`, `get`,
-`delete` and `update NAME --deletion-protection=false` keep working so
-existing databases can still be cleaned up. Other `kupe database` commands
-exit `4` with "managed databases are not available on this platform" followed
-by the API's message (`404 databases_unavailable`). This is a platform
-setting, not an outage, so retrying does not help.
+`wait`, `delete`, `update NAME --deletion-protection=false` and
+`binding list/get/delete` keep working so existing databases can still be
+cleaned up. Other `kupe database` commands exit `4` with "managed databases
+are not available on this platform" followed by the API's message
+(`404 databases_unavailable`). This is a platform setting, not an outage, so
+retrying does not help.
 
 ### `kupe database list`
 

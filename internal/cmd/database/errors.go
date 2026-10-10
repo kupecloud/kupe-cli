@@ -16,7 +16,8 @@ func translateErr(err error) error {
 		return nil
 	case client.ErrorCode(err) == client.DatabaseCodeUnavailable:
 		return cli.Wrap(cli.ExitNotFound, "managed databases are not available on this platform", err).
-			WithHint("this is a platform setting, not an outage; retrying will not help")
+			WithHint("this is a platform setting, not an outage, so retrying will not help; " +
+				"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted")
 	case client.IsCreationPaused(err):
 		return cli.Wrap(cli.ExitUnavailable, "database creation is paused", err).
 			WithHint("retry later; status updates are posted at https://status.kupe.cloud")

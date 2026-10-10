@@ -18,7 +18,7 @@ func newDeleteCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete NAME",
 		Short: "Delete a database and its data",
-		Long: `Delete a managed database. On a TTY you must type the database name to
+		Long: `Delete a database. On a TTY you must type the database name to
 confirm; pass --yes to skip (required in non-interactive environments).
 
 ` + deleteNotice + `

@@ -159,16 +159,19 @@ func TestGet(t *testing.T) {
 
 func TestCommands_DatabasesUnavailableSaysSo(t *testing.T) {
 	fake := clienttest.New()
-	fake.ListDatabasesErr = &client.APIError{StatusCode: 404, Code: client.DatabaseCodeUnavailable, Message: "managed databases are not enabled"}
+	fake.ListDatabasesErr = &client.APIError{StatusCode: 404, Code: client.DatabaseCodeUnavailable, Message: "databases are not enabled"}
 	f := factoryWith(t, fake)
 	_, _, err := run(f, newListCmd(f))
 	assertExit(t, err, cli.ExitNotFound)
-	if !strings.Contains(err.Error(), "managed databases are not available on this platform") ||
-		!strings.Contains(err.Error(), "managed databases are not enabled") {
+	var ce *cli.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("want a *cli.Error, got %T: %v", err, err)
+	}
+	if ce.Msg != "databases are not available on this platform" ||
+		!strings.Contains(err.Error(), "databases are not enabled") {
 		t.Fatalf("message should explain and keep the API text: %v", err)
 	}
-	var ce *cli.Error
-	if !errors.As(err, &ce) || !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted") {
+	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted") {
 		t.Fatalf("hint should name the clean-up that still works: %v", err)
 	}
 }

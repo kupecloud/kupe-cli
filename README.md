@@ -133,7 +133,7 @@ The CLI auto-detects non-TTY environments and switches off colors, spinners, and
 | `kupe cluster create NAME` | Create a new cluster |
 | `kupe cluster kubeconfig NAME` | Fetch or merge a kubeconfig |
 | `kupe cluster delete NAME` | Delete a cluster |
-| `kupe database create NAME` | Create a managed PostgreSQL database |
+| `kupe database create NAME` | Create a PostgreSQL database |
 | `kupe database binding add DATABASE` | Bind a database into a cluster namespace |
 | `kupe apikey create` | Mint a new API token |
 | `kupe config use-context NAME` | Switch between environments / tenants |

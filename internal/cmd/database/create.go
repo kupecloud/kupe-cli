@@ -30,8 +30,8 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create NAME",
-		Short: "Create a managed database",
-		Long: `Create a managed PostgreSQL database and (by default) wait for it to reach
+		Short: "Create a database",
+		Long: `Create a PostgreSQL database and (by default) wait for it to reach
 the Running phase. Pass --wait=false to return as soon as the request is
 accepted, then use "kupe database wait NAME".
 

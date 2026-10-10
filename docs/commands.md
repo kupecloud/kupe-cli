@@ -656,9 +656,9 @@ Prompts on TTY; requires `--yes` on non-TTY.
 
 ---
 
-## `kupe database` — Managed databases
+## `kupe database` — Databases
 
-Alias: `kupe db`. Manages managed PostgreSQL databases and their bindings into
+Alias: `kupe db`. Manages PostgreSQL databases and their bindings into
 cluster namespaces. A database belongs to the tenant, not to a cluster:
 deleting a cluster never deletes a database. Applications reach a database
 through a **binding**, which delivers a Service named after the database and a
@@ -669,10 +669,10 @@ Resources (`--cpu`, `--memory`, `--storage`) are **per instance** and are
 billed at the standard unit rates for every hour the database exists. A highly
 available database runs two instances, each with the requested resources.
 
-When managed databases are not enabled on the platform, `list`, `get`,
+When databases are not enabled on the platform, `list`, `get`,
 `wait`, `delete`, `update NAME --deletion-protection=false` and
 `binding list/get/delete` keep working so existing databases can still be
-cleaned up. Other `kupe database` commands exit `4` with "managed databases
+cleaned up. Other `kupe database` commands exit `4` with "databases
 are not available on this platform" followed by the API's message
 (`404 databases_unavailable`). This is a platform setting, not an outage, so
 retrying does not help.

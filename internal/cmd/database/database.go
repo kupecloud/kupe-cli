@@ -25,8 +25,8 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "database",
 		Aliases: []string{"db"},
-		Short:   "Manage managed PostgreSQL databases",
-		Long: `Create, inspect, resize, upgrade, and delete managed PostgreSQL databases,
+		Short:   "Manage PostgreSQL databases",
+		Long: `Create, inspect, resize, upgrade, and delete PostgreSQL databases,
 and bind them into namespaces of your clusters.
 
 A database belongs to the tenant, not to a cluster: deleting a cluster never

@@ -30,7 +30,7 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create NAME",
 		Short: "Create a new cluster",
-		Long: `Submit a new ManagedCluster to kupe-api and (by default) wait for it to
+		Long: `Submit a new cluster to kupe-api and (by default) wait for it to
 reach the Running phase. Pass --wait=false to return immediately with just
 the resource name — useful in scripts that spin up many clusters in parallel.
 

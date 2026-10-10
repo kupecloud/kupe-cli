@@ -12,7 +12,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List managed databases in the tenant",
+		Short: "List databases in the tenant",
 		Example: `  kupe database list
   kupe db list -o wide
   kupe db list -o name`,

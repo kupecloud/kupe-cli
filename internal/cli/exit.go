@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/client"
 )
@@ -45,6 +46,18 @@ func Wrap(code int, msg string, err error) *Error {
 	return &Error{Code: code, Msg: msg, Err: err}
 }
 
+// WrapAPI wraps a kupe-api refusal so the API's own message is the error
+// text, shown once, and the CLI adds only the exit code and any hint.
+// fallback is the CLI's own sentence, used only when the API sent no
+// message, so the user still learns what was refused.
+func WrapAPI(code int, fallback string, err error) *Error {
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) && strings.TrimSpace(apiErr.Message) != "" {
+		return &Error{Code: code, Err: err}
+	}
+	return Wrap(code, fallback, err)
+}
+
 // WithHint returns a copy of e with the given hint attached.
 func (e *Error) WithHint(hint string) *Error {
 	out := *e
@@ -53,10 +66,13 @@ func (e *Error) WithHint(hint string) *Error {
 }
 
 func (e *Error) Error() string {
-	if e.Err != nil {
-		return fmt.Sprintf("%s: %v", e.Msg, e.Err)
+	switch {
+	case e.Err == nil:
+		return e.Msg
+	case e.Msg == "":
+		return e.Err.Error()
 	}
-	return e.Msg
+	return fmt.Sprintf("%s: %v", e.Msg, e.Err)
 }
 
 // Unwrap allows errors.Is / errors.As to see through the wrapper.

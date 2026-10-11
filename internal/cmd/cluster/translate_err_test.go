@@ -18,14 +18,20 @@ func TestTranslateClusterErr(t *testing.T) {
 		wantHint string
 		notHint  string
 	}{
-		{"creation_paused code", &client.APIError{StatusCode: 400, Code: client.CodeCreationPaused, Message: "try again later"},
-			cli.ExitUnavailable, "cluster creation is paused: try again later", "status.kupe.cloud", ""},
+		{"creation_paused code shows the API message alone", &client.APIError{StatusCode: 400, Code: client.CodeCreationPaused,
+			Message: "Cluster creation is temporarily paused while we expand platform capacity. Please try again later.", RequestID: "req-1"},
+			cli.ExitUnavailable, "Cluster creation is temporarily paused while we expand platform capacity. Please try again later. (request-id: req-1)",
+			"retry later; status updates are posted at https://status.kupe.cloud", ""},
+		{"creation_paused without a message falls back to the CLI sentence", &client.APIError{StatusCode: 400, Code: client.CodeCreationPaused, RequestID: "req-1"},
+			cli.ExitUnavailable, "cluster creation is paused: Bad Request (request-id: req-1)",
+			"retry later; status updates are posted at https://status.kupe.cloud", ""},
 		{"older server: webhook wording without a code", &client.APIError{StatusCode: 400,
 			Message: "Cluster creation is temporarily paused while we expand platform capacity. Please try again later."},
-			cli.ExitUnavailable, "cluster creation is paused", "status.kupe.cloud", ""},
-		{"spec rejection keeps the API text and names every resource flag", &client.APIError{StatusCode: 400,
+			cli.ExitUnavailable, "Cluster creation is temporarily paused while we expand platform capacity. Please try again later.",
+			"retry later; status updates are posted at https://status.kupe.cloud", ""},
+		{"spec rejection shows the API text alone and names every resource flag", &client.APIError{StatusCode: 400,
 			Message: `invalid cluster "prod": check field values and constraints`},
-			cli.ExitMisuse, "cluster spec rejected: invalid cluster \"prod\": check field values and constraints",
+			cli.ExitMisuse, `invalid cluster "prod": check field values and constraints`,
 			"check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values", ""},
 		{"an invalid name passes through without the spec hint", &client.APIError{StatusCode: 400,
 			Message: `invalid cluster name "a--b": must not contain "--"`},
@@ -42,8 +48,11 @@ func TestTranslateClusterErr(t *testing.T) {
 			if code := cli.ExitCode(err); code != tt.wantExit {
 				t.Fatalf("exit = %d; want %d (%v)", code, tt.wantExit, err)
 			}
-			if !strings.Contains(err.Error(), tt.wantMsg) {
-				t.Fatalf("message %q missing %q", err.Error(), tt.wantMsg)
+			if err.Error() != tt.wantMsg {
+				t.Fatalf("message = %q; want %q", err.Error(), tt.wantMsg)
+			}
+			if tt.err.Message != "" && strings.Count(err.Error(), tt.err.Message) != 1 {
+				t.Fatalf("the API message should appear exactly once: %q", err.Error())
 			}
 			var ce *cli.Error
 			hint := ""

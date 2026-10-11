@@ -216,3 +216,26 @@ func TestIsCreationPaused_CodeFirstMessageAsFallback(t *testing.T) {
 		})
 	}
 }
+
+// TestCodedEnvelopeWithoutMessageHasNoMessage pins that a structured envelope
+// carrying a code but no message leaves Message empty, so a caller's own
+// text can stand in (cli.WrapAPI), and the rendered error is the status text
+// rather than the raw JSON.
+func TestCodedEnvelopeWithoutMessageHasNoMessage(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, `{"code":"databases_unavailable"}`)
+	})
+
+	_, _, err := c.GetTenant(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("want *APIError, got %v", err)
+	}
+	if apiErr.Message != "" || apiErr.Code != "databases_unavailable" {
+		t.Errorf("Message = %q, Code = %q; want no message and the code", apiErr.Message, apiErr.Code)
+	}
+	if err.Error() != "Not Found" {
+		t.Errorf("Error() = %q; want the status text", err.Error())
+	}
+}

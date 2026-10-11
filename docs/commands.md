@@ -425,11 +425,12 @@ In CI/non-TTY, progress is written to stderr and the final resource render remai
 
 **Exit codes:** `0` success, `2` invalid flags or a spec the API rejected (the
 hint names the flags to check), `5` on 409 (name exists), `7` while the
-platform pauses cluster creation (`400 creation_paused`; "cluster creation is
-paused") or when kupe-api stays unreachable for 90 seconds while waiting
-("lost contact with kupe-api while waiting"), `8` on timeout, `130` Ctrl+C
-while waiting (creation continues), `1` when the cluster enters `Degraded`
-(`cluster "NAME" entered Degraded state`, hint: `kupe cluster get NAME`).
+platform pauses cluster creation (`400 creation_paused`; the API's message
+and a hint to retry later) or when kupe-api stays unreachable for 90 seconds
+while waiting ("lost contact with kupe-api while waiting"), `8` on timeout,
+`130` Ctrl+C while waiting (creation continues), `1` when the cluster enters
+`Degraded` (`cluster "NAME" entered Degraded state`, hint: `kupe cluster get
+NAME`).
 
 ### `kupe cluster update NAME`
 
@@ -672,10 +673,10 @@ available database runs two instances, each with the requested resources.
 When databases are not enabled on the platform, `list`, `get`,
 `wait`, `delete`, `update NAME --deletion-protection=false` and
 `binding list/get/delete` keep working so existing databases can still be
-cleaned up. Other `kupe database` commands exit `4` with "databases
-are not available on this platform" followed by the API's message
-(`404 databases_unavailable`). This is a platform setting, not an outage, so
-retrying does not help.
+cleaned up. Other `kupe database` commands exit `4` with the API's message,
+"databases are not available on this platform" (`404 databases_unavailable`),
+and a hint that existing databases can still be cleaned up. This is a platform
+setting, not an outage, so retrying does not help.
 
 ### `kupe database list`
 
@@ -729,8 +730,8 @@ Create a database and wait for `status.phase=Running` by default.
 Platform floors and ceilings and the plan's database limit are enforced by the
 API; its message, including any per-field reasons, is shown as returned. While
 the platform pauses database creation (`400 creation_paused`) the command
-exits `7` with "database creation is paused". A `Degraded` phase fails the
-wait.
+exits `7` with the API's message and a hint to retry later. A `Degraded`
+phase fails the wait.
 
 ```bash
 kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
@@ -756,18 +757,18 @@ retried once, then exits `5`).
 | `-o, --output FORMAT` | Single-resource formats. |
 
 Changes apply asynchronously; follow them with `kupe database get NAME`. A
-smaller `--storage` (`400 storage_shrink_unsupported`) exits `2` with
-"database storage can grow but never shrink" and the API's message. Any other
-refused change exits `2` with the API's message, which names the field and
-the rule it broke.
+smaller `--storage` (`400 storage_shrink_unsupported`) exits `2` with the
+API's message, for example `storage can only grow: 5Gi is smaller than the
+current 10Gi`, and a hint to check the current size with `kupe db get NAME`.
+Any other refused change exits `2` with the API's message, which names the
+field and the rule it broke.
 
 ### `kupe database upgrade NAME --version MAJOR`
 
 Request an in-place major version upgrade (upward only; the database is
 offline while it runs). When the platform does not offer the upgrade
-(`400 major_upgrade_unavailable`) the command exits `7` with "the platform
-refused the major version upgrade" followed by the API's message. Requesting
-the current major is a no-op.
+(`400 major_upgrade_unavailable`) the command exits `7` with the API's
+message. Requesting the current major is a no-op.
 
 ### `kupe database delete NAME`
 
@@ -853,7 +854,7 @@ another `--secret-name`.
 
 ```
 $ kupe db binding add orders-db --cluster prod --namespace api --role app
-Error: binding "orders-db-prod-api-app" failed: the namespace already has a Service or Secret of the binding's name that the platform did not create; remove it, or bind with another secretName
+Error: binding "orders-db-prod-api-app" failed: a Secret named "orders-db-app" already exists in namespace "api", not created by the platform; remove it, or bind with another secretName
   namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-app" that the platform did not create
   rename or remove that object, and the binding becomes Ready on its own
   or, if the Secret is the clash, choose another Secret name:  kupe database binding delete orders-db orders-db-prod-api-app --yes

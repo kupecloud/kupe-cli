@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/kupecloud/kupe-cli/internal/client"
 )
 
 func TestExitCode(t *testing.T) {
@@ -72,5 +74,33 @@ func TestWithHint(t *testing.T) {
 	}
 	if hinted.Code != ExitNotFound {
 		t.Fatal("WithHint lost the code")
+	}
+}
+
+func TestWrapAPI(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"the API message is the whole text", &client.APIError{StatusCode: 404, Message: "databases are not available on this platform", RequestID: "r1"},
+			"databases are not available on this platform (request-id: r1)"},
+		{"an empty API message falls back to the CLI sentence", &client.APIError{StatusCode: 404, RequestID: "r1"},
+			"fallback sentence: Not Found (request-id: r1)"},
+		{"a whitespace API message falls back to the CLI sentence", &client.APIError{StatusCode: 409, Message: "  "},
+			"fallback sentence:   "},
+		{"a non-API error falls back to the CLI sentence", errors.New("dial tcp: refused"),
+			"fallback sentence: dial tcp: refused"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := WrapAPI(ExitNotFound, "fallback sentence", tt.err)
+			if got.Error() != tt.want {
+				t.Fatalf("Error() = %q; want %q", got.Error(), tt.want)
+			}
+			if got.Code != ExitNotFound || !errors.Is(got, tt.err) {
+				t.Fatalf("WrapAPI must keep the exit code and the cause: %+v", got)
+			}
+		})
 	}
 }

@@ -163,13 +163,17 @@ func (c *Client) requestWithETag(ctx context.Context, method, path, etag string,
 				apiErr.Code = env.Code
 				apiErr.Severity = env.Severity
 				apiErr.Field = env.Field
-				// Prefer Message; fall back to the duplicated Error field;
-				// keep the raw body as the last resort.
+				// Prefer Message; fall back to the duplicated Error field.
+				// A coded envelope with neither has no message: the raw
+				// JSON is not one, and an empty Message lets callers
+				// supply their own text (cli.WrapAPI).
 				switch {
 				case env.Message != "":
 					apiErr.Message = env.Message
 				case env.Error != "":
 					apiErr.Message = env.Error
+				default:
+					apiErr.Message = ""
 				}
 			case env.Error != "":
 				apiErr.Message = env.Error

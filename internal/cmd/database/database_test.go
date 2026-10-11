@@ -167,9 +167,8 @@ func TestCommands_DatabasesUnavailableSaysSo(t *testing.T) {
 	if !errors.As(err, &ce) {
 		t.Fatalf("want a *cli.Error, got %T: %v", err, err)
 	}
-	if ce.Msg != "databases are not available on this platform" ||
-		!strings.Contains(err.Error(), "databases are not enabled") {
-		t.Fatalf("message should explain and keep the API text: %v", err)
+	if err.Error() != "databases are not enabled" {
+		t.Fatalf("message = %q; want the API's message alone", err.Error())
 	}
 	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted") {
 		t.Fatalf("hint should name the clean-up that still works: %v", err)
@@ -303,8 +302,8 @@ func TestCreate_PausedCreationExits7(t *testing.T) {
 			f := factoryWith(t, fake)
 			_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait=false")
 			assertExit(t, err, cli.ExitUnavailable)
-			if !strings.Contains(err.Error(), "database creation is paused") || !strings.Contains(err.Error(), tt.err.Message) {
-				t.Fatalf("should say creation is paused and keep the API message: %v", err)
+			if err.Error() != tt.err.Message {
+				t.Fatalf("message = %q; want the API's message alone", err.Error())
 			}
 		})
 	}
@@ -389,8 +388,8 @@ func TestUpdate_StorageShrinkIsMisuseWithAHint(t *testing.T) {
 	f := factoryWith(t, fake)
 	_, _, err := run(f, newUpdateCmd(f), "orders-db", "--storage", "5Gi")
 	assertExit(t, err, cli.ExitMisuse)
-	if !strings.Contains(err.Error(), "storage can grow but never shrink") || !strings.Contains(err.Error(), "smaller than the current 10Gi") {
-		t.Fatalf("should explain and keep the API text: %v", err)
+	if err.Error() != "storage can only grow: 5Gi is smaller than the current 10Gi" {
+		t.Fatalf("message = %q; want the API's message alone", err.Error())
 	}
 	if !strings.Contains(hint(err), "kupe db get orders-db") {
 		t.Fatalf("hint = %q; want the get command", hint(err))
@@ -411,7 +410,7 @@ func TestUpgrade(t *testing.T) {
 		{"same major is a no-op", "18", nil, cli.ExitOK, "18", nil},
 		{"rejects a non-major version", "18.1", nil, cli.ExitMisuse, "18", []string{"major version"}},
 		{"a platform refusal exits 7 with the API's reason", "19", refused, cli.ExitUnavailable, "18",
-			[]string{"the platform refused the major version upgrade: changing the major version is not supported yet"}},
+			[]string{"changing the major version is not supported yet"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -428,6 +427,9 @@ func TestUpgrade(t *testing.T) {
 				if !strings.Contains(err.Error(), w) {
 					t.Errorf("error %q missing %q", err, w)
 				}
+			}
+			if tt.updateErr != nil && err.Error() != tt.updateErr.Error() {
+				t.Errorf("error = %q; want the API's message alone", err)
 			}
 			if stderr != "" {
 				t.Errorf("stderr should be empty; the platform's refusal is the only notice:\n%s", stderr)

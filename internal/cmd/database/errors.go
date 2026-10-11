@@ -8,18 +8,19 @@ import (
 )
 
 // translateErr maps API refusals shared by every database command onto
-// CLI errors with a next step. The API's own message is always kept.
-// Anything unrecognised passes through unchanged.
+// CLI errors with a next step. The API's own message is the error text;
+// the CLI's sentence is only a fallback for a refusal that carries none
+// (cli.WrapAPI). Anything unrecognised passes through unchanged.
 func translateErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
 	case client.ErrorCode(err) == client.DatabaseCodeUnavailable:
-		return cli.Wrap(cli.ExitNotFound, "databases are not available on this platform", err).
+		return cli.WrapAPI(cli.ExitNotFound, "databases are not available on this platform", err).
 			WithHint("this is a platform setting, not an outage, so retrying will not help; " +
 				"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted")
 	case client.IsCreationPaused(err):
-		return cli.Wrap(cli.ExitUnavailable, "database creation is paused", err).
+		return cli.WrapAPI(cli.ExitUnavailable, "database creation is paused", err).
 			WithHint("retry later; status updates are posted at https://status.kupe.cloud")
 	}
 	return err
@@ -29,7 +30,7 @@ func translateErr(err error) error {
 // storage size.
 func translateUpdateErr(err error, name string) error {
 	if client.ErrorCode(err) == client.DatabaseCodeStorageShrinkUnsupported {
-		return cli.Wrap(cli.ExitMisuse, "database storage can grow but never shrink", err).
+		return cli.WrapAPI(cli.ExitMisuse, "database storage can grow but never shrink", err).
 			WithHint(fmt.Sprintf("pass a --storage at least the current size, shown by:  kupe db get %s", name))
 	}
 	return translateErr(err)
@@ -40,29 +41,29 @@ func translateUpdateErr(err error, name string) error {
 func translateDeleteErr(err error, name string) error {
 	switch {
 	case client.IsConflict(err) && client.ErrorCode(err) == client.DatabaseDeleteCodeProtected:
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("database %q has deletion protection on", name), err).
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q has deletion protection on", name), err).
 			WithHint(fmt.Sprintf("turn it off first:  kupe db update %s --deletion-protection=false", name))
 	case client.IsConflict(err):
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("database %q changed while it was being deleted", name), err).
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q changed while it was being deleted", name), err).
 			WithHint(fmt.Sprintf("retry:  kupe db delete %s", name))
 	}
 	return translateErr(err)
 }
 
-// translateUpgradeErr shows the platform's reason when it does not offer
-// the requested major upgrade.
+// translateUpgradeErr exits 7, not 2, when the platform does not offer the
+// requested major upgrade: the request was valid, the platform declined it.
 func translateUpgradeErr(err error) error {
 	if client.ErrorCode(err) == client.DatabaseCodeMajorUpgradeUnavailable {
-		return cli.Wrap(cli.ExitUnavailable, "the platform refused the major version upgrade", err)
+		return cli.WrapAPI(cli.ExitUnavailable, "the platform refused the major version upgrade", err)
 	}
 	return translateErr(err)
 }
 
-// translateRotateErr explains the 409 a rotation gets once the database is
-// being deleted.
+// translateRotateErr handles the 409 a rotation gets once the database is
+// being deleted; the CLI's sentence shows only if the API sent no message.
 func translateRotateErr(err error, name string) error {
 	if client.IsConflict(err) {
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("cannot rotate credentials of database %q", name), err)
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("cannot rotate credentials of database %q", name), err)
 	}
 	return translateErr(err)
 }

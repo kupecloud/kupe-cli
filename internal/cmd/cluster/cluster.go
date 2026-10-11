@@ -141,7 +141,7 @@ func translateClusterErr(err error) error {
 	msg := err.Error()
 	switch {
 	case client.IsCreationPaused(err):
-		return cli.Wrap(cli.ExitUnavailable, "cluster creation is paused", err).
+		return cli.WrapAPI(cli.ExitUnavailable, "cluster creation is paused", err).
 			WithHint("retry later; status updates are posted at https://status.kupe.cloud")
 	case strings.Contains(msg, "spec.resources.cpu is required"):
 		return cli.MisuseError("--cpu-limit is required").
@@ -183,9 +183,9 @@ func translateClusterErr(err error) error {
 	case strings.Contains(msg, "tenantRef.namespace must match"):
 		return cli.MisuseError("internal: tenantRef namespace mismatch — please file an issue")
 	case client.IsValidation(err) && strings.HasPrefix(msg, clusterSpecRejectedPrefix):
-		// The platform refused the spec. The API's reason is kept as the
-		// cause; the hint names the flags that set the validated fields.
-		return cli.Wrap(cli.ExitMisuse, "cluster spec rejected", err).
+		// The platform refused the spec. The API's reason is the error
+		// text; the hint names the flags that set the validated fields.
+		return cli.WrapAPI(cli.ExitMisuse, "cluster spec rejected", err).
 			WithHint("check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values")
 	}
 	return err

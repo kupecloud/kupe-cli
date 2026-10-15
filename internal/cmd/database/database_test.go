@@ -1032,3 +1032,22 @@ func TestNewCmd_RegistersAliasAndSubcommands(t *testing.T) {
 		}
 	}
 }
+
+// TestUpgrade_IsHidden pins that --help does not offer upgrade while the
+// platform refuses every version change, and that no help text points to it.
+func TestUpgrade_IsHidden(t *testing.T) {
+	f := factoryWith(t, clienttest.New())
+	cmd := NewCmd(f)
+	upgrade, _, err := cmd.Find([]string{"upgrade"})
+	if err != nil || upgrade == cmd || !upgrade.Hidden {
+		t.Fatalf("upgrade should be registered and hidden (found %v, err %v)", upgrade.Name(), err)
+	}
+	for _, c := range append([]*cobra.Command{cmd}, cmd.Commands()...) {
+		if c == upgrade {
+			continue
+		}
+		if strings.Contains(c.Long, "upgrade") || strings.Contains(c.Short, "upgrade") {
+			t.Errorf("%q help mentions upgrade:\n%s", c.Name(), c.Long)
+		}
+	}
+}

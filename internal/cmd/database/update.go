@@ -32,8 +32,8 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 protection. Only the flags you pass are changed.
 
 Changing CPU or memory rolls the instances (a highly available database
-switches over first). Storage grows online and can never shrink. To change
-the major version, use "kupe database upgrade".
+switches over first). Storage grows online and can never shrink. The major
+version cannot be changed yet.
 
 Concurrent updates from another client are detected and retried once
 automatically. By default the command waits until the change is in effect:

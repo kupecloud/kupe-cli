@@ -25,13 +25,16 @@ func newUpgradeCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "upgrade NAME --version MAJOR",
-		Short: "Upgrade a database to a newer major version",
-		Long: `Request an in-place upgrade of a database to a newer engine major version.
-Upgrades go upward only, and the database is offline while the upgrade runs.
-
-If the platform does not offer the upgrade, it refuses the request and the
-command exits 7 with the platform's reason. Requesting the current major
-version changes nothing.`,
+		Short: "Upgrade a database to a newer major version (not available yet)",
+		Long: `Major version upgrades are not available yet: the platform refuses every
+version change, and this command exits 7 with the platform's reason. It is
+hidden until upgrades are offered. Requesting the current major version
+changes nothing.`,
+		// Hidden while kupe-api refuses every version change with
+		// major_upgrade_unavailable (and the operator's webhook gates it too),
+		// so --help does not offer a command that cannot succeed. Unhide it
+		// in the release that offers major upgrades.
+		Hidden:  true,
 		Args:    cobra.ExactArgs(1),
 		Example: `  kupe database upgrade orders-db --version 18`,
 		RunE: func(cmd *cobra.Command, args []string) error {

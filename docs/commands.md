@@ -39,7 +39,7 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
-| `PATCH /api/v1/tenants/{tenant}/databases/{name}` | `kupe database update`, `kupe database upgrade` | v1 |
+| `PATCH /api/v1/tenants/{tenant}/databases/{name}` | `kupe database update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/databases/{name}` | `kupe database delete` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases/{name}/rotate-credentials` | `kupe database rotate-credentials` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding list` | v1 |
@@ -777,8 +777,10 @@ get NAME`).
 
 ### `kupe database update NAME`
 
-Change per-instance resources, high availability or deletion protection. Only
-the flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
+Change per-instance resources, high availability or deletion protection. The
+major version cannot be changed yet: kupe-api refuses every version change
+(`400 major_upgrade_unavailable`), so `kupe database upgrade` is hidden until
+major upgrades are offered. Only the flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
 retried once, then exits `5`).
 
 | Flag | Description |
@@ -807,13 +809,6 @@ field and the rule it broke.
 **Exit codes (waiting):** `1` when the database stays `Degraded` or starts
 being deleted, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C
 (the change continues).
-
-### `kupe database upgrade NAME --version MAJOR`
-
-Request an in-place major version upgrade (upward only; the database is
-offline while it runs). When the platform does not offer the upgrade
-(`400 major_upgrade_unavailable`) the command exits `7` with the API's
-message. Requesting the current major is a no-op.
 
 ### `kupe database delete NAME`
 

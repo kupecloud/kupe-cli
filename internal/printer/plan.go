@@ -15,6 +15,7 @@ func PlanColumns() Columns {
 		}},
 		{Name: "FEE", Get: func(v any) string { return plan(v).PlatformFee }},
 		{Name: "MAX-CLUSTERS", Get: func(v any) string { return fmtInt(plan(v).MaxClusters) }},
+		{Name: "MAX-DATABASES", Get: func(v any) string { return fmtLimit(plan(v).MaxDatabases) }},
 		{Name: "POOL", Get: func(v any) string { return formatPool(plan(v).ResourcePool) }},
 		{Name: "METRICS-SERIES", Wide: true, Get: func(v any) string {
 			if o := plan(v).ObservabilityPool; o != nil {
@@ -44,6 +45,7 @@ func PlanDetailColumns() Columns {
 		}},
 		{Name: "Platform Fee", Get: func(v any) string { return plan(v).PlatformFee }},
 		{Name: "Max Clusters", Get: func(v any) string { return fmtInt(plan(v).MaxClusters) }},
+		{Name: "Max Databases", Get: func(v any) string { return fmtLimit(plan(v).MaxDatabases) }},
 		{Name: "Resource Pool", Get: func(v any) string { return formatPool(plan(v).ResourcePool) }},
 		{Name: "Active Series", Get: func(v any) string {
 			if o := plan(v).ObservabilityPool; o != nil {
@@ -73,3 +75,12 @@ func PlanDetailColumns() Columns {
 }
 
 func plan(v any) *client.Plan { return rowOf[client.Plan](v) }
+
+// fmtLimit renders a plan limit the server may not report as "-" when
+// absent, because 0 means unlimited and would overstate it.
+func fmtLimit(n *int64) string {
+	if n == nil {
+		return "-"
+	}
+	return fmtInt(*n)
+}

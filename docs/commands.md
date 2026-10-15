@@ -1224,12 +1224,16 @@ for the request itself.
 
 ```
 $ kupe plan list
-NAME      DISPLAY   FEE    MAX-CLUSTERS  POOL
-starter   Starter   0.00   2             -
-pro       Pro       49.00  5             CPU=8 MEM=32 STORAGE=200
+NAME     DISPLAY  FEE    MAX-CLUSTERS  MAX-DATABASES  POOL
+starter  Starter  0.00   2             1              -
+pro      Pro      49.00  5             5              CPU=8 MEM=32 STORAGE=200
 ```
 
 `-o wide` adds `METRICS-SERIES` and `LOG-GB` from the observability pool.
+
+`0` under `MAX-CLUSTERS` or `MAX-DATABASES` means the plan sets no limit.
+`-` under `MAX-DATABASES` means the server did not report a database limit
+for the plan; json and yaml output leave the field out in that case.
 
 ### `kupe plan get NAME`
 
@@ -1239,7 +1243,8 @@ Name:              pro
 Display Name:      Pro
 Platform Fee:      49.00
 Max Clusters:      5
-Pool:              CPU=8 MEM=32 STORAGE=200
+Max Databases:     5
+Resource Pool:     CPU=8 MEM=32 STORAGE=200
 Active Series:     50000
 Log Ingest (GB):   50
 Retention (days):  90

@@ -17,6 +17,9 @@ type Plan struct {
 	ResourcePool      *ResourcePool          `json:"resourcePool,omitempty" yaml:"resourcePool,omitempty"`
 	ObservabilityPool *PlanObservabilityPool `json:"observabilityPool,omitempty" yaml:"observabilityPool,omitempty"`
 	MaxClusters       int64                  `json:"maxClusters,omitempty" yaml:"maxClusters,omitempty"`
+	// MaxDatabases is the plan's database limit, 0 meaning unlimited; nil
+	// from a kupe-api that predates it or for a plan that does not set one.
+	MaxDatabases *int64 `json:"maxDatabases,omitempty" yaml:"maxDatabases,omitempty"`
 }
 
 // PlanObservabilityPool is the metrics/logs allowance for a plan.

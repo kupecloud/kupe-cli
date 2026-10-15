@@ -75,3 +75,37 @@ func TestGetPlan(t *testing.T) {
 		t.Fatalf("ObservabilityPool not decoded: %+v", p)
 	}
 }
+
+// TestGetPlan_DecodesDatabaseLimit keeps an explicit 0 (unlimited) apart
+// from a limit the server does not report (an older kupe-api), which
+// decodes as nil.
+func TestGetPlan_DecodesDatabaseLimit(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want *int64
+	}{
+		{name: "limited", body: `{"name":"pro","maxClusters":5,"maxDatabases":5}`, want: new(int64(5))},
+		{name: "unlimited", body: `{"name":"enterprise","maxClusters":0,"maxDatabases":0}`, want: new(int64(0))},
+		{name: "not reported", body: `{"name":"pro","maxClusters":5}`, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintln(w, tt.body)
+			})
+			p, err := c.GetPlan(context.Background(), "pro")
+			if err != nil {
+				t.Fatalf("GetPlan: %v", err)
+			}
+			switch {
+			case tt.want == nil && p.MaxDatabases != nil:
+				t.Errorf("MaxDatabases = %d, want nil", *p.MaxDatabases)
+			case tt.want != nil && p.MaxDatabases == nil:
+				t.Errorf("MaxDatabases = nil, want %d", *tt.want)
+			case tt.want != nil && *p.MaxDatabases != *tt.want:
+				t.Errorf("MaxDatabases = %d, want %d", *p.MaxDatabases, *tt.want)
+			}
+		})
+	}
+}

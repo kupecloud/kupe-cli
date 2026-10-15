@@ -95,6 +95,45 @@ func TestPlanGetDetailView(t *testing.T) {
 	}
 }
 
+// TestPlanGet_DatabaseLimitInStructuredOutput keeps an unlimited plan's 0
+// in json and yaml output, and leaves the field out, rather than writing
+// a 0, when the server did not report it.
+func TestPlanGet_DatabaseLimitInStructuredOutput(t *testing.T) {
+	tests := []struct {
+		name         string
+		output       string
+		maxDatabases *int64
+		want         string
+		wantAbsent   bool
+	}{
+		{name: "json unlimited", output: "json", maxDatabases: new(int64(0)), want: `"maxDatabases": 0`},
+		{name: "json limited", output: "json", maxDatabases: new(int64(25)), want: `"maxDatabases": 25`},
+		{name: "json not reported", output: "json", wantAbsent: true},
+		{name: "yaml unlimited", output: "yaml", maxDatabases: new(int64(0)), want: "maxDatabases: 0"},
+		{name: "yaml not reported", output: "yaml", wantAbsent: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.Plans["pro"] = &client.Plan{Name: "pro", MaxClusters: 5, MaxDatabases: tt.maxDatabases}
+			f := factoryWith(t, fake)
+			if err := run(NewCmd(f), "get", "pro", "-o", tt.output); err != nil {
+				t.Fatal(err)
+			}
+			out := f.IOStreams.Out.(interface{ String() string }).String()
+			if tt.wantAbsent {
+				if strings.Contains(out, "maxDatabases") {
+					t.Errorf("unreported limit written:\n%s", out)
+				}
+				return
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("output missing %q:\n%s", tt.want, out)
+			}
+		})
+	}
+}
+
 // TestPlanListWorksWithoutCredentials asserts plan browsing doesn't require
 // a logged-in context. The endpoint is public and the CLI now routes through
 // Factory.PublicClient, which never asks for a tenant or token.

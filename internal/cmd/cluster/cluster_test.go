@@ -258,8 +258,12 @@ func TestWaitRejectsUnknownPhase(t *testing.T) {
 
 // TestWaitingCommands_DegradedExits1WithGetHint pins that a cluster reaching
 // Degraded while a command waits is the cluster's failure (exit 1, pointing
-// at "kupe cluster get"), not lost contact with kupe-api (exit 7).
+// at "kupe cluster get"), not lost contact with kupe-api (exit 7). The
+// update's Degraded grace is cut to 0 so its case fails at once.
 func TestWaitingCommands_DegradedExits1WithGetHint(t *testing.T) {
+	grace := service.Converge.DegradedGrace
+	service.Converge.DegradedGrace = 0
+	t.Cleanup(func() { service.Converge.DegradedGrace = grace })
 	degraded := &client.Cluster{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseDegraded, ObservedGeneration: 5}}
 	tests := []struct {
 		name  string

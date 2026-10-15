@@ -88,6 +88,31 @@ func TestUpdateWaitBlocksUntilObservedGenerationCatchesUp(t *testing.T) {
 	}
 }
 
+// TestUpdateWaitRidesOutAStaleDegradedAtTheNewGeneration is the operator's
+// real order on a cluster that was Degraded before an update: the pass that
+// stamps the new generation still reads Argo's failed operation, and the
+// next one sees the change healed it. The wait must not fail on the first.
+func TestUpdateWaitRidesOutAStaleDegradedAtTheNewGeneration(t *testing.T) {
+	fake := clienttest.New()
+	fake.GetClusterSeq["prod"] = []*client.Cluster{
+		{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseDegraded, ObservedGeneration: 4}},
+		{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseDegraded, ObservedGeneration: 5}},
+		{Name: "prod", Generation: 5, Status: &client.ClusterStatus{Phase: client.PhaseRunning, ObservedGeneration: 5}},
+	}
+	f := factoryWith(t, fake)
+
+	got, err := service.WaitForConverged(context.Background(), f.IOStreams, fake, "prod", 5, 10*time.Second)
+	if err != nil {
+		t.Fatalf("WaitForConverged: %v", err)
+	}
+	if got.Status.Phase != client.PhaseRunning {
+		t.Fatalf("final cluster = %+v; want Running", got)
+	}
+	if service.Converge.DegradedGrace != 2*time.Minute {
+		t.Errorf("DegradedGrace = %s; want the operator's 2m unhealthyGraceWindow", service.Converge.DegradedGrace)
+	}
+}
+
 // TestUpdateWaitTimesOutWhenOperatorNeverReacts is the contract for the
 // bug fix: if the operator never stamps a reconcile at the post-PATCH
 // generation, the waiter returns ErrWaitTimeout instead of silently

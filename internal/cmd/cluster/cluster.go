@@ -4,6 +4,7 @@ package cluster
 
 import (
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -45,7 +46,10 @@ var service = cmdutil.Service[client.Cluster, client.CreateClusterRequest, clien
 	API:   client.Interface.Clusters,
 	Phase: phaseOf,
 	// A cluster's spec change has taken effect once it is Running at the
-	// post-PATCH generation; a Degraded cluster fails the wait at once.
+	// post-PATCH generation. The operator stamps that generation in the same
+	// pass that reads Argo's health, which can still be the failed state
+	// from before the change, so Degraded fails the wait only once it has
+	// lasted degradedGrace.
 	Converge: cmdutil.Converge[*client.Cluster]{
 		ObservedGeneration: func(c *client.Cluster) int64 {
 			if c == nil || c.Status == nil {
@@ -53,10 +57,16 @@ var service = cmdutil.Service[client.Cluster, client.CreateClusterRequest, clien
 			}
 			return c.Status.ObservedGeneration
 		},
+		DegradedGrace: degradedGrace,
 	},
 	Printer:   printer.Cluster,
 	Translate: translateClusterErr,
 }
+
+// degradedGrace bounds how long an update waits through a Degraded phase:
+// the operator's own window for a recently healthy cluster (2 minutes), so
+// a Degraded that outlasts it is the operator's verdict, not a stale read.
+const degradedGrace = 2 * time.Minute
 
 // phaseOf returns cluster's current phase or "" if unknown.
 func phaseOf(c *client.Cluster) string {

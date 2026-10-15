@@ -79,9 +79,11 @@ type Fake struct {
 
 	// Databases keyed by name. CreateDatabase stores the request with the
 	// API's defaults applied; UpdateRMW applies patches in place.
-	DatabasesByName      map[string]*client.Database
-	ListDatabasesErr     error
-	GetDatabaseErr       error
+	DatabasesByName  map[string]*client.Database
+	ListDatabasesErr error
+	GetDatabaseErr   error
+	// GetDatabaseErrOnce fails the next GetDatabase only (a transient 503).
+	GetDatabaseErrOnce   error
 	CreateDatabaseErr    error
 	UpdateDatabaseErr    error
 	DeleteDatabaseErr    error

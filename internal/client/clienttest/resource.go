@@ -20,6 +20,8 @@ type store[T, C, P any] struct {
 	items                                         *map[string]*T
 	getSeq                                        *map[string][]*T
 	listErr, getErr, createErr, updateErr, delErr *error
+	// getErrOnce, when set and non-nil, fails the next Get and is cleared.
+	getErrOnce *error
 
 	// name and build turn a create body into the stored resource.
 	name  func(C) string
@@ -57,6 +59,11 @@ func (s *store[T, C, P]) Get(_ context.Context, name string) (*T, string, error)
 	s.f.record("Get" + s.kind + ":" + name)
 	if *s.getErr != nil {
 		return nil, "", *s.getErr
+	}
+	if s.getErrOnce != nil && *s.getErrOnce != nil {
+		err := *s.getErrOnce
+		*s.getErrOnce = nil
+		return nil, "", err
 	}
 	item, ok := popSeq(*s.getSeq, name)
 	if !ok {
@@ -171,7 +178,7 @@ func (f *Fake) Databases() client.ResourceAPI[client.Database, client.CreateData
 	return &store[client.Database, client.CreateDatabaseRequest, client.PatchDatabaseRequest]{
 		f: f, kind: "Database",
 		items: &f.DatabasesByName, getSeq: &f.GetDatabaseSeq,
-		listErr: &f.ListDatabasesErr, getErr: &f.GetDatabaseErr, createErr: &f.CreateDatabaseErr,
+		listErr: &f.ListDatabasesErr, getErr: &f.GetDatabaseErr, getErrOnce: &f.GetDatabaseErrOnce, createErr: &f.CreateDatabaseErr,
 		updateErr: &f.UpdateDatabaseErr, delErr: &f.DeleteDatabaseErr,
 		name: func(req client.CreateDatabaseRequest) string { return req.Name },
 		build: func(req client.CreateDatabaseRequest) *client.Database {

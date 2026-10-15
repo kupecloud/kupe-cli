@@ -31,6 +31,9 @@ type rotation struct {
 	RequestedAt string `json:"requestedAt" yaml:"requestedAt"`
 	AppliedAt   string `json:"appliedAt,omitempty" yaml:"appliedAt,omitempty"`
 	Pending     bool   `json:"pending" yaml:"pending"`
+	// Delivered is true once the wait saw every binding of the role carry
+	// the new password.
+	Delivered bool `json:"delivered,omitempty" yaml:"delivered,omitempty"`
 }
 
 func newRotateCredentialsCmd(f *cli.Factory) *cobra.Command {
@@ -42,14 +45,18 @@ func newRotateCredentialsCmd(f *cli.Factory) *cobra.Command {
 		Long: `Request a new password for one database role: owner (schema changes) or
 app (read and write data), and by default wait until it is in effect.
 
-Once the rotation is in effect the current password stops working and every
-bound credentials Secret for that role carries the new one; applications
-using the old password must restart to pick it up. No password is shown.
+The wait ends once the new password is in effect in PostgreSQL (the old one
+then stops working) and every binding of that role carries it in its
+credentials Secret. The Secret reaches the cluster within seconds after that;
+applications using the old password must restart to pick it up. No password
+is shown.
 
-Pass --wait=false to return as soon as the rotation is requested. The
-rotation is in effect once status.rotations.ROLE.appliedAt in
-"kupe database get NAME -o yaml" equals the requestedAt this command
-printed (-o yaml shows it).
+Pass --wait=false to return as soon as the rotation is requested. In
+"kupe database get NAME -o yaml", the rotation is in effect once
+status.rotations.ROLE.appliedAt equals the requestedAt this command printed
+(-o yaml shows it) and status.rotations.ROLE.delivered is true. If another
+rotation of the same role is requested meanwhile, it replaces this one and the
+wait follows it.
 
 Rotate after removing a binding if that namespace should also lose knowledge
 of the password. Prompts on a TTY; pass --yes to skip (required in
@@ -91,14 +98,14 @@ Rotating the %s password of database %q:
 
 			waited := false
 			if opts.wait {
-				applied, observable, werr := waitForRotation(cmd.Context(), io, api, name, opts.role, ack.RequestedAt, opts.waitTimeout)
+				applied, observable, werr := waitForRotation(cmd.Context(), io, api, name, opts.role, &result, opts.waitTimeout)
 				switch {
 				case werr != nil:
 					return rotateWaitErr(werr, name, opts.role)
 				case !observable:
 					fmt.Fprintln(io.ErrOut, "kupe-api does not report rotation progress yet, so the command cannot wait for it; the rotation was requested.")
 				default:
-					result.AppliedAt, result.Pending, waited = applied, false, true
+					result.AppliedAt, result.Pending, result.Delivered, waited = applied, false, true, true
 				}
 			}
 
@@ -123,24 +130,28 @@ Rotating the %s password of database %q:
 }
 
 // waitForRotation polls the database until the rotation requested with
-// token is in effect: status.rotations.{role}.appliedAt equals token. The
-// tokens are opaque, so only equality counts; a later rotation requested by
-// someone else replaces the token, and this wait then times out. observable
-// is false when the platform does not report rotations (an older kupe-api)
-// or acknowledged no token, so there is nothing to wait for. A database
-// that starts being deleted ends the wait.
-func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interface, name, role, token string, timeout time.Duration) (applied string, observable bool, err error) {
-	if token == "" {
+// result.RequestedAt is in effect (client.RotationStatus.InEffect): applied,
+// and delivered to every binding of the role. The tokens are opaque, so
+// only equality counts. A rotation of the same role requested meanwhile
+// replaces this one (the requested token moves on): the wait then follows
+// that one, says so once, and result.RequestedAt is updated. observable is
+// false when the platform does not report rotations (an older kupe-api) or
+// acknowledged no token, so there is nothing to wait for. A database that
+// starts being deleted ends the wait.
+func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interface, name, role string, result *rotation, timeout time.Duration) (applied string, observable bool, err error) {
+	if result.RequestedAt == "" {
 		return "", false, nil
 	}
 	// One read first: a platform that reports no rotations is not waited on
-	// at all, so the renderer never prints a success line for it.
+	// at all, so the renderer never prints a success line for it. A
+	// transient failure (a 503 while kupe-api restarts) is left to the
+	// polling below, which rides it out.
 	get := service.Getter(api, name)
 	db, _, err := get(ctx)
-	if err != nil {
+	switch {
+	case err != nil && !cmdutil.IsTransientWaitErr(err):
 		return "", true, err
-	}
-	if db.Status == nil || db.Status.Rotations == nil {
+	case err == nil && (db.Status == nil || db.Status.Rotations == nil):
 		return "", false, nil
 	}
 	poll := cmdutil.PollPhase(get, func(db *client.Database, phase string) (bool, error) {
@@ -150,8 +161,13 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 		if db.Status == nil || db.Status.Rotations == nil {
 			return false, nil
 		}
-		applied = db.Status.Rotations.Role(role).AppliedAt
-		return applied == token, nil
+		state := db.Status.Rotations.Role(role)
+		if state.RequestedAt != "" && state.RequestedAt != result.RequestedAt {
+			fmt.Fprintf(io.ErrOut, "A newer %s rotation (%s) replaced this one; waiting for it instead.\n", role, state.RequestedAt)
+			result.RequestedAt = state.RequestedAt
+		}
+		applied = state.AppliedAt
+		return state.InEffect(result.RequestedAt), nil
 	})
 	err = ux.WaitFor(ctx, io, ux.WaitForOpts{
 		Label:         fmt.Sprintf("database %s %s", name, role),
@@ -165,16 +181,23 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 
 // rotateWaitErr explains why waiting for a rotation ended before it was in
 // effect. The rotation was requested in every case and the platform keeps
-// applying it.
+// applying it. There is no command that resumes a rotation wait, so every
+// hint points at the rotation status, never at "kupe database wait".
 func rotateWaitErr(err error, name, role string) error {
-	check := fmt.Sprintf("check status:  kupe database get %s -o yaml   (status.rotations.%s: appliedAt equals requestedAt once in effect)", name, role)
+	check := fmt.Sprintf("check status:  kupe database get %s -o yaml   (status.rotations.%s: in effect once appliedAt equals requestedAt and delivered is true)", name, role)
 	switch {
 	case errors.Is(err, ux.ErrWaitTimeout):
-		return cli.TimeoutError(fmt.Sprintf("the %s password of database %q is not rotated yet; the old one still works", role, name)).
-			WithHint("the rotation was requested and the platform keeps applying it; another rotation requested since replaces this one\n" + check)
+		return cli.TimeoutError(fmt.Sprintf("the %s password rotation of database %q is not in effect yet", role, name)).
+			WithHint("the rotation was requested and the platform keeps applying it\n" + check)
 	case errors.Is(err, context.Canceled):
 		return cli.New(cli.ExitInterrupted, fmt.Sprintf("stopped waiting; the %s password rotation of database %q was requested and continues", role, name)).
 			WithHint(check)
 	}
-	return cmdutil.MapWaitErr(err, noun, name, "wait")
+	mapped := cmdutil.MapWaitErr(err, noun, name, "wait")
+	var ce *cli.Error
+	if errors.As(mapped, &ce) {
+		return ce.WithHint(check)
+	}
+	// A bare API refusal (the database deleted mid-wait) keeps its exit code.
+	return cli.WrapAPI(cli.ExitCode(mapped), fmt.Sprintf("waiting for the %s password rotation of database %q failed", role, name), mapped).WithHint(check)
 }

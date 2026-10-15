@@ -77,6 +77,17 @@ type RotationStatus struct {
 	AppliedAt string `json:"appliedAt" yaml:"appliedAt"`
 	// Pending is true while the last request is not yet applied.
 	Pending bool `json:"pending" yaml:"pending"`
+	// Delivered is true once the last request is applied and every binding
+	// of the role carries the new password; nil from a kupe-api that
+	// predates it (read as delivered once applied).
+	Delivered *bool `json:"delivered,omitempty" yaml:"delivered,omitempty"`
+}
+
+// InEffect reports whether the rotation requested with token is applied
+// and delivered to every binding of the role (applied alone for a kupe-api
+// that does not report delivery).
+func (r RotationStatus) InEffect(token string) bool {
+	return r.AppliedAt == token && (r.Delivered == nil || *r.Delivered)
 }
 
 // Condition is a Kubernetes-style status condition.

@@ -716,6 +716,12 @@ func TestRotateCredentials_Wait(t *testing.T) {
 	applied := client.RotationStatus{RequestedAt: token, AppliedAt: token}
 	terminating := rotations(pending, settled)
 	terminating.Status.Phase = client.PhaseTerminating
+	no, yes := false, true
+	undelivered := client.RotationStatus{RequestedAt: token, AppliedAt: token, Delivered: &no}
+	delivered := client.RotationStatus{RequestedAt: token, AppliedAt: token, Delivered: &yes}
+	const newer = "2026-10-09T12:05:00Z"
+	newerPending := client.RotationStatus{RequestedAt: newer, AppliedAt: token, Pending: true}
+	newerDelivered := client.RotationStatus{RequestedAt: newer, AppliedAt: newer, Delivered: &yes}
 
 	tests := []struct {
 		name       string
@@ -744,6 +750,15 @@ func TestRotateCredentials_Wait(t *testing.T) {
 		{"a database being deleted ends the wait", []string{"--role", "app"},
 			[]*client.Database{terminating},
 			cli.ExitGeneral, "", "", "kupe database get orders-db"},
+		{"an applied rotation waits until every binding has the new password", []string{"--role", "app"},
+			[]*client.Database{rotations(undelivered, settled), rotations(delivered, settled)},
+			cli.ExitOK, "database/orders-db app credentials rotated\n", "", ""},
+		{"a rotation applied but never delivered times out", []string{"--role", "app", "--wait-timeout", "300ms"},
+			[]*client.Database{rotations(undelivered, settled)},
+			cli.ExitTimeout, "", "", "delivered is true"},
+		{"a newer rotation is followed to the end", []string{"--role", "app"},
+			[]*client.Database{rotations(newerPending, settled), rotations(newerDelivered, settled)},
+			cli.ExitOK, "database/orders-db app credentials rotated\n", "A newer app rotation (" + newer + ") replaced this one", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -766,6 +781,38 @@ func TestRotateCredentials_Wait(t *testing.T) {
 				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
 			}
 		})
+	}
+}
+
+// A 503 on the first read (kupe-api restarting) is ridden out like any
+// other transient failure during the wait, not reported as a failed rotation.
+func TestRotateCredentials_WaitRidesOutATransientFirstRead(t *testing.T) {
+	const token = "2026-10-09T12:00:00Z"
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = running("orders-db")
+	fake.GetDatabaseErrOnce = &client.APIError{StatusCode: 503, Message: "service unavailable"}
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{rotations(client.RotationStatus{RequestedAt: token, AppliedAt: token}, client.RotationStatus{})}
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", "app", "--wait-timeout", "20s")
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if out != "database/orders-db app credentials rotated\n" {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
+// No command resumes a rotation wait, so a failed wait never suggests one.
+func TestRotateCredentials_WaitHintNeverSuggestsDatabaseWait(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = running("orders-db")
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		rotations(client.RotationStatus{RequestedAt: "2026-10-09T12:00:00Z", Pending: true}, client.RotationStatus{}), nil}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", "app", "--wait-timeout", "20s")
+	assertExit(t, err, cli.ExitNotFound)
+	if strings.Contains(hint(err), "kupe database wait") || !strings.Contains(hint(err), "status.rotations.app") {
+		t.Fatalf("err = %v hint = %q; want the rotation status, never kupe database wait", err, hint(err))
 	}
 }
 

@@ -483,9 +483,19 @@ Version:      1.33 (running 1.33.0)
 Phase:        Running
 ```
 
-**Exit codes (waiting):** as for `create`: `1` when the cluster enters
-`Degraded` or starts being deleted, `7` lost contact with kupe-api, `8` on
-timeout, `130` Ctrl+C (the update continues).
+By default the command waits until the change is in effect: the platform has
+applied it (`status.observedGeneration` reaches the generation the change
+produced) and the cluster is `Running`. A `Degraded` phase counts only once
+the platform has applied the change, so a status read from before the change
+never fails the wait. The platform can still report the failure from before
+the change in the pass that applies it, so the wait rides out `Degraded` for 2
+minutes (the platform's own grace for a recently healthy cluster) and exits
+`1` if it lasts longer. A change the platform never applies ends in exit `8`
+at `--wait-timeout`.
+
+**Exit codes (waiting):** `1` when the cluster stays `Degraded` for 2 minutes
+once the change is applied, or starts being deleted, `7` lost contact with
+kupe-api, `8` on timeout, `130` Ctrl+C (the update continues).
 
 ### `kupe cluster delete NAME`
 
@@ -799,7 +809,10 @@ produced) and every instance runs it again (the `Ready` condition is `True`;
 the phase stays `Running` while a change rolls out). A database with a single
 instance is `Degraded` while that instance restarts for a CPU or memory
 change; the wait rides that out, but exits `1` if the database stays
-`Degraded` for 5 minutes, and at once if it starts being deleted. A change to
+`Degraded` for 5 minutes, and at once if it starts being deleted. `Degraded`
+counts only once the platform has applied the change, so a status read from
+before the change never fails the wait; a change the platform never applies
+ends in exit `8` at `--wait-timeout`. A change to
 deletion protection alone is in effect at once (a delete reads it from the
 spec) and is not waited on, so turning protection off on a `Degraded` or
 never-provisioned database returns at once. Pass `--wait=false` to return as
@@ -810,8 +823,8 @@ current 10Gi`, and a hint to check the current size with `kupe db get NAME`.
 Any other refused change exits `2` with the API's message, which names the
 field and the rule it broke.
 
-**Exit codes (waiting):** `1` when the database stays `Degraded` or starts
-being deleted, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C
+**Exit codes (waiting):** `1` when the database stays `Degraded` for 5 minutes
+once the change is applied, or starts being deleted, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C
 (the change continues).
 
 ### `kupe database delete NAME`
@@ -868,13 +881,20 @@ Prompts on TTY (type `yes`); `--yes` is required in non-interactive mode.
 | `--yes`, `-y` | off | Skip confirmation. |
 | `--wait` | `true` | Wait until the new password is in effect. |
 | `--wait-timeout` | `10m` | Give up after this long. Exits `8`. |
-| `-o, --output FORMAT` | table | `json`, `yaml` or `go-template=...` print `database`, `role`, `requestedAt`, `pending` and, after a wait, `appliedAt`. |
+| `-o, --output FORMAT` | table | `json`, `yaml` or `go-template=...` print `database`, `role`, `requestedAt`, `pending` and, after a wait, `appliedAt` and `delivered`. |
 
 The rotation is in effect once `status.rotations.ROLE.appliedAt` (in
 `kupe database get NAME -o yaml`) equals the `requestedAt` kupe-api returned
-for the request; the wait polls for exactly that. The values are opaque
-tokens, compared for equality only, so a later rotation requested by someone
-else replaces this one and the wait then times out. Stdout:
+for the request and `status.rotations.ROLE.delivered` is `true`: the database
+uses the new password and every binding of the role has delivered it to its
+credentials Secret. The wait polls for exactly that; a kupe-api that does not
+report `delivered` is taken at `appliedAt` alone. The values are opaque
+tokens, compared for equality only. A later rotation of the same role,
+requested by someone else, replaces this one: the wait says so on stderr and
+waits for the newer rotation instead. Delivery ends at the binding's Secret
+on the platform side; the platform copies it into your cluster after that,
+and the wait does not observe the copy.
+Stdout:
 `database/NAME ROLE credentials rotated`, or with `--wait=false`
 `database/NAME ROLE credentials rotation requested`. A kupe-api that does not
 report `status.rotations` yet cannot be waited on: the command says so on
@@ -884,8 +904,11 @@ stderr and prints the requested line.
 `--role` or confirmation missing, `4` not found, `5` when the database is being
 deleted (`409 terminating`), `1` when it starts being deleted while waiting,
 `7` lost contact with kupe-api while waiting, `8` the rotation is not in effect
-by `--wait-timeout` (the old password still works; the platform keeps
-applying it), `130` Ctrl+C while waiting (the rotation continues).
+by `--wait-timeout` (the platform keeps applying it; until `appliedAt` matches
+the old password still works, and after that some bindings may not carry the
+new one yet), `130` Ctrl+C while waiting (the rotation continues). Every hint
+points at `status.rotations.ROLE`; `kupe database wait` does not wait for a
+rotation.
 
 ### `kupe database wait NAME`
 

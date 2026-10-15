@@ -15,8 +15,8 @@ var smallestDatabase = []string{"--cpu", "250m", "--memory", "512Mi", "--storage
 // so a failed run never leaves a protected database in the testing tenant.
 func cleanupDatabase(t *testing.T, name string) {
 	t.Cleanup(func() {
-		_ = runCLI(t, "database", "update", name, "--deletion-protection=false")
-		_ = runCLI(t, "database", "delete", name, "--yes")
+		_ = runCLI(t, "database", "update", name, "--deletion-protection=false", "--wait=false")
+		_ = runCLI(t, "database", "delete", name, "--yes", "--wait=false")
 	})
 }
 
@@ -43,8 +43,9 @@ func waitForBindingGone(t *testing.T, database, binding string, timeout time.Dur
 //
 //	create → list → get → update → rotate-credentials → binding add/list/get/delete → delete
 //
-// It does not wait for Running: whether the platform provisions PostgreSQL
-// and delivers bindings is covered by the platform's own end-to-end tests.
+// It does not wait for Running, so every command that would wait passes
+// --wait=false: whether the platform provisions PostgreSQL and delivers
+// bindings is covered by the platform's own end-to-end tests.
 func TestDatabaseLifecycle(t *testing.T) {
 	name := uniqueName("cli-live-db")
 	cleanupDatabase(t, name)
@@ -75,7 +76,7 @@ func TestDatabaseLifecycle(t *testing.T) {
 	}
 
 	var updated map[string]any
-	runCLIJSON(t, &updated, "db", "update", name, "--storage", "6Gi")
+	runCLIJSON(t, &updated, "db", "update", name, "--storage", "6Gi", "--wait=false")
 	if res, _ := updated["resources"].(map[string]any); res["storage"] != "6Gi" {
 		t.Errorf("storage not grown: %+v", updated["resources"])
 	}
@@ -110,7 +111,7 @@ func TestDatabaseLifecycle(t *testing.T) {
 	// platform has removed its Service and Secret.
 	waitForBindingGone(t, name, binding, 2*time.Minute)
 
-	if out := runCLIExpectOK(t, "db", "delete", name, "--yes"); out != "database/"+name+" delete requested\n" {
+	if out := runCLIExpectOK(t, "db", "delete", name, "--yes", "--wait=false"); out != "database/"+name+" delete requested\n" {
 		t.Errorf("delete stdout = %q", out)
 	}
 }

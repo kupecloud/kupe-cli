@@ -20,7 +20,7 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		pausedHint      = "retry later; status updates are posted at https://status.kupe.cloud"
 		shrinkHint      = "pass a --storage at least the current size, shown by:  kupe db get orders-db"
 		protectedHint   = "turn it off first:  kupe db update orders-db --deletion-protection=false"
-		retryHint       = "retry:  kupe db delete orders-db"
+		retryHint       = "retry:  kupe database delete orders-db"
 		pausedMessage   = "Database creation is temporarily paused while we expand platform capacity. Please try again later."
 		protectMessage  = `database "orders-db" has deletionProtection enabled: set it to false before deleting`
 		terminatingHint = "it can no longer be changed; to wait until it is gone:  kupe database wait orders-db --for deleted"

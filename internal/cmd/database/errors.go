@@ -29,19 +29,14 @@ func translateUpdateErr(err error, name string) error {
 	return translateErr(err, name)
 }
 
-// translateDeleteErr adds the delete-specific refusals: deletion protection
-// and a database that kept changing while the delete was in flight (a 409
-// with no code, after kupe-api's own retries).
+// translateDeleteErr adds deletion protection to the refusals every delete
+// can get (cmdutil.Service.TranslateDelete).
 func translateDeleteErr(err error, name string) error {
-	switch {
-	case client.ErrorCode(err) == client.DatabaseDeleteCodeProtected:
+	if client.ErrorCode(err) == client.DatabaseDeleteCodeProtected {
 		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q has deletion protection on", name), err).
 			WithHint(fmt.Sprintf("turn it off first:  kupe db update %s --deletion-protection=false", name))
-	case client.IsConflict(err) && client.ErrorCode(err) == "":
-		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q changed while it was being deleted", name), err).
-			WithHint(fmt.Sprintf("retry:  kupe db delete %s", name))
 	}
-	return translateErr(err, name)
+	return service.TranslateDelete(err, name)
 }
 
 // translateUpgradeErr exits 7, not 2, when the platform does not offer the

@@ -11,7 +11,6 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/client/clienttest"
-	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
@@ -80,7 +79,7 @@ func TestUpdateWaitBlocksUntilObservedGenerationCatchesUp(t *testing.T) {
 
 	f := factoryWith(t, fake)
 
-	got, err := cmdutil.WaitForConverged(context.Background(), f.IOStreams, "cluster", "prod", phaseGetter(fake, "prod"), converge, 5, 10*time.Second)
+	got, err := service.WaitForConverged(context.Background(), f.IOStreams, fake, "prod", 5, 10*time.Second)
 	if err != nil {
 		t.Fatalf("WaitForConverged: %v", err)
 	}
@@ -103,7 +102,7 @@ func TestUpdateWaitTimesOutWhenOperatorNeverReacts(t *testing.T) {
 	}
 	f := factoryWith(t, fake)
 
-	_, err := cmdutil.WaitForConverged(context.Background(), f.IOStreams, "cluster", "prod", phaseGetter(fake, "prod"), converge, 7, 500*time.Millisecond)
+	_, err := service.WaitForConverged(context.Background(), f.IOStreams, fake, "prod", 7, 500*time.Millisecond)
 	if err == nil {
 		t.Fatal("operator never converged; expected ErrWaitTimeout")
 	}

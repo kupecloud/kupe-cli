@@ -189,6 +189,23 @@ func TestDeleteYesRemovesCluster(t *testing.T) {
 	}
 }
 
+// TestDeleteConflictAfterRetriesExits5 pins kupe-api's pinned cluster DELETE:
+// a 409 that outlasted the API's retries asks for a retry.
+func TestDeleteConflictAfterRetriesExits5(t *testing.T) {
+	fake := clienttest.New()
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod"}
+	fake.DeleteClusterErr = &client.APIError{StatusCode: 409, Message: `cluster "prod" has been modified, please retry`}
+	f := factoryWith(t, fake)
+	err := executeCmd(newDeleteCmd(f), "prod", "--yes")
+	if code := cli.ExitCode(err); code != cli.ExitConflict {
+		t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitConflict, err)
+	}
+	var cliErr *cli.Error
+	if !errors.As(err, &cliErr) || cliErr.Hint != "retry:  kupe cluster delete prod" {
+		t.Fatalf("err = %#v; want the retry hint", err)
+	}
+}
+
 func TestUpdateUsesRMW(t *testing.T) {
 	fake := clienttest.New()
 	fake.ClustersByName["prod"] = &client.Cluster{

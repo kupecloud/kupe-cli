@@ -3,7 +3,6 @@
 package cluster
 
 import (
-	"context"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +10,7 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 // NewCmd returns the parent cluster command with every v1 subcommand
@@ -37,31 +37,33 @@ the request.`,
 	return cmd
 }
 
+// service is the cluster's shared command surface: list, get, wait and
+// delete are built from it, and create and update wait and translate
+// through it.
+var service = cmdutil.Service[client.Cluster, client.CreateClusterRequest, client.PatchClusterRequest]{
+	Noun:  "cluster",
+	API:   client.Interface.Clusters,
+	Phase: phaseOf,
+	// A cluster's spec change has taken effect once it is Running at the
+	// post-PATCH generation; a Degraded cluster fails the wait at once.
+	Converge: cmdutil.Converge[*client.Cluster]{
+		ObservedGeneration: func(c *client.Cluster) int64 {
+			if c == nil || c.Status == nil {
+				return 0
+			}
+			return c.Status.ObservedGeneration
+		},
+	},
+	Printer:   printer.Cluster,
+	Translate: translateClusterErr,
+}
+
 // phaseOf returns cluster's current phase or "" if unknown.
 func phaseOf(c *client.Cluster) string {
 	if c == nil || c.Status == nil {
 		return ""
 	}
 	return c.Status.Phase
-}
-
-// phaseGetter adapts GetCluster to the shared wait helpers.
-func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.Cluster] {
-	return func(ctx context.Context) (*client.Cluster, string, error) {
-		c, _, err := api.Clusters().Get(ctx, name)
-		return c, phaseOf(c), err
-	}
-}
-
-// converge is when a cluster's spec change has taken effect: Running at the
-// post-PATCH generation. A Degraded cluster fails the wait at once.
-var converge = cmdutil.Converge[*client.Cluster]{
-	ObservedGeneration: func(c *client.Cluster) int64 {
-		if c == nil || c.Status == nil {
-			return 0
-		}
-		return c.Status.ObservedGeneration
-	},
 }
 
 // translateClusterErr rewrites server-side validation messages from kupe-api /

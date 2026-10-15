@@ -5,7 +5,6 @@
 package database
 
 import (
-	"context"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,6 +12,7 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 // noun is the command noun used in progress labels, hints and
@@ -49,34 +49,35 @@ standard unit rates for every hour the database exists.`,
 	return cmd
 }
 
-// phaseGetter adapts GetDatabase to the shared wait helpers.
-func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.Database] {
-	return func(ctx context.Context) (*client.Database, string, error) {
-		db, _, err := api.Databases().Get(ctx, name)
-		if err != nil {
-			return nil, "", translateErr(err, name)
-		}
+// service is the database's shared command surface: list, get, wait and
+// delete are built from it, and create, update and rotate-credentials wait
+// and translate through it.
+var service = cmdutil.Service[client.Database, client.CreateDatabaseRequest, client.PatchDatabaseRequest]{
+	Noun: noun,
+	API:  client.Interface.Databases,
+	Phase: func(db *client.Database) string {
 		if db.Status == nil {
-			return db, "", nil
+			return ""
 		}
-		return db, db.Status.Phase, nil
-	}
-}
-
-// converge is when a database's change has taken effect: the operator has
-// applied the spec, the phase is Running and the Ready condition is True, so
-// every instance runs the new spec. A single-instance database is Degraded
-// while its only instance restarts to apply a CPU or memory change, so
-// Degraded fails the wait only once it has lasted degradedGrace.
-var converge = cmdutil.Converge[*client.Database]{
-	ObservedGeneration: func(db *client.Database) int64 {
-		if db == nil || db.Status == nil {
-			return 0
-		}
-		return db.Status.ObservedGeneration
+		return db.Status.Phase
 	},
-	Settled:       func(db *client.Database) bool { return db != nil && db.Status.Ready() },
-	DegradedGrace: degradedGrace,
+	// A change has taken effect once the operator has applied the spec, the
+	// phase is Running and the Ready condition is True, so every instance
+	// runs the new spec. A single-instance database is Degraded while its
+	// only instance restarts to apply a CPU or memory change, so Degraded
+	// fails the wait only once it has lasted degradedGrace.
+	Converge: cmdutil.Converge[*client.Database]{
+		ObservedGeneration: func(db *client.Database) int64 {
+			if db == nil || db.Status == nil {
+				return 0
+			}
+			return db.Status.ObservedGeneration
+		},
+		Settled:       func(db *client.Database) bool { return db != nil && db.Status.Ready() },
+		DegradedGrace: degradedGrace,
+	},
+	Printer:   printer.Database,
+	Translate: translateErr,
 }
 
 // degradedGrace bounds how long an update waits through a Degraded phase.

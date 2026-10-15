@@ -506,8 +506,9 @@ $ kupe cluster delete prod
 
 `--wait=false` returns immediately with `cluster/prod delete requested` on stdout. The wait path uses stderr progress and does not print an extra stdout line after the resource is gone.
 
-**Exit codes (waiting):** `7` lost contact with kupe-api, `8` on timeout,
-`130` Ctrl+C (deletion continues).
+**Exit codes:** `5` when the cluster kept changing while kupe-api deleted it
+(hint: retry). Waiting: `7` lost contact with kupe-api, `8` on timeout, `130`
+Ctrl+C (deletion continues).
 
 ### `kupe cluster kubeconfig NAME`
 
@@ -715,8 +716,9 @@ users-db    postgres  17       17.6     Running  on   12d
 
 `VERSION` is the requested major; `RUNNING` is the full version the platform
 reports. `-o wide` adds `CPU`, `MEMORY`, `STORAGE`, `INSTANCES` (ready/desired)
-and `PROTECTED` (deletion protection). `-o name`, `-o json`, `-o yaml` and
-`-o go-template=...` behave as for clusters.
+and `PROTECTED` (deletion protection). `-o name`, `-o json`, `-o yaml`,
+`-o go-template=...` and `--phase` (a client-side filter, e.g. `--phase
+degraded`) behave as for clusters.
 
 ### `kupe database get NAME`
 
@@ -820,8 +822,19 @@ name; `--yes` skips the prompt and is required in non-interactive mode.
 
 Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1.
 
-The request is asynchronous: stdout is `database/NAME delete requested`; follow
-it with `kupe database wait NAME --for deleted`.
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--yes`, `-y` | off | Skip confirmation. |
+| `--wait` | `true` | Wait for the database to be gone (404). |
+| `--wait-timeout` | `15m` | Give up after this long. Exits `8`. |
+
+By default the command waits until the database is gone: it is `Terminating`
+while its bindings are removed from every cluster namespace and its instances
+stop, which can take several minutes. As for clusters, the wait reports
+progress on stderr and prints no stdout line once the database is gone.
+`--wait=false` returns as soon as the request is accepted, with
+`database/NAME delete requested` on stdout; follow it with
+`kupe database wait NAME --for deleted`.
 
 ```
 $ kupe db delete orders-db
@@ -832,13 +845,15 @@ every bound cluster namespace.
 Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1.
 
 This will delete database "orders-db". Type the name to confirm: orders-db
-database/orders-db delete requested
+✓ database orders-db deleted (01:42)
 ```
 
-**Exit codes:** `0` accepted, `2` confirmation missing or mismatched, `4` not
-found, `5` on `409 deletion_protected` (hint:
+**Exit codes:** `0` gone (with `--wait=false`: accepted), `2` confirmation
+missing or mismatched, `4` not found, `5` on `409 deletion_protected` (hint:
 `kupe db update NAME --deletion-protection=false`) or when the database kept
-changing while the delete was in flight (hint: retry).
+changing while the delete was in flight (hint: retry), `7` lost contact with
+kupe-api while waiting, `8` wait timeout, `130` Ctrl+C while waiting (deletion
+continues).
 
 ### `kupe database rotate-credentials NAME --role owner|app`
 

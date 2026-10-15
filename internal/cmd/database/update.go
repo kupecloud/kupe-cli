@@ -84,8 +84,7 @@ change is accepted.`,
 				return printer.Database.One(f.IOStreams, format, updated)
 			}
 			// The PATCH response carries the generation the change produced.
-			final, werr := cmdutil.WaitForConverged(cmd.Context(), f.IOStreams, noun, name,
-				phaseGetter(api, name), converge, updated.Generation, opts.waitTimeout)
+			final, werr := service.WaitForConverged(cmd.Context(), f.IOStreams, api, name, updated.Generation, opts.waitTimeout)
 			if werr != nil {
 				return cmdutil.MapWaitErr(werr, noun, name, "update")
 			}

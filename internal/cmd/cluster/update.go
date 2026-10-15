@@ -119,8 +119,7 @@ rarely the right answer outside of disaster recovery.`,
 			// Wait for the operator to reconcile at the post-PATCH
 			// generation. PATCH responses carry the bumped metadata.generation,
 			// so we don't need a follow-up GET to capture it.
-			final, werr := cmdutil.WaitForConverged(cmd.Context(), f.IOStreams, "cluster", name,
-				phaseGetter(api, name), converge, updated.Generation, opts.waitTimeout)
+			final, werr := service.WaitForConverged(cmd.Context(), f.IOStreams, api, name, updated.Generation, opts.waitTimeout)
 			if werr != nil {
 				return cmdutil.MapWaitErr(werr, "cluster", name, "update")
 			}

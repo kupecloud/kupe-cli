@@ -144,6 +144,29 @@ func TestList_RendersTableColumnsAndFormats(t *testing.T) {
 	}
 }
 
+func TestList_PhaseFilter(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = running("orders-db")
+	degraded := running("billing-db")
+	degraded.Status.Phase = client.PhaseDegraded
+	fake.DatabasesByName["billing-db"] = degraded
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newListCmd(f), "--phase", "degraded", "-o", "name")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if out != "billing-db\n" {
+		t.Fatalf("stdout = %q; want only the degraded database", out)
+	}
+
+	f = factoryWith(t, fake)
+	_, _, err = run(f, newListCmd(f), "--phase", "deleted")
+	assertExit(t, err, cli.ExitMisuse)
+	if !strings.Contains(hint(err), "valid phases") {
+		t.Fatalf("hint = %q; want the valid phases", hint(err))
+	}
+}
+
 func TestGet(t *testing.T) {
 	t.Run("json carries the full resource", func(t *testing.T) {
 		fake := clienttest.New()
@@ -516,8 +539,8 @@ func TestDelete(t *testing.T) {
 		wantGone  bool
 		wantHint  string
 	}{
-		{"--yes deletes an unprotected database", false, []string{"--yes"}, "", nil, cli.ExitOK, true, ""},
-		{"typing the name confirms", false, nil, "orders-db\n", nil, cli.ExitOK, true, ""},
+		{"--yes deletes an unprotected database", false, []string{"--yes", "--wait=false"}, "", nil, cli.ExitOK, true, ""},
+		{"typing the name confirms", false, []string{"--wait=false"}, "orders-db\n", nil, cli.ExitOK, true, ""},
 		{"typing yes is not enough", false, nil, "yes\n", nil, cli.ExitMisuse, false, ""},
 		{"non-interactive without --yes is refused", false, nil, "", nil, cli.ExitMisuse, false, ""},
 		{"deletion protection exits 5 with the update hint", true, []string{"--yes"}, "", nil, cli.ExitConflict, false,
@@ -548,6 +571,44 @@ func TestDelete(t *testing.T) {
 				t.Fatalf("hint = %q; want containing %q", hint(err), tt.wantHint)
 			}
 		})
+	}
+}
+
+func TestDelete_WaitsUntilGone(t *testing.T) {
+	fake := clienttest.New()
+	db := running("orders-db")
+	db.DeletionProtection = false
+	fake.DatabasesByName["orders-db"] = db
+	terminating := running("orders-db")
+	terminating.Status.Phase = client.PhaseTerminating
+	// Terminating while its bindings are withdrawn, then gone.
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{terminating, nil}
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newDeleteCmd(f), "orders-db", "--yes", "--wait-timeout", "20s")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("stdout = %q; want nothing (the renderer reports the deletion)", out)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 2 {
+		t.Fatalf("GETs = %d; want two polls", polls)
+	}
+}
+
+func TestDelete_WaitTimeoutSaysItIsStillDeleting(t *testing.T) {
+	fake := clienttest.New()
+	db := running("orders-db")
+	db.DeletionProtection = false
+	fake.DatabasesByName["orders-db"] = db
+	terminating := running("orders-db")
+	terminating.Status.Phase = client.PhaseTerminating
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{terminating}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newDeleteCmd(f), "orders-db", "--yes", "--wait-timeout", "300ms")
+	assertExit(t, err, cli.ExitTimeout)
+	if !strings.Contains(hint(err), "kupe database wait orders-db --for=Deleted") {
+		t.Fatalf("hint = %q; want the resume command", hint(err))
 	}
 }
 

@@ -87,7 +87,7 @@ create the database with --no-deletion-protection.`,
 				return printer.Database.One(f.IOStreams, format, created)
 			}
 
-			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, noun, name, client.PhaseRunning, phaseGetter(api, name), opts.waitTimeout)
+			final, werr := service.WaitForPhase(cmd.Context(), f.IOStreams, api, name, client.PhaseRunning, opts.waitTimeout)
 			if werr != nil {
 				return cmdutil.MapWaitErr(werr, noun, name, "create")
 			}

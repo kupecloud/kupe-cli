@@ -4,35 +4,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
-	"github.com/kupecloud/kupe-cli/internal/printer"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 )
 
 func newGetCmd(f *cli.Factory) *cobra.Command {
-	var output string
-
-	cmd := &cobra.Command{
-		Use:   "get NAME",
+	return service.GetCmd(f, cmdutil.Help{
 		Short: "Show the details of a single cluster",
-		Args:  cobra.ExactArgs(1),
 		Example: `  kupe cluster get prod
   kupe cluster get prod -o yaml`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt, err := printer.Resolve(f, output)
-			if err != nil {
-				return err
-			}
-			api, err := f.Client()
-			if err != nil {
-				return err
-			}
-			c, _, err := api.Clusters().Get(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			return printer.Cluster.One(f.IOStreams, fmt, c)
-		},
-	}
-
-	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpGet)
-	return cmd
+	})
 }

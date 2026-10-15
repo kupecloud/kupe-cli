@@ -34,7 +34,8 @@ delivers a Service named after the database and a credentials Secret into one
 namespace of one cluster. Passwords are never shown by the CLI.
 
 Resources (--cpu, --memory, --storage) are per instance and are billed at the
-standard unit rates for every hour the database exists.`,
+standard unit rates: CPU and memory for every hour an instance is running,
+storage for every hour its volume is bound.`,
 	}
 
 	cmd.AddCommand(newListCmd(f))

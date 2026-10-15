@@ -695,8 +695,9 @@ credentials Secret into one namespace of one cluster. The CLI never shows a
 password.
 
 Resources (`--cpu`, `--memory`, `--storage`) are **per instance** and are
-billed at the standard unit rates for every hour the database exists. A highly
-available database runs two instances, each with the requested resources.
+billed at the standard unit rates: CPU and memory for every hour an instance is
+running, storage for every hour its volume is bound. A highly available database
+runs two instances, each with the requested resources.
 
 When databases are not enabled on the platform, `list`, `get`,
 `wait`, `delete`, `update NAME --deletion-protection=false` and

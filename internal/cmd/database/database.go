@@ -6,14 +6,12 @@ package database
 
 import (
 	"context"
-	"io"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
-	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
 // noun is the command noun used in progress labels, hints and
@@ -48,14 +46,6 @@ standard unit rates for every hour the database exists.`,
 	cmd.AddCommand(newWaitCmd(f))
 	cmd.AddCommand(newBindingCmd(f))
 	return cmd
-}
-
-func renderOne(out io.Writer, colorEnabled bool, format *printer.Format, db *client.Database) error {
-	return printer.RenderOne(out, format, db, printer.DatabaseDetailColumns(colorEnabled), func(db *client.Database) string { return db.Name })
-}
-
-func renderList(out io.Writer, colorEnabled bool, format *printer.Format, dbs []client.Database) error {
-	return printer.RenderList(out, format, dbs, printer.DatabaseColumns(colorEnabled), func(db client.Database) string { return db.Name })
 }
 
 // phaseGetter adapts GetDatabase to the shared wait helpers.

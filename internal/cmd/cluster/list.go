@@ -57,7 +57,7 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
 				list = filtered
 			}
 
-			return renderList(f.IOStreams.Out, f.IOStreams.ColorEnabled, pf, list)
+			return printer.Cluster.List(f.IOStreams, pf, list)
 		},
 	}
 

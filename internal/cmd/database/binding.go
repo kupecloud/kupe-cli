@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -38,14 +37,6 @@ of a binding are fixed; to change one, delete the binding and add another.`,
 	cmd.AddCommand(newBindingGetCmd(f))
 	cmd.AddCommand(newBindingDeleteCmd(f))
 	return cmd
-}
-
-func renderBinding(out io.Writer, colorEnabled bool, format *printer.Format, b *client.DatabaseBinding) error {
-	return printer.RenderOne(out, format, b, printer.DatabaseBindingDetailColumns(colorEnabled), func(b *client.DatabaseBinding) string { return b.Name })
-}
-
-func renderBindings(out io.Writer, colorEnabled bool, format *printer.Format, bs []client.DatabaseBinding) error {
-	return printer.RenderList(out, format, bs, printer.DatabaseBindingColumns(colorEnabled), func(b client.DatabaseBinding) string { return b.Name })
 }
 
 type bindingAddOpts struct {
@@ -124,7 +115,7 @@ that is longer than 63 characters.`,
 				return translateErr(err)
 			}
 			if !opts.wait {
-				return renderBinding(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, b)
+				return printer.DatabaseBinding.One(f.IOStreams, format, b)
 			}
 
 			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, bindingNoun, name, client.PhaseReady,
@@ -132,7 +123,7 @@ that is longer than 63 characters.`,
 			if werr != nil {
 				return bindingWaitErr(werr, database, name, final)
 			}
-			return renderBinding(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, final)
+			return printer.DatabaseBinding.One(f.IOStreams, format, final)
 		},
 	}
 
@@ -234,7 +225,7 @@ func newBindingListCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return translateErr(err)
 			}
-			return renderBindings(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, list)
+			return printer.DatabaseBinding.List(f.IOStreams, format, list)
 		},
 	}
 
@@ -263,7 +254,7 @@ func newBindingGetCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return translateErr(err)
 			}
-			return renderBinding(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, b)
+			return printer.DatabaseBinding.One(f.IOStreams, format, b)
 		},
 	}
 

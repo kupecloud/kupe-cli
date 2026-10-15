@@ -57,7 +57,7 @@ version changes nothing.`,
 			if err != nil {
 				return translateUpgradeErr(err)
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, updated)
+			return printer.Database.One(f.IOStreams, format, updated)
 		},
 	}
 

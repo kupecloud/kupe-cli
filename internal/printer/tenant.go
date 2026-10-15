@@ -51,15 +51,7 @@ func TenantDetailColumns(colorEnabled bool) Columns {
 	}
 }
 
-func tenant(v any) *client.Tenant {
-	switch x := v.(type) {
-	case client.Tenant:
-		return &x
-	case *client.Tenant:
-		return x
-	}
-	return &client.Tenant{}
-}
+func tenant(v any) *client.Tenant { return rowOf[client.Tenant](v) }
 
 func tenantStatus(v any) client.TenantStatus {
 	t := tenant(v)

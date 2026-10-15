@@ -7,10 +7,17 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
-// ClusterColumns returns the column specs for rendering clusters. colorEnabled
+// Cluster renders clusters.
+var Cluster = Resource[client.Cluster]{
+	Columns:       clusterColumns,
+	DetailColumns: clusterDetailColumns,
+	Name:          func(c *client.Cluster) string { return c.Name },
+}
+
+// clusterColumns returns the column specs for rendering clusters. colorEnabled
 // controls whether the PHASE cell is ANSI-coloured; it comes from the
 // IOStreams the command's factory handed down.
-func ClusterColumns(colorEnabled bool) Columns {
+func clusterColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "NAME", Get: func(v any) string { return cluster(v).Name }},
 		{Name: "TYPE", Get: func(v any) string { return cluster(v).Type }},
@@ -28,10 +35,10 @@ func ClusterColumns(colorEnabled bool) Columns {
 	}
 }
 
-// ClusterDetailColumns is the column list used by PrintDetails for
+// clusterDetailColumns is the column list used by PrintDetails for
 // `kupe cluster get`. Returns fields in a key:value layout rather than a
-// table. Wide entries from ClusterColumns are always shown in details view.
-func ClusterDetailColumns(colorEnabled bool) Columns {
+// table. Wide entries from clusterColumns are always shown in details view.
+func clusterDetailColumns(colorEnabled bool) Columns {
 	cols := Columns{
 		{Name: "Name", Get: func(v any) string { return cluster(v).Name }},
 		{Name: "Display Name", Get: func(v any) string {
@@ -149,17 +156,7 @@ func haReadyCount(st client.ClusterStatus) string {
 		itoaSuffix(int(st.HAEtcdReplicasReady), "/") + itoaSuffix(int(st.HAEtcdReplicasDesired), ")")
 }
 
-// cluster asserts a table row's value into a client.Cluster. Accepts either
-// a value or a pointer, so both []Cluster and []*Cluster work.
-func cluster(v any) *client.Cluster {
-	switch x := v.(type) {
-	case client.Cluster:
-		return &x
-	case *client.Cluster:
-		return x
-	}
-	return &client.Cluster{}
-}
+func cluster(v any) *client.Cluster { return rowOf[client.Cluster](v) }
 
 func phaseOf(c *client.Cluster) string {
 	if c == nil || c.Status == nil {
@@ -168,48 +165,15 @@ func phaseOf(c *client.Cluster) string {
 	return c.Status.Phase
 }
 
-func statusOf(c *client.Cluster) client.ClusterStatus {
-	if c == nil || c.Status == nil {
-		return client.ClusterStatus{}
-	}
-	return *c.Status
-}
+func statusOf(c *client.Cluster) client.ClusterStatus { return valueOf(c.Status) }
 
-// clusterVersionDisplay returns the most useful single string for the
-// Version column / detail field:
-//
-//   - both desired (spec) and running (status) set & equal: just the value
-//   - both set but differ (mid-upgrade or drift): "desired (running X)"
-//   - only running known (server-defaulted at create time, no spec.version):
-//     just the running value
-//   - only desired known (cluster still provisioning): just the desired
-//   - neither known: empty string
-//
-// The list and detail views share this helper so the rendering rule
-// stays single-sourced.
+// clusterVersionDisplay is the Version column and detail field: the
+// requested minor, with the running one when it differs (versionDisplay).
 func clusterVersionDisplay(c *client.Cluster) string {
-	if c == nil {
-		return ""
-	}
-	running := statusOf(c).KubernetesVersion
-	switch {
-	case c.Version == "" && running == "":
-		return ""
-	case c.Version == "":
-		return running
-	case running == "" || running == c.Version:
-		return c.Version
-	default:
-		return c.Version + " (running " + running + ")"
-	}
+	return versionDisplay(c.Version, statusOf(c).KubernetesVersion, "")
 }
 
-func resourceOf(c *client.Cluster) client.ClusterResource {
-	if c == nil || c.Resources == nil {
-		return client.ClusterResource{}
-	}
-	return *c.Resources
-}
+func resourceOf(c *client.Cluster) client.ClusterResource { return valueOf(c.Resources) }
 
 // ageFromRFC3339 renders a create-timestamp as a compact "12d", "3h", "45m",
 // "30s" string. Matches kubectl's convention roughly — we don't go below

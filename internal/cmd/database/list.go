@@ -29,7 +29,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return translateErr(err)
 			}
-			return renderList(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, list)
+			return printer.Database.List(f.IOStreams, format, list)
 		},
 	}
 

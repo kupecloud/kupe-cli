@@ -35,15 +35,7 @@ func APIKeyDetailColumns() Columns {
 	}
 }
 
-func apikey(v any) *client.APIKey {
-	switch x := v.(type) {
-	case client.APIKey:
-		return &x
-	case *client.APIKey:
-		return x
-	}
-	return &client.APIKey{}
-}
+func apikey(v any) *client.APIKey { return rowOf[client.APIKey](v) }
 
 // shortID returns the first 8 chars of id + "…". For IDs shorter than 8
 // chars (unusual but possible in tests), returns the ID unchanged.

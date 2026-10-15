@@ -71,12 +71,4 @@ func InvoiceDetailColumns() Columns {
 	}
 }
 
-func invoice(v any) *client.Invoice {
-	switch x := v.(type) {
-	case client.Invoice:
-		return &x
-	case *client.Invoice:
-		return x
-	}
-	return &client.Invoice{}
-}
+func invoice(v any) *client.Invoice { return rowOf[client.Invoice](v) }

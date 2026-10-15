@@ -29,7 +29,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmt, c)
+			return printer.Cluster.One(f.IOStreams, fmt, c)
 		},
 	}
 

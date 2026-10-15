@@ -7,9 +7,23 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
-// DatabaseColumns are the list columns for `kupe database list`: VERSION
+// Database renders databases.
+var Database = Resource[client.Database]{
+	Columns:       databaseColumns,
+	DetailColumns: databaseDetailColumns,
+	Name:          func(db *client.Database) string { return db.Name },
+}
+
+// DatabaseBinding renders database bindings.
+var DatabaseBinding = Resource[client.DatabaseBinding]{
+	Columns:       databaseBindingColumns,
+	DetailColumns: databaseBindingDetailColumns,
+	Name:          func(b *client.DatabaseBinding) string { return b.Name },
+}
+
+// databaseColumns are the list columns for `kupe database list`: VERSION
 // is the requested major, RUNNING the full version the platform reports.
-func DatabaseColumns(colorEnabled bool) Columns {
+func databaseColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "NAME", Get: func(v any) string { return database(v).Name }},
 		{Name: "ENGINE", Get: func(v any) string { return database(v).Engine }},
@@ -28,8 +42,8 @@ func DatabaseColumns(colorEnabled bool) Columns {
 	}
 }
 
-// DatabaseDetailColumns is the key:value layout for `kupe database get`.
-func DatabaseDetailColumns(colorEnabled bool) Columns {
+// databaseDetailColumns is the key:value layout for `kupe database get`.
+func databaseDetailColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "Name", Get: func(v any) string { return database(v).Name }},
 		{Name: "Engine", Get: func(v any) string { return database(v).Engine }},
@@ -47,8 +61,8 @@ func DatabaseDetailColumns(colorEnabled bool) Columns {
 	}
 }
 
-// DatabaseBindingColumns are the list columns for `kupe database binding list`.
-func DatabaseBindingColumns(colorEnabled bool) Columns {
+// databaseBindingColumns are the list columns for `kupe database binding list`.
+func databaseBindingColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "NAME", Get: func(v any) string { return databaseBinding(v).Name }},
 		{Name: "CLUSTER", Get: func(v any) string { return databaseBinding(v).Cluster }},
@@ -64,9 +78,9 @@ func DatabaseBindingColumns(colorEnabled bool) Columns {
 	}
 }
 
-// DatabaseBindingDetailColumns is the key:value layout for
+// databaseBindingDetailColumns is the key:value layout for
 // `kupe database binding get` and `add`.
-func DatabaseBindingDetailColumns(colorEnabled bool) Columns {
+func databaseBindingDetailColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "Name", Get: func(v any) string { return databaseBinding(v).Name }},
 		{Name: "Database", Get: func(v any) string { return databaseBinding(v).Database }},
@@ -83,61 +97,22 @@ func DatabaseBindingDetailColumns(colorEnabled bool) Columns {
 	}
 }
 
-func database(v any) *client.Database {
-	switch x := v.(type) {
-	case client.Database:
-		return &x
-	case *client.Database:
-		return x
-	}
-	return &client.Database{}
-}
+func database(v any) *client.Database { return rowOf[client.Database](v) }
 
-func databaseBinding(v any) *client.DatabaseBinding {
-	switch x := v.(type) {
-	case client.DatabaseBinding:
-		return &x
-	case *client.DatabaseBinding:
-		return x
-	}
-	return &client.DatabaseBinding{}
-}
+func databaseBinding(v any) *client.DatabaseBinding { return rowOf[client.DatabaseBinding](v) }
 
-func databaseStatus(db *client.Database) client.DatabaseStatus {
-	if db.Status == nil {
-		return client.DatabaseStatus{}
-	}
-	return *db.Status
-}
+func databaseStatus(db *client.Database) client.DatabaseStatus { return valueOf(db.Status) }
 
-func databaseResources(db *client.Database) client.DatabaseResources {
-	if db.Resources == nil {
-		return client.DatabaseResources{}
-	}
-	return *db.Resources
-}
+func databaseResources(db *client.Database) client.DatabaseResources { return valueOf(db.Resources) }
 
-func bindingStatus(b *client.DatabaseBinding) client.DatabaseBindingStatus {
-	if b.Status == nil {
-		return client.DatabaseBindingStatus{}
-	}
-	return *b.Status
-}
+func bindingStatus(b *client.DatabaseBinding) client.DatabaseBindingStatus { return valueOf(b.Status) }
 
-// databaseVersionDisplay shows the requested major, plus the running
-// version when known, plus the version being upgraded from mid-upgrade:
-// "18 (running 18.0)", "18 (running 17.6, upgrading from 17.6)".
+// databaseVersionDisplay is the detail view's Version: the requested
+// major, the running version and, mid-upgrade, the one being upgraded from
+// (versionDisplay): "18 (running 18.0)".
 func databaseVersionDisplay(db *client.Database) string {
 	st := databaseStatus(db)
-	out := db.Version
-	if st.CurrentVersion != "" {
-		out += " (running " + st.CurrentVersion
-		if st.PreviousVersion != "" {
-			out += ", upgrading from " + st.PreviousVersion
-		}
-		out += ")"
-	}
-	return out
+	return versionDisplay(db.Version, st.CurrentVersion, st.PreviousVersion)
 }
 
 // databaseInstances renders "ready/desired", empty before the platform

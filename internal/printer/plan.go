@@ -72,12 +72,4 @@ func PlanDetailColumns() Columns {
 	}
 }
 
-func plan(v any) *client.Plan {
-	switch x := v.(type) {
-	case client.Plan:
-		return &x
-	case *client.Plan:
-		return x
-	}
-	return &client.Plan{}
-}
+func plan(v any) *client.Plan { return rowOf[client.Plan](v) }

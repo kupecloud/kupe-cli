@@ -10,12 +10,4 @@ func MemberColumns() Columns {
 	}
 }
 
-func member(v any) *client.Member {
-	switch x := v.(type) {
-	case client.Member:
-		return &x
-	case *client.Member:
-		return x
-	}
-	return &client.Member{}
-}
+func member(v any) *client.Member { return rowOf[client.Member](v) }

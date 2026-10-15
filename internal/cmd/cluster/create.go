@@ -118,7 +118,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 			}
 
 			if !opts.wait {
-				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, created)
+				return printer.Cluster.One(f.IOStreams, fmtp, created)
 			}
 
 			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, "cluster", name, client.PhaseRunning, phaseGetter(api, name), opts.waitTimeout)
@@ -128,7 +128,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 			if final == nil {
 				final = created
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, final)
+			return printer.Cluster.One(f.IOStreams, fmtp, final)
 		},
 	}
 

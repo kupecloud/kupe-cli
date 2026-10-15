@@ -84,7 +84,7 @@ create the database with --no-deletion-protection.`,
 				return translateErr(err)
 			}
 			if !opts.wait {
-				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, created)
+				return printer.Database.One(f.IOStreams, format, created)
 			}
 
 			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, noun, name, client.PhaseRunning, phaseGetter(api, name), opts.waitTimeout)
@@ -94,7 +94,7 @@ create the database with --no-deletion-protection.`,
 			if final == nil {
 				final = created
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, final)
+			return printer.Database.One(f.IOStreams, format, final)
 		},
 	}
 

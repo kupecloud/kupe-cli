@@ -4,7 +4,6 @@ package cluster
 
 import (
 	"context"
-	"io"
 	"strings"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
-	"github.com/kupecloud/kupe-cli/internal/printer"
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
@@ -39,16 +37,6 @@ the request.`,
 	cmd.AddCommand(newKubeconfigCmd(f))
 
 	return cmd
-}
-
-// renderOne writes a single cluster in the requested output format.
-func renderOne(out io.Writer, colorEnabled bool, format *printer.Format, c *client.Cluster) error {
-	return printer.RenderOne(out, format, c, printer.ClusterDetailColumns(colorEnabled), func(c *client.Cluster) string { return c.Name })
-}
-
-// renderList writes a slice of clusters in the requested output format.
-func renderList(out io.Writer, colorEnabled bool, format *printer.Format, cs []client.Cluster) error {
-	return printer.RenderList(out, format, cs, printer.ClusterColumns(colorEnabled), func(c client.Cluster) string { return c.Name })
 }
 
 // phaseOf returns cluster's current phase or "" if unknown.

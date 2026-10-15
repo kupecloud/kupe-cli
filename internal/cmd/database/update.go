@@ -71,7 +71,7 @@ automatically. Changes apply asynchronously; follow them with
 			if err != nil {
 				return translateUpdateErr(err, name)
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, updated)
+			return printer.Database.One(f.IOStreams, format, updated)
 		},
 	}
 

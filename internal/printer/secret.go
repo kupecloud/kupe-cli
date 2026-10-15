@@ -39,15 +39,7 @@ func SecretDetailColumns(colorEnabled bool) Columns {
 	}
 }
 
-func secret(v any) *client.Secret {
-	switch x := v.(type) {
-	case client.Secret:
-		return &x
-	case *client.Secret:
-		return x
-	}
-	return &client.Secret{}
-}
+func secret(v any) *client.Secret { return rowOf[client.Secret](v) }
 
 func secretPhase(s *client.Secret) string {
 	if s == nil || s.Status == nil {

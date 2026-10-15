@@ -78,7 +78,7 @@ rarely the right answer outside of disaster recovery.`,
 				return err
 			}
 			if isNoOpUpdate(current, opts) {
-				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, current)
+				return printer.Cluster.One(f.IOStreams, fmtp, current)
 			}
 
 			patch := buildPatch(opts)
@@ -114,7 +114,7 @@ rarely the right answer outside of disaster recovery.`,
 			}
 
 			if !opts.wait {
-				return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, updated)
+				return printer.Cluster.One(f.IOStreams, fmtp, updated)
 			}
 			// Wait for the operator to reconcile at the post-PATCH
 			// generation. PATCH responses carry the bumped metadata.generation,
@@ -128,7 +128,7 @@ rarely the right answer outside of disaster recovery.`,
 			if final == nil {
 				final = updated
 			}
-			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, fmtp, final)
+			return printer.Cluster.One(f.IOStreams, fmtp, final)
 		},
 	}
 

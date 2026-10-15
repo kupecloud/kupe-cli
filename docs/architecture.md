@@ -2,7 +2,7 @@
 title: "Architecture"
 description: "Runtime model, package layout, and place in the Kupe platform for the kupe CLI"
 owner: platform-team
-lastReviewed: "2026-04-20"
+lastReviewed: "2026-10-15"
 sidebar:
   order: 1
 ---
@@ -183,6 +183,37 @@ internal/
 | **[console](../../console/)** | Parallel access path. Both hit the same `kupe-api` endpoints and the same auth model. Config created by one is visible to the other (API keys are tenant-scoped, not path-scoped). |
 | **[docs-public](../../docs-public/)** | User-facing quickstart and CLI reference live there. Written with the CLI installed — docs are verified against real binary output. |
 | **[docs-internal](../../docs-internal/)** | Starlight site. Consumes this repo's `docs/` directory alongside every other kupe repo's `docs/`. |
+
+## Adding a managed service
+
+Clusters and databases share `cmdutil.Service` (`internal/cmd/cmdutil/service.go`), which builds
+`list`, `get`, `wait` and `delete` from one descriptor; `create`, `update` and any other verbs are
+written per service on the same pieces (`WaitForPhase`, `WaitForConverged`, `Translate`, the printer).
+The cross-repo order of work is [Add a managed service](/operator/adding-a-managed-service). In this
+repository a service (example: `kupe cache`) adds:
+
+- `internal/client/cache.go`: the resource, its create and patch bodies, and its error codes (see
+  `DatabaseCodeUnavailable` in `client/database.go`).
+- `internal/cmd/cache/`: `NewCmd` and the `cmdutil.Service` value, thin `list.go`, `get.go`,
+  `wait.go` and `delete.go`, hand-written `create.go` and `update.go`, and `errors.go`, mirroring
+  `internal/cmd/database/`.
+- `internal/printer/cache.go`: a `printer.Resource` with the table and detail columns.
+- Tests beside each, and a live test under `test/live/`.
+
+It edits these shared files:
+
+| File | Change |
+| --- | --- |
+| `internal/client/interface.go`, `internal/client/resource.go` | One accessor (`Caches()`), built on the generic `newResource`. |
+| `internal/client/clienttest/fake.go`, `internal/client/clienttest/resource.go` | The fake's per-kind fields and maps, and its store. `var _ client.Interface = (*Fake)(nil)` fails to compile until the accessor exists. |
+| `internal/cmd/cmdutil/translate.go` | A refusal row for the service's switched-off code. The `databases_unavailable` row is database-only; every other row is shared. |
+| `internal/cmd/root.go` | `root.AddCommand(...)` for the new noun. |
+| `internal/cmd/cmdutil/wait.go`, `internal/cmd/cmdutil/service.go` | Only if the service has a phase the shared set lacks. |
+| `internal/client/tenant.go`, `internal/cmd/tenant/delete.go` | Only if kupe-api refuses tenant deletion while the service has instances. |
+| `docs/commands.md`, `docs/output.md`, `README.md` | The command section and coverage rows, the columns, and the command overview. |
+
+The CLI reads no platform config: it learns that a service is switched off or paused from kupe-api's
+error codes.
 
 ## Async Operations
 

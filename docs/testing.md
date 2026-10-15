@@ -198,7 +198,7 @@ When adding a new command, the test checklist is:
 - [ ] Client test: error per classification the API can emit.
 - [ ] Commands.md entry.
 
-A one-page "adding a command" guide lives in this repo's `CONTRIBUTING.md`.
+A new managed service also edits the shared files listed in [Adding a managed service](/kupe-cli/architecture#adding-a-managed-service).
 
 ## Lint and vuln
 

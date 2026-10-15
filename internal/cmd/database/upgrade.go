@@ -48,7 +48,7 @@ version changes nothing.`,
 				return err
 			}
 
-			updated, err := api.UpdateDatabaseRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
+			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
 				if current.Version == opts.version {
 					return nil
 				}

@@ -34,7 +34,7 @@ or -o json / -o yaml / -o go-template=... for machine consumption.`,
 			if err != nil {
 				return err
 			}
-			list, err := api.ListClusters(cmd.Context())
+			list, err := api.Clusters().List(cmd.Context())
 			if err != nil {
 				return err
 			}

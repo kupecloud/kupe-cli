@@ -65,7 +65,7 @@ automatically. Changes apply asynchronously; follow them with
 			if err != nil {
 				return err
 			}
-			updated, err := api.UpdateDatabaseRMW(cmd.Context(), name, func(*client.Database) *client.PatchDatabaseRequest {
+			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(*client.Database) *client.PatchDatabaseRequest {
 				return &patch
 			})
 			if err != nil {

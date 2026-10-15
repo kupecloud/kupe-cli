@@ -12,13 +12,14 @@ import (
 )
 
 // Fake is an in-memory implementation of client.Interface. Set the response
-// fields (e.g. TenantResponse, Clusters) or error fields (e.g. TenantErr)
+// fields (e.g. TenantResponse, ClustersByName) or error fields (e.g. TenantErr)
 // before handing the Fake to a command under test. Every call increments
 // Calls for assertions.
 //
-// Cluster methods mutate an in-memory map keyed by name, so list/get/create/
-// delete behave like a real API from the command's perspective. A caller can
-// also override any method by setting a per-method error field.
+// The cluster and database collections (Clusters(), Databases()) mutate an
+// in-memory map keyed by name, so list/get/create/update/delete behave like
+// a real API from the command's perspective. A caller can also override any
+// method by setting a per-method error field.
 type Fake struct {
 	mu sync.Mutex
 
@@ -41,7 +42,7 @@ type Fake struct {
 	DeleteTenantRequests []client.DeleteTenantRequest
 
 	// Clusters keyed by name. Seed before handing to a test.
-	Clusters map[string]*client.Cluster
+	ClustersByName map[string]*client.Cluster
 
 	// Per-method error overrides — set any of these to force a failure.
 	ListClustersErr         error
@@ -77,8 +78,8 @@ type Fake struct {
 	DeleteSecretErr error
 
 	// Databases keyed by name. CreateDatabase stores the request with the
-	// API's defaults applied; UpdateDatabaseRMW applies patches in place.
-	Databases            map[string]*client.Database
+	// API's defaults applied; UpdateRMW applies patches in place.
+	DatabasesByName      map[string]*client.Database
 	ListDatabasesErr     error
 	GetDatabaseErr       error
 	CreateDatabaseErr    error
@@ -134,12 +135,12 @@ type Fake struct {
 func New() *Fake {
 	return &Fake{
 		TenantName:       "acme",
-		Clusters:         map[string]*client.Cluster{},
+		ClustersByName:   map[string]*client.Cluster{},
 		GetClusterSeq:    map[string][]*client.Cluster{},
 		Kubeconfigs:      map[string]*client.ClusterKubeconfig{},
 		APIKeys:          map[string]*client.APIKey{},
 		Secrets:          map[string]*client.Secret{},
-		Databases:        map[string]*client.Database{},
+		DatabasesByName:  map[string]*client.Database{},
 		GetDatabaseSeq:   map[string][]*client.Database{},
 		DatabaseBindings: map[string]*client.DatabaseBinding{},
 		Members:          map[string]*client.Member{},
@@ -214,120 +215,6 @@ func (f *Fake) DeleteTenant(_ context.Context, req client.DeleteTenantRequest) (
 		name = f.TenantResponse.Name
 	}
 	return &client.Tenant{Name: name, Status: &client.TenantStatus{Phase: client.PhaseTerminating}}, nil
-}
-
-// ListClusters implements client.Interface.
-func (f *Fake) ListClusters(_ context.Context) ([]client.Cluster, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("ListClusters")
-	if f.ListClustersErr != nil {
-		return nil, f.ListClustersErr
-	}
-	out := make([]client.Cluster, 0, len(f.Clusters))
-	for _, c := range f.Clusters {
-		out = append(out, *c)
-	}
-	return out, nil
-}
-
-// GetCluster implements client.Interface. Honours GetClusterSeq when a
-// sequence is set for the given name, falling through to Clusters
-// otherwise.
-func (f *Fake) GetCluster(_ context.Context, name string) (*client.Cluster, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("GetCluster:" + name)
-	if f.GetClusterErr != nil {
-		return nil, "", f.GetClusterErr
-	}
-	if next, ok := popSeq(f.GetClusterSeq, name); ok {
-		if next == nil {
-			return nil, "", &client.APIError{StatusCode: 404, Message: "cluster not found"}
-		}
-		return next, "etag-fake", nil
-	}
-	c, ok := f.Clusters[name]
-	if !ok {
-		return nil, "", &client.APIError{StatusCode: 404, Message: "cluster not found"}
-	}
-	return c, "etag-fake", nil
-}
-
-// CreateCluster implements client.Interface. Persists the request into the
-// in-memory map at phase Pending.
-func (f *Fake) CreateCluster(_ context.Context, req client.CreateClusterRequest) (*client.Cluster, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("CreateCluster:" + req.Name)
-	if f.CreateClusterErr != nil {
-		return nil, "", f.CreateClusterErr
-	}
-	if _, exists := f.Clusters[req.Name]; exists {
-		return nil, "", &client.APIError{StatusCode: 409, Message: "cluster already exists"}
-	}
-	created := &client.Cluster{
-		Name:        req.Name,
-		DisplayName: req.DisplayName,
-		Type:        req.Type,
-		Version:     req.Version,
-		Resources:   req.Resources,
-		Alerts:      req.Alerts,
-		Status:      &client.ClusterStatus{Phase: client.PhasePending},
-	}
-	f.Clusters[req.Name] = created
-	return created, "etag-fake", nil
-}
-
-// UpdateCluster implements client.Interface.
-func (f *Fake) UpdateCluster(_ context.Context, name, _ string, req client.PatchClusterRequest) (*client.Cluster, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("UpdateCluster:" + name)
-	if f.UpdateClusterErr != nil {
-		return nil, "", f.UpdateClusterErr
-	}
-	c, ok := f.Clusters[name]
-	if !ok {
-		return nil, "", &client.APIError{StatusCode: 404, Message: "cluster not found"}
-	}
-	if req.Version != nil {
-		c.Version = *req.Version
-	}
-	if req.Resources != nil {
-		c.Resources = req.Resources
-	}
-	return c, "etag-fake", nil
-}
-
-// UpdateClusterRMW delegates to the fake's own Get/Update so tests get the
-// real RMW control flow without hitting a server.
-func (f *Fake) UpdateClusterRMW(ctx context.Context, name string, mutate client.ClusterMutator) (*client.Cluster, error) {
-	current, _, err := f.GetCluster(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	patch := mutate(current)
-	if patch == nil {
-		return current, nil
-	}
-	updated, _, err := f.UpdateCluster(ctx, name, "", *patch)
-	return updated, err
-}
-
-// DeleteCluster implements client.Interface.
-func (f *Fake) DeleteCluster(_ context.Context, name string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("DeleteCluster:" + name)
-	if f.DeleteClusterErr != nil {
-		return f.DeleteClusterErr
-	}
-	if _, ok := f.Clusters[name]; !ok {
-		return &client.APIError{StatusCode: 404, Message: "cluster not found"}
-	}
-	delete(f.Clusters, name)
-	return nil
 }
 
 // ListAPIKeys implements client.Interface.
@@ -503,91 +390,8 @@ func (f *Fake) DeleteSecret(_ context.Context, name string) error {
 	return nil
 }
 
-// ListDatabases implements client.Interface.
-func (f *Fake) ListDatabases(_ context.Context) ([]client.Database, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("ListDatabases")
-	if f.ListDatabasesErr != nil {
-		return nil, f.ListDatabasesErr
-	}
-	out := make([]client.Database, 0, len(f.Databases))
-	for _, db := range f.Databases {
-		out = append(out, *db)
-	}
-	return out, nil
-}
-
-// GetDatabase implements client.Interface. Honours GetDatabaseSeq.
-func (f *Fake) GetDatabase(_ context.Context, name string) (*client.Database, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("GetDatabase:" + name)
-	if f.GetDatabaseErr != nil {
-		return nil, "", f.GetDatabaseErr
-	}
-	db, ok := popSeq(f.GetDatabaseSeq, name)
-	if !ok {
-		db = f.Databases[name]
-	}
-	if db == nil {
-		return nil, "", databaseNotFound()
-	}
-	return db, "etag-fake", nil
-}
-
-// CreateDatabase implements client.Interface. Persists the request at
-// phase Pending with the API's defaults (deletion protection on).
-func (f *Fake) CreateDatabase(_ context.Context, req client.CreateDatabaseRequest) (*client.Database, string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("CreateDatabase:" + req.Name)
-	if f.CreateDatabaseErr != nil {
-		return nil, "", f.CreateDatabaseErr
-	}
-	if _, exists := f.Databases[req.Name]; exists {
-		return nil, "", &client.APIError{StatusCode: 409, Message: "database already exists"}
-	}
-	protected := req.DeletionProtection == nil || *req.DeletionProtection
-	db := &client.Database{
-		Name:               req.Name,
-		Engine:             req.Engine,
-		Version:            req.Version,
-		Resources:          req.Resources,
-		HighAvailability:   req.HighAvailability,
-		DeletionProtection: protected,
-		Status:             &client.DatabaseStatus{Phase: client.PhasePending},
-	}
-	f.Databases[req.Name] = db
-	return db, "etag-fake", nil
-}
-
-// UpdateDatabaseRMW implements client.Interface: GET, mutate, then apply
-// the patch to the stored database.
-func (f *Fake) UpdateDatabaseRMW(ctx context.Context, name string, mutate client.DatabaseMutator) (*client.Database, error) {
-	current, _, err := f.GetDatabase(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	patch := mutate(current)
-	if patch == nil {
-		return current, nil
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("UpdateDatabase:" + name)
-	if f.UpdateDatabaseErr != nil {
-		return nil, f.UpdateDatabaseErr
-	}
-	db, ok := f.Databases[name]
-	if !ok {
-		return nil, databaseNotFound()
-	}
-	applyDatabasePatch(db, patch)
-	return db, nil
-}
-
-func applyDatabasePatch(db *client.Database, patch *client.PatchDatabaseRequest) {
+// applyDatabasePatch merges a patch into a stored database as the API does.
+func applyDatabasePatch(db *client.Database, patch client.PatchDatabaseRequest) {
 	if patch.Version != nil {
 		db.Version = *patch.Version
 	}
@@ -613,30 +417,6 @@ func applyDatabasePatch(db *client.Database, patch *client.PatchDatabaseRequest)
 	}
 }
 
-// DeleteDatabase implements client.Interface. A protected database is
-// refused with the API's 409 deletion_protected.
-func (f *Fake) DeleteDatabase(_ context.Context, name string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("DeleteDatabase:" + name)
-	if f.DeleteDatabaseErr != nil {
-		return f.DeleteDatabaseErr
-	}
-	db, ok := f.Databases[name]
-	if !ok {
-		return databaseNotFound()
-	}
-	if db.DeletionProtection {
-		return &client.APIError{
-			StatusCode: 409,
-			Code:       client.DatabaseDeleteCodeProtected,
-			Message:    "database has deletionProtection enabled: set it to false before deleting",
-		}
-	}
-	delete(f.Databases, name)
-	return nil
-}
-
 // RotateDatabaseCredentials implements client.Interface. The call is
 // recorded as "RotateDatabaseCredentials:<name>:<role>".
 func (f *Fake) RotateDatabaseCredentials(_ context.Context, name, role string) (*client.CredentialRotation, error) {
@@ -646,7 +426,7 @@ func (f *Fake) RotateDatabaseCredentials(_ context.Context, name, role string) (
 	if f.RotateCredentialsErr != nil {
 		return nil, f.RotateCredentialsErr
 	}
-	if _, ok := f.Databases[name]; !ok {
+	if _, ok := f.DatabasesByName[name]; !ok {
 		return nil, databaseNotFound()
 	}
 	return &client.CredentialRotation{Database: name, Role: role, RequestedAt: "2026-10-09T12:00:00Z"}, nil
@@ -660,7 +440,7 @@ func (f *Fake) ListDatabaseBindings(_ context.Context, database string) ([]clien
 	if f.ListDatabaseBindingsErr != nil {
 		return nil, f.ListDatabaseBindingsErr
 	}
-	if _, ok := f.Databases[database]; !ok {
+	if _, ok := f.DatabasesByName[database]; !ok {
 		return nil, databaseNotFound()
 	}
 	out := make([]client.DatabaseBinding, 0, len(f.DatabaseBindings))
@@ -700,7 +480,7 @@ func (f *Fake) CreateDatabaseBinding(_ context.Context, database string, req cli
 	if f.CreateDatabaseBindingErr != nil {
 		return nil, f.CreateDatabaseBindingErr
 	}
-	if _, ok := f.Databases[database]; !ok {
+	if _, ok := f.DatabasesByName[database]; !ok {
 		return nil, databaseNotFound()
 	}
 	if _, exists := f.DatabaseBindings[req.Name]; exists {

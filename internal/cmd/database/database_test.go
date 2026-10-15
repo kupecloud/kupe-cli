@@ -99,7 +99,7 @@ func TestList_RendersTableColumnsAndFormats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			f := factoryWith(t, fake)
 			out, _, err := run(f, newListCmd(f), tt.args...)
 			if err != nil {
@@ -122,7 +122,7 @@ func TestList_RendersTableColumnsAndFormats(t *testing.T) {
 func TestGet(t *testing.T) {
 	t.Run("json carries the full resource", func(t *testing.T) {
 		fake := clienttest.New()
-		fake.Databases["orders-db"] = running("orders-db")
+		fake.DatabasesByName["orders-db"] = running("orders-db")
 		f := factoryWith(t, fake)
 		out, _, err := run(f, newGetCmd(f), "orders-db", "-o", "json")
 		if err != nil {
@@ -138,7 +138,7 @@ func TestGet(t *testing.T) {
 	})
 	t.Run("details show version, instances and protection", func(t *testing.T) {
 		fake := clienttest.New()
-		fake.Databases["orders-db"] = running("orders-db")
+		fake.DatabasesByName["orders-db"] = running("orders-db")
 		f := factoryWith(t, fake)
 		out, _, err := run(f, newGetCmd(f), "orders-db")
 		if err != nil {
@@ -228,7 +228,7 @@ func TestCreate_SendsFlags(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create: %v", err)
 			}
-			db := fake.Databases["orders-db"]
+			db := fake.DatabasesByName["orders-db"]
 			if db == nil {
 				t.Fatal("database not created")
 			}
@@ -311,7 +311,7 @@ func TestCreate_PausedCreationExits7(t *testing.T) {
 
 func TestCreate_ConflictExits5(t *testing.T) {
 	fake := clienttest.New()
-	fake.Databases["orders-db"] = running("orders-db")
+	fake.DatabasesByName["orders-db"] = running("orders-db")
 	f := factoryWith(t, fake)
 	_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait=false")
 	assertExit(t, err, cli.ExitConflict)
@@ -334,12 +334,12 @@ func TestUpdate_PatchesOnlyPassedFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			f := factoryWith(t, fake)
 			if _, _, err := run(f, newUpdateCmd(f), append([]string{"orders-db"}, tt.args...)...); err != nil {
 				t.Fatalf("update: %v", err)
 			}
-			if db := fake.Databases["orders-db"]; !tt.check(db) {
+			if db := fake.DatabasesByName["orders-db"]; !tt.check(db) {
 				t.Fatalf("after update: %+v resources %+v", db, db.Resources)
 			}
 		})
@@ -359,7 +359,7 @@ func TestUpdate_Refusals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			f := factoryWith(t, fake)
 			_, _, err := run(f, newUpdateCmd(f), tt.args...)
 			assertExit(t, err, tt.want)
@@ -369,7 +369,7 @@ func TestUpdate_Refusals(t *testing.T) {
 
 func TestUpdate_ShowsAPIFieldReasons(t *testing.T) {
 	fake := clienttest.New()
-	fake.Databases["orders-db"] = running("orders-db")
+	fake.DatabasesByName["orders-db"] = running("orders-db")
 	fake.UpdateDatabaseErr = &client.APIError{StatusCode: 400,
 		Message: `invalid database "orders-db": spec.resources.storage: storage can only grow`}
 	f := factoryWith(t, fake)
@@ -382,7 +382,7 @@ func TestUpdate_ShowsAPIFieldReasons(t *testing.T) {
 
 func TestUpdate_StorageShrinkIsMisuseWithAHint(t *testing.T) {
 	fake := clienttest.New()
-	fake.Databases["orders-db"] = running("orders-db")
+	fake.DatabasesByName["orders-db"] = running("orders-db")
 	fake.UpdateDatabaseErr = &client.APIError{StatusCode: 400, Code: client.DatabaseCodeStorageShrinkUnsupported,
 		Message: "storage can only grow: 5Gi is smaller than the current 10Gi"}
 	f := factoryWith(t, fake)
@@ -415,12 +415,12 @@ func TestUpgrade(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			fake.UpdateDatabaseErr = tt.updateErr
 			f := factoryWith(t, fake)
 			_, stderr, err := run(f, newUpgradeCmd(f), "orders-db", "--version", tt.version)
 			assertExit(t, err, tt.wantExit)
-			if got := fake.Databases["orders-db"].Version; got != tt.wantVersion {
+			if got := fake.DatabasesByName["orders-db"].Version; got != tt.wantVersion {
 				t.Fatalf("version = %q; want %q", got, tt.wantVersion)
 			}
 			for _, w := range tt.wantErrText {
@@ -463,7 +463,7 @@ func TestDelete(t *testing.T) {
 			fake := clienttest.New()
 			db := running("orders-db")
 			db.DeletionProtection = tt.protected
-			fake.Databases["orders-db"] = db
+			fake.DatabasesByName["orders-db"] = db
 			fake.DeleteDatabaseErr = tt.deleteErr
 			f := factoryWith(t, fake)
 			if tt.answer != "" {
@@ -471,7 +471,7 @@ func TestDelete(t *testing.T) {
 			}
 			out, _, err := run(f, newDeleteCmd(f), append([]string{"orders-db"}, tt.args...)...)
 			assertExit(t, err, tt.wantExit)
-			if _, still := fake.Databases["orders-db"]; still == tt.wantGone {
+			if _, still := fake.DatabasesByName["orders-db"]; still == tt.wantGone {
 				t.Fatalf("database present=%v; want gone=%v", still, tt.wantGone)
 			}
 			if tt.wantGone && out != "database/orders-db delete requested\n" {
@@ -489,7 +489,7 @@ func TestDelete_StatesRetentionVerbatimInHelpAndWarning(t *testing.T) {
 	fake := clienttest.New()
 	db := running("orders-db")
 	db.DeletionProtection = false
-	fake.Databases["orders-db"] = db
+	fake.DatabasesByName["orders-db"] = db
 	f := factoryWith(t, fake)
 	interactive(f, "orders-db\n")
 	cmd := newDeleteCmd(f)
@@ -525,7 +525,7 @@ func TestRotateCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			fake.RotateCredentialsErr = tt.rotateErr
 			f := factoryWith(t, fake)
 			if tt.answer != "" {
@@ -566,7 +566,7 @@ func TestWait(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
 			if tt.seed {
-				fake.Databases["orders-db"] = running("orders-db")
+				fake.DatabasesByName["orders-db"] = running("orders-db")
 			}
 			f := factoryWith(t, fake)
 			out, _, err := run(f, newWaitCmd(f), "orders-db", "--for", tt.forFlag, "--timeout", "5s")
@@ -612,7 +612,7 @@ func TestBindingAdd(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			f := factoryWith(t, fake)
 			// --wait=false: these cases check the request; TestBindingAdd_Wait
 			// covers the wait. The short timeout bounds the test if
@@ -705,7 +705,7 @@ func TestBindingAdd_Wait(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.Databases["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = running("orders-db")
 			fake.GetDatabaseBindingSeq["orders-db-prod-api-app"] = tt.seq
 			f := factoryWith(t, fake)
 			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, tt.args...)
@@ -743,8 +743,8 @@ func TestBindingAdd_Wait(t *testing.T) {
 func TestBindingListGetDelete(t *testing.T) {
 	seed := func() *clienttest.Fake {
 		fake := clienttest.New()
-		fake.Databases["orders-db"] = running("orders-db")
-		fake.Databases["users-db"] = running("users-db")
+		fake.DatabasesByName["orders-db"] = running("orders-db")
+		fake.DatabasesByName["users-db"] = running("users-db")
 		fake.DatabaseBindings["orders-db-prod-api-app"] = &client.DatabaseBinding{
 			Name: "orders-db-prod-api-app", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "app",
 			Status: &client.DatabaseBindingStatus{Phase: "Ready", Host: "orders-db.api.svc.cluster.local", SecretName: "orders-db-app"},

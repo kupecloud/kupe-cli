@@ -47,7 +47,7 @@ func TestListDatabases_DecodesItems(t *testing.T) {
 		expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/databases")
 		fmt.Fprintf(w, `{"items":[%s]}`, databaseJSON)
 	})
-	list, err := c.ListDatabases(context.Background())
+	list, err := c.Databases().List(context.Background())
 	if err != nil {
 		t.Fatalf("ListDatabases: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestGetDatabase_ReturnsETag(t *testing.T) {
 		w.Header().Set("ETag", "582019")
 		fmt.Fprintln(w, databaseJSON)
 	})
-	db, etag, err := c.GetDatabase(context.Background(), "orders-db")
+	db, etag, err := c.Databases().Get(context.Background(), "orders-db")
 	if err != nil {
 		t.Fatalf("GetDatabase: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestCreateDatabase_SendsOnlySetFields(t *testing.T) {
 				w.WriteHeader(http.StatusCreated)
 				fmt.Fprintln(w, databaseJSON)
 			})
-			db, etag, err := c.CreateDatabase(context.Background(), tt.req)
+			db, etag, err := c.Databases().Create(context.Background(), tt.req)
 			if err != nil {
 				t.Fatalf("CreateDatabase: %v", err)
 			}
@@ -135,7 +135,7 @@ func TestCreateDatabase_ConflictIsConflict(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 		fmt.Fprintln(w, `{"error":"database already exists"}`)
 	})
-	_, _, err := c.CreateDatabase(context.Background(), CreateDatabaseRequest{Name: "orders-db"})
+	_, _, err := c.Databases().Create(context.Background(), CreateDatabaseRequest{Name: "orders-db"})
 	if !IsConflict(err) {
 		t.Fatalf("want IsConflict, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestUpdateDatabase_SendsIfMatchAndOnlySetFields(t *testing.T) {
 		fmt.Fprintln(w, databaseJSON)
 	})
 	off := false
-	_, etag, err := c.UpdateDatabase(context.Background(), "orders-db", "7", PatchDatabaseRequest{DeletionProtection: &off})
+	_, etag, err := c.Databases().Update(context.Background(), "orders-db", "7", PatchDatabaseRequest{DeletionProtection: &off})
 	if err != nil {
 		t.Fatalf("UpdateDatabase: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestUpdateDatabaseRMW(t *testing.T) {
 	tests := []struct {
 		name        string
 		patchStatus []int // response status per PATCH attempt
-		mutate      DatabaseMutator
+		mutate      func(*Database) *PatchDatabaseRequest
 		wantPatches int32
 		wantErr     func(error) bool
 	}{
@@ -233,7 +233,7 @@ func TestUpdateDatabaseRMW(t *testing.T) {
 					fmt.Fprintln(w, databaseJSON)
 				}
 			})
-			db, err := c.UpdateDatabaseRMW(context.Background(), "orders-db", tt.mutate)
+			db, err := c.Databases().UpdateRMW(context.Background(), "orders-db", tt.mutate)
 			if tt.wantErr != nil {
 				if !tt.wantErr(err) {
 					t.Fatalf("unexpected error: %v", err)
@@ -273,7 +273,7 @@ func TestDeleteDatabase_ErrorMapping(t *testing.T) {
 				w.WriteHeader(tt.status)
 				fmt.Fprint(w, tt.body)
 			})
-			err := c.DeleteDatabase(context.Background(), "orders-db")
+			err := c.Databases().Delete(context.Background(), "orders-db")
 			if tt.wantErr == nil {
 				if err != nil {
 					t.Fatalf("DeleteDatabase: %v", err)

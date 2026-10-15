@@ -25,7 +25,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			list, err := api.ListDatabases(cmd.Context())
+			list, err := api.Databases().List(cmd.Context())
 			if err != nil {
 				return translateErr(err)
 			}

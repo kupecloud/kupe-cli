@@ -62,7 +62,7 @@ func phaseOf(c *client.Cluster) string {
 // phaseGetter adapts GetCluster to the shared wait helpers.
 func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.Cluster] {
 	return func(ctx context.Context) (*client.Cluster, string, error) {
-		c, _, err := api.GetCluster(ctx, name)
+		c, _, err := api.Clusters().Get(ctx, name)
 		return c, phaseOf(c), err
 	}
 }

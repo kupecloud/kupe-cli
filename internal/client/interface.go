@@ -21,24 +21,8 @@ type Interface interface {
 	// tenant with status.phase=Terminating.
 	DeleteTenant(ctx context.Context, req DeleteTenantRequest) (*Tenant, error)
 
-	// ListClusters lists every cluster visible to the tenant.
-	ListClusters(ctx context.Context) ([]Cluster, error)
-
-	// GetCluster returns a single cluster + its ETag.
-	GetCluster(ctx context.Context, name string) (*Cluster, string, error)
-
-	// CreateCluster creates a new cluster.
-	CreateCluster(ctx context.Context, req CreateClusterRequest) (*Cluster, string, error)
-
-	// UpdateCluster PATCHes a cluster with If-Match optimistic locking.
-	UpdateCluster(ctx context.Context, name, etag string, req PatchClusterRequest) (*Cluster, string, error)
-
-	// UpdateClusterRMW is the safe read-modify-write helper used by the
-	// `cluster update` command. See client.UpdateClusterRMW for details.
-	UpdateClusterRMW(ctx context.Context, name string, mutate ClusterMutator) (*Cluster, error)
-
-	// DeleteCluster deletes a cluster.
-	DeleteCluster(ctx context.Context, name string) error
+	// Clusters is the cluster collection.
+	Clusters() ResourceAPI[Cluster, CreateClusterRequest, PatchClusterRequest]
 
 	// GetClusterKubeconfig fetches the {endpoint, certificateAuthority}
 	// envelope for a cluster. The full kubeconfig YAML is assembled
@@ -76,23 +60,9 @@ type Interface interface {
 	// DeleteSecret revokes a managed secret.
 	DeleteSecret(ctx context.Context, name string) error
 
-	// ListDatabases lists every managed database in the tenant.
-	ListDatabases(ctx context.Context) ([]Database, error)
-
-	// GetDatabase returns a single managed database + its ETag.
-	GetDatabase(ctx context.Context, name string) (*Database, string, error)
-
-	// CreateDatabase creates a new managed database.
-	CreateDatabase(ctx context.Context, req CreateDatabaseRequest) (*Database, string, error)
-
-	// UpdateDatabaseRMW is the read-modify-write helper for `database
-	// update` and `database upgrade`; one retry on 412 before
-	// ErrRMWContention.
-	UpdateDatabaseRMW(ctx context.Context, name string, mutate DatabaseMutator) (*Database, error)
-
-	// DeleteDatabase deletes a managed database (409
+	// Databases is the database collection (Delete is refused with 409
 	// DatabaseDeleteCodeProtected while deletion protection is on).
-	DeleteDatabase(ctx context.Context, name string) error
+	Databases() ResourceAPI[Database, CreateDatabaseRequest, PatchDatabaseRequest]
 
 	// RotateDatabaseCredentials requests a new password for one role.
 	RotateDatabaseCredentials(ctx context.Context, name, role string) (*CredentialRotation, error)

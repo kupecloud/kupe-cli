@@ -73,7 +73,7 @@ rarely the right answer outside of disaster recovery.`,
 			//      never happen.
 			//   2. Supply the optimistic-locking etag for the default
 			//      branch without a second round-trip via RMW.
-			current, currentEtag, err := api.GetCluster(cmd.Context(), name)
+			current, currentEtag, err := api.Clusters().Get(cmd.Context(), name)
 			if err != nil {
 				return err
 			}
@@ -86,13 +86,13 @@ rarely the right answer outside of disaster recovery.`,
 			var updated *client.Cluster
 			switch {
 			case opts.force:
-				u, _, uerr := api.UpdateCluster(cmd.Context(), name, "", *patch)
+				u, _, uerr := api.Clusters().Update(cmd.Context(), name, "", *patch)
 				if uerr != nil {
 					return translateClusterErr(uerr)
 				}
 				updated = u
 			case opts.ifMatch != "":
-				u, _, uerr := api.UpdateCluster(cmd.Context(), name, opts.ifMatch, *patch)
+				u, _, uerr := api.Clusters().Update(cmd.Context(), name, opts.ifMatch, *patch)
 				if uerr != nil {
 					return translateClusterErr(uerr)
 				}
@@ -100,10 +100,10 @@ rarely the right answer outside of disaster recovery.`,
 			default:
 				// Optimistic PATCH with the etag from the pre-flight GET.
 				// On 412 (another writer landed in between) fall back to
-				// UpdateClusterRMW for one automatic GET+PATCH retry.
-				u, _, uerr := api.UpdateCluster(cmd.Context(), name, currentEtag, *patch)
+				// UpdateRMW for one automatic GET+PATCH retry.
+				u, _, uerr := api.Clusters().Update(cmd.Context(), name, currentEtag, *patch)
 				if client.IsPreconditionFailed(uerr) {
-					u, uerr = api.UpdateClusterRMW(cmd.Context(), name, func(_ *client.Cluster) *client.PatchClusterRequest {
+					u, uerr = api.Clusters().UpdateRMW(cmd.Context(), name, func(_ *client.Cluster) *client.PatchClusterRequest {
 						return patch
 					})
 				}

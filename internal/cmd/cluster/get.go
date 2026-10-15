@@ -25,7 +25,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			c, _, err := api.GetCluster(cmd.Context(), args[0])
+			c, _, err := api.Clusters().Get(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}

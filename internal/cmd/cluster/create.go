@@ -104,7 +104,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 					name)
 			}
 
-			created, _, err := api.CreateCluster(cmd.Context(), req)
+			created, _, err := api.Clusters().Create(cmd.Context(), req)
 			if err != nil {
 				return translateClusterErr(err)
 			}

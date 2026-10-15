@@ -76,10 +76,6 @@ type PatchDatabaseRequest struct {
 	DeletionProtection *bool              `json:"deletionProtection,omitempty"`
 }
 
-// DatabaseMutator is the UpdateDatabaseRMW callback. Return nil to skip the
-// PATCH (no-op update).
-type DatabaseMutator func(current *Database) *PatchDatabaseRequest
-
 // Error codes the database endpoints return. Compare via ErrorCode(err).
 const (
 	// DatabaseCodeUnavailable: 404 when managed databases are not enabled
@@ -175,65 +171,6 @@ type CreateDatabaseBindingRequest struct {
 	SecretName string `json:"secretName,omitempty"`
 }
 
-// ListDatabases returns every managed database in the tenant.
-func (c *Client) ListDatabases(ctx context.Context) ([]Database, error) {
-	var resp struct {
-		Items []Database `json:"items"`
-	}
-	_, err := c.request(ctx, http.MethodGet, c.tenantPath("databases"), nil, &resp)
-	return resp.Items, err
-}
-
-// GetDatabase returns one database and its ETag.
-func (c *Client) GetDatabase(ctx context.Context, name string) (*Database, string, error) {
-	var db Database
-	etag, err := c.request(ctx, http.MethodGet, c.tenantPath("databases", name), nil, &db)
-	if err != nil {
-		return nil, "", err
-	}
-	return &db, etag, nil
-}
-
-// CreateDatabase posts a new database. Provisioning is asynchronous; poll
-// GetDatabase until status.phase is Running.
-func (c *Client) CreateDatabase(ctx context.Context, req CreateDatabaseRequest) (*Database, string, error) {
-	var db Database
-	etag, err := c.request(ctx, http.MethodPost, c.tenantPath("databases"), req, &db)
-	if err != nil {
-		return nil, "", err
-	}
-	return &db, etag, nil
-}
-
-// UpdateDatabase patches a database with If-Match optimistic locking; an
-// empty etag skips the header.
-func (c *Client) UpdateDatabase(ctx context.Context, name, etag string, req PatchDatabaseRequest) (*Database, string, error) {
-	var db Database
-	newETag, err := c.requestWithETag(ctx, http.MethodPatch, c.tenantPath("databases", name), etag, req, &db)
-	if err != nil {
-		return nil, "", err
-	}
-	return &db, newETag, nil
-}
-
-// UpdateDatabaseRMW is the read-modify-write helper for `database update`
-// and `database upgrade`: one retry on 412, then ErrRMWContention.
-func (c *Client) UpdateDatabaseRMW(ctx context.Context, name string, mutate DatabaseMutator) (*Database, error) {
-	return updateRMW(ctx,
-		func(ctx context.Context) (*Database, string, error) { return c.GetDatabase(ctx, name) },
-		func(ctx context.Context, etag string, req PatchDatabaseRequest) (*Database, string, error) {
-			return c.UpdateDatabase(ctx, name, etag, req)
-		},
-		mutate, ErrRMWContention)
-}
-
-// DeleteDatabase deletes a database. A database with deletion protection on
-// is refused with 409 and ErrorCode DatabaseDeleteCodeProtected.
-func (c *Client) DeleteDatabase(ctx context.Context, name string) error {
-	_, err := c.request(ctx, http.MethodDelete, c.tenantPath("databases", name), nil, nil)
-	return err
-}
-
 // RotateDatabaseCredentials requests a new password for one role
 // (DatabaseRoleOwner or DatabaseRoleApp). The API answers 202; the old
 // password stops working once the platform has rotated it.
@@ -248,37 +185,32 @@ func (c *Client) RotateDatabaseCredentials(ctx context.Context, name, role strin
 	return &rotation, nil
 }
 
+// bindings is the binding collection of one database. Bindings are never
+// patched; delete one and add another to change it.
+func (c *Client) bindings(database string) resource[DatabaseBinding, CreateDatabaseBindingRequest, struct{}] {
+	return newResource[DatabaseBinding, CreateDatabaseBindingRequest, struct{}](c, "databases", database, "bindings")
+}
+
 // ListDatabaseBindings returns the bindings of one database. A missing
 // database is a 404, not an empty list.
 func (c *Client) ListDatabaseBindings(ctx context.Context, database string) ([]DatabaseBinding, error) {
-	var resp struct {
-		Items []DatabaseBinding `json:"items"`
-	}
-	_, err := c.request(ctx, http.MethodGet, c.tenantPath("databases", database, "bindings"), nil, &resp)
-	return resp.Items, err
+	return c.bindings(database).List(ctx)
 }
 
 // GetDatabaseBinding returns one binding of a database.
 func (c *Client) GetDatabaseBinding(ctx context.Context, database, name string) (*DatabaseBinding, error) {
-	var b DatabaseBinding
-	if _, err := c.request(ctx, http.MethodGet, c.tenantPath("databases", database, "bindings", name), nil, &b); err != nil {
-		return nil, err
-	}
-	return &b, nil
+	b, _, err := c.bindings(database).Get(ctx, name)
+	return b, err
 }
 
 // CreateDatabaseBinding binds a database into a cluster namespace.
 func (c *Client) CreateDatabaseBinding(ctx context.Context, database string, req CreateDatabaseBindingRequest) (*DatabaseBinding, error) {
-	var b DatabaseBinding
-	if _, err := c.request(ctx, http.MethodPost, c.tenantPath("databases", database, "bindings"), req, &b); err != nil {
-		return nil, err
-	}
-	return &b, nil
+	b, _, err := c.bindings(database).Create(ctx, req)
+	return b, err
 }
 
 // DeleteDatabaseBinding removes a binding. The role's password is not
 // changed; rotate it to revoke what the namespace already knows.
 func (c *Client) DeleteDatabaseBinding(ctx context.Context, database, name string) error {
-	_, err := c.request(ctx, http.MethodDelete, c.tenantPath("databases", database, "bindings", name), nil, nil)
-	return err
+	return c.bindings(database).Delete(ctx, name)
 }

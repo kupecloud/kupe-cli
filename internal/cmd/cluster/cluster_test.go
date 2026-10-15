@@ -65,7 +65,7 @@ func TestListEmpty(t *testing.T) {
 
 func TestListTableAndJSON(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name: "prod", Type: "shared", Version: "1.32",
 		Status:    &client.ClusterStatus{Phase: client.PhaseRunning},
 		Resources: &client.ClusterResource{CPU: "2", Memory: "8Gi"},
@@ -117,7 +117,7 @@ func TestCreateNoWaitReturnsImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create --wait=false: %v", err)
 	}
-	if _, ok := fake.Clusters["prod"]; !ok {
+	if _, ok := fake.ClustersByName["prod"]; !ok {
 		t.Fatal("cluster not persisted in fake")
 	}
 }
@@ -145,7 +145,7 @@ func TestCreateWaitWalksPhasesToRunning(t *testing.T) {
 
 func TestCreateRejectsConflictWithExit5(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{Name: "prod", Type: "shared"}
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod", Type: "shared"}
 
 	f := factoryWith(t, fake)
 	err := executeCmd(newCreateCmd(f), "prod", "--cpu-limit", "2", "--memory-limit", "8Gi", "--storage-limit", "50Gi",
@@ -160,7 +160,7 @@ func TestCreateRejectsConflictWithExit5(t *testing.T) {
 
 func TestDeleteNonInteractiveRequiresYes(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{Name: "prod"}
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod"}
 
 	f := factoryWith(t, fake)
 	err := executeCmd(newDeleteCmd(f), "prod")
@@ -170,28 +170,28 @@ func TestDeleteNonInteractiveRequiresYes(t *testing.T) {
 	if code := cli.ExitCode(err); code != cli.ExitMisuse {
 		t.Fatalf("exit = %d; want %d", code, cli.ExitMisuse)
 	}
-	if _, still := fake.Clusters["prod"]; !still {
+	if _, still := fake.ClustersByName["prod"]; !still {
 		t.Fatal("cluster deleted despite non-interactive refusal")
 	}
 }
 
 func TestDeleteYesRemovesCluster(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{Name: "prod"}
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod"}
 
 	f := factoryWith(t, fake)
 	err := executeCmd(newDeleteCmd(f), "prod", "--yes", "--wait=false")
 	if err != nil {
 		t.Fatalf("delete --yes: %v", err)
 	}
-	if _, still := fake.Clusters["prod"]; still {
+	if _, still := fake.ClustersByName["prod"]; still {
 		t.Fatal("cluster still present after delete")
 	}
 }
 
 func TestUpdateUsesRMW(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name:    "prod",
 		Type:    "shared",
 		Version: "1.32",
@@ -202,14 +202,14 @@ func TestUpdateUsesRMW(t *testing.T) {
 	if err := executeCmd(newUpdateCmd(f), "prod", "--version", "1.33", "--wait=false"); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if v := fake.Clusters["prod"].Version; v != "1.33" {
+	if v := fake.ClustersByName["prod"].Version; v != "1.33" {
 		t.Fatalf("version not updated: %s", v)
 	}
 }
 
 func TestWaitForRunningExits0WhenAlreadyThere(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name:   "prod",
 		Status: &client.ClusterStatus{Phase: client.PhaseRunning},
 	}
@@ -263,7 +263,7 @@ func TestWaitingCommands_DegradedExits1WithGetHint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
 			if tt.seed != nil {
-				fake.Clusters["prod"] = tt.seed
+				fake.ClustersByName["prod"] = tt.seed
 			}
 			fake.GetClusterSeq["prod"] = tt.seq
 			f := factoryWith(t, fake)

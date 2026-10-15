@@ -61,7 +61,7 @@ func renderList(out io.Writer, colorEnabled bool, format *printer.Format, dbs []
 // phaseGetter adapts GetDatabase to the shared wait helpers.
 func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.Database] {
 	return func(ctx context.Context) (*client.Database, string, error) {
-		db, _, err := api.GetDatabase(ctx, name)
+		db, _, err := api.Databases().Get(ctx, name)
 		if err != nil {
 			return nil, "", translateErr(err)
 		}

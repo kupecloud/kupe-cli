@@ -18,7 +18,7 @@ func TestListClusters(t *testing.T) {
 		}
 		fmt.Fprintln(w, `{"items":[{"name":"prod","type":"shared"},{"name":"staging","type":"shared"}]}`)
 	})
-	list, err := c.ListClusters(context.Background())
+	list, err := c.Clusters().List(context.Background())
 	if err != nil {
 		t.Fatalf("ListClusters: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestCreateClusterConflict(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 		fmt.Fprintln(w, `{"error":"cluster already exists"}`)
 	})
-	_, _, err := c.CreateCluster(context.Background(), CreateClusterRequest{Name: "prod", Type: "shared"})
+	_, _, err := c.Clusters().Create(context.Background(), CreateClusterRequest{Name: "prod", Type: "shared"})
 	if err == nil || !IsConflict(err) {
 		t.Fatalf("want IsConflict, got %v", err)
 	}
@@ -63,7 +63,7 @@ func TestUpdateClusterRMWSuccess(t *testing.T) {
 		}
 	})
 
-	updated, err := c.UpdateClusterRMW(context.Background(), "prod", func(cur *Cluster) *PatchClusterRequest {
+	updated, err := c.Clusters().UpdateRMW(context.Background(), "prod", func(cur *Cluster) *PatchClusterRequest {
 		v := "1.33"
 		return &PatchClusterRequest{Version: &v}
 	})
@@ -98,7 +98,7 @@ func TestUpdateClusterRMWRetriesOn412(t *testing.T) {
 		}
 	})
 
-	updated, err := c.UpdateClusterRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
+	updated, err := c.Clusters().UpdateRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
 		v := "1.33"
 		return &PatchClusterRequest{Version: &v}
 	})
@@ -124,7 +124,7 @@ func TestUpdateClusterRMWFailsAfterTwoMismatches(t *testing.T) {
 		fmt.Fprintln(w, `{"error":"etag mismatch"}`)
 	})
 
-	_, err := c.UpdateClusterRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
+	_, err := c.Clusters().UpdateRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
 		v := "1.33"
 		return &PatchClusterRequest{Version: &v}
 	})
@@ -142,7 +142,7 @@ func TestUpdateClusterRMWNoopPatch(t *testing.T) {
 		fmt.Fprintln(w, `{"name":"prod","version":"1.32"}`)
 	})
 
-	updated, err := c.UpdateClusterRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
+	updated, err := c.Clusters().UpdateRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
 		return nil // mutator decided no change needed
 	})
 	if err != nil {
@@ -158,7 +158,7 @@ func TestDeleteClusterNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintln(w, `{"error":"cluster not found"}`)
 	})
-	err := c.DeleteCluster(context.Background(), "ghost")
+	err := c.Clusters().Delete(context.Background(), "ghost")
 	if !IsNotFound(err) {
 		t.Fatalf("want IsNotFound, got %v", err)
 	}
@@ -176,7 +176,7 @@ func TestRMWDoesNotIntroduceBackoff(t *testing.T) {
 		fmt.Fprintln(w, `{"name":"prod","version":"1.33"}`)
 	})
 	start := time.Now()
-	_, err := c.UpdateClusterRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
+	_, err := c.Clusters().UpdateRMW(context.Background(), "prod", func(*Cluster) *PatchClusterRequest {
 		v := "1.33"
 		return &PatchClusterRequest{Version: &v}
 	})

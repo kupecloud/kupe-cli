@@ -29,7 +29,7 @@ func TestCreateDisplayNameFallsBackToName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	c, ok := fake.Clusters["prod"]
+	c, ok := fake.ClustersByName["prod"]
 	if !ok {
 		t.Fatal("cluster not created")
 	}
@@ -48,7 +48,7 @@ func TestCreateDisplayNameRespectsFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if got := fake.Clusters["prod"].DisplayName; got != "Production Cluster" {
+	if got := fake.ClustersByName["prod"].DisplayName; got != "Production Cluster" {
 		t.Fatalf("displayName = %q; want %q", got, "Production Cluster")
 	}
 }
@@ -62,7 +62,7 @@ func TestCreateDisplayNameRespectsFlag(t *testing.T) {
 // at entry 0 before the operator has reconciled.
 func TestUpdateWaitBlocksUntilObservedGenerationCatchesUp(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name:    "prod",
 		Type:    "shared",
 		Version: "1.32",
@@ -95,7 +95,7 @@ func TestUpdateWaitBlocksUntilObservedGenerationCatchesUp(t *testing.T) {
 // got reconciled.
 func TestUpdateWaitTimesOutWhenOperatorNeverReacts(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name:       "prod",
 		Generation: 7,
 		Status:     &client.ClusterStatus{Phase: client.PhaseRunning, ObservedGeneration: 6}, // stale
@@ -117,7 +117,7 @@ func TestUpdateWaitTimesOutWhenOperatorNeverReacts(t *testing.T) {
 // the waiter spuriously timing out.
 func TestUpdateNoOpSkipsPATCHAndReturns(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name:      "prod",
 		Version:   "1.32",
 		Resources: &client.ClusterResource{CPU: "4", Memory: "16Gi", Storage: "100Gi"},
@@ -143,7 +143,7 @@ func TestUpdateNoOpSkipsPATCHAndReturns(t *testing.T) {
 // (2), not a silent success.
 func TestUpdateWithNoFlagsExits2(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{
+	fake.ClustersByName["prod"] = &client.Cluster{
 		Name:   "prod",
 		Status: &client.ClusterStatus{Phase: client.PhaseRunning},
 	}

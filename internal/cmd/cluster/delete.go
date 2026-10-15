@@ -54,7 +54,7 @@ By default waits for the cluster to disappear (404 on GetCluster). Pass
 				return err
 			}
 
-			if err := api.DeleteCluster(cmd.Context(), name); err != nil {
+			if err := api.Clusters().Delete(cmd.Context(), name); err != nil {
 				return err
 			}
 

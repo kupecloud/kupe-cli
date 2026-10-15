@@ -1,10 +1,5 @@
 package client
 
-import (
-	"context"
-	"net/http"
-)
-
 // Cluster is the API response shape for a managed cluster. Field names
 // mirror kupe-api's transformCluster output — see
 // kupe-api/internal/server/handler_cluster.go.
@@ -124,53 +119,3 @@ const (
 	PhaseReady        = "Ready"
 	PhaseFailed       = "Failed"
 )
-
-// ListClusters returns every cluster visible to the tenant.
-func (c *Client) ListClusters(ctx context.Context) ([]Cluster, error) {
-	var resp struct {
-		Items []Cluster `json:"items"`
-	}
-	_, err := c.request(ctx, http.MethodGet, c.tenantPath("clusters"), nil, &resp)
-	return resp.Items, err
-}
-
-// GetCluster returns one cluster by name, along with its ETag.
-func (c *Client) GetCluster(ctx context.Context, name string) (*Cluster, string, error) {
-	var cluster Cluster
-	etag, err := c.request(ctx, http.MethodGet, c.tenantPath("clusters", name), nil, &cluster)
-	if err != nil {
-		return nil, "", err
-	}
-	return &cluster, etag, nil
-}
-
-// CreateCluster POSTs a new cluster. Returns the server's response plus the
-// created resource's ETag for callers that want to do immediate follow-up
-// PATCH without another GET.
-func (c *Client) CreateCluster(ctx context.Context, req CreateClusterRequest) (*Cluster, string, error) {
-	var cluster Cluster
-	etag, err := c.request(ctx, http.MethodPost, c.tenantPath("clusters"), req, &cluster)
-	if err != nil {
-		return nil, "", err
-	}
-	return &cluster, etag, nil
-}
-
-// UpdateCluster PATCHes a cluster with optimistic locking via If-Match.
-// Pass etag="" to skip the If-Match header (server-side RV is still used
-// internally for consistency — see kupe-api handler_cluster.go).
-func (c *Client) UpdateCluster(ctx context.Context, name, etag string, req PatchClusterRequest) (*Cluster, string, error) {
-	var cluster Cluster
-	newETag, err := c.requestWithETag(ctx, http.MethodPatch, c.tenantPath("clusters", name), etag, req, &cluster)
-	if err != nil {
-		return nil, "", err
-	}
-	return &cluster, newETag, nil
-}
-
-// DeleteCluster sends DELETE. Returns nil on success (204) or IsNotFound on
-// a cluster that was already gone.
-func (c *Client) DeleteCluster(ctx context.Context, name string) error {
-	_, err := c.request(ctx, http.MethodDelete, c.tenantPath("clusters", name), nil, nil)
-	return err
-}

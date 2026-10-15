@@ -24,10 +24,10 @@ func testPEMB64() string { return base64.StdEncoding.EncodeToString([]byte(testP
 //   - ensure f.Token() returns a stable value so token-mode succeeds
 func seedForKubeconfig(t *testing.T, fake *clienttest.Fake, name string) *cli.Factory {
 	t.Helper()
-	if fake.Clusters == nil {
-		t.Fatal("fake.Clusters is nil — call clienttest.New")
+	if fake.ClustersByName == nil {
+		t.Fatal("fake.ClustersByName is nil — call clienttest.New")
 	}
-	fake.Clusters[name] = &client.Cluster{
+	fake.ClustersByName[name] = &client.Cluster{
 		Name:   name,
 		Type:   "shared",
 		Status: &client.ClusterStatus{Phase: client.PhaseRunning},
@@ -108,7 +108,7 @@ func TestKubeconfigMergeIntoEmptyFile(t *testing.T) {
 
 func TestKubeconfigUnavailableMapsToExit7(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{Name: "prod"}
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod"}
 	fake.GetClusterKubeconfigErr = &client.APIError{StatusCode: 503, Message: "not yet ready"}
 
 	f := factoryWith(t, fake)

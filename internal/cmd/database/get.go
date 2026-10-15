@@ -25,7 +25,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			db, _, err := api.GetDatabase(cmd.Context(), args[0])
+			db, _, err := api.Databases().Get(cmd.Context(), args[0])
 			if err != nil {
 				return translateErr(err)
 			}

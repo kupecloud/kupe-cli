@@ -95,7 +95,7 @@ func runDelete(ctx context.Context, f *cli.Factory, opts *deleteOpts) error {
 
 	var clusters []client.Cluster
 	if opts.cascade {
-		clusters, err = api.ListClusters(ctx)
+		clusters, err = api.Clusters().List(ctx)
 		if err != nil {
 			return cli.Wrap(cli.ExitCode(err), "listing clusters for --cascade", err)
 		}

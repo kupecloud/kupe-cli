@@ -40,7 +40,7 @@ func waitForDatabase(ctx context.Context, srv *httptest.Server, attemptTimeout, 
 	api := client.New(srv.URL, "acme", "kupe_test", "kupe-cli-test/0.0.0",
 		client.WithHTTPClient(&http.Client{Timeout: attemptTimeout}))
 	get := func(ctx context.Context) (*client.Database, string, error) {
-		db, _, err := api.GetDatabase(ctx, "orders-db")
+		db, _, err := api.Databases().Get(ctx, "orders-db")
 		if err != nil {
 			return nil, "", err
 		}

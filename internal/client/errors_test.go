@@ -143,7 +143,7 @@ func TestClusterWarningsUnmarshal(t *testing.T) {
 		}`)
 	})
 
-	cluster, _, err := c.CreateCluster(context.Background(), CreateClusterRequest{Name: "prod", Type: "shared", DisplayName: "Prod"})
+	cluster, _, err := c.Clusters().Create(context.Background(), CreateClusterRequest{Name: "prod", Type: "shared", DisplayName: "Prod"})
 	if err != nil {
 		t.Fatalf("CreateCluster: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestClusterWarningsEmpty(t *testing.T) {
 		fmt.Fprint(w, `{"name":"prod","type":"shared","resourceVersion":"1","createdAt":"2026-06-05T00:00:00Z","warnings":[]}`)
 	})
 
-	cluster, _, err := c.CreateCluster(context.Background(), CreateClusterRequest{Name: "prod", Type: "shared", DisplayName: "Prod"})
+	cluster, _, err := c.Clusters().Create(context.Background(), CreateClusterRequest{Name: "prod", Type: "shared", DisplayName: "Prod"})
 	if err != nil {
 		t.Fatalf("CreateCluster: %v", err)
 	}

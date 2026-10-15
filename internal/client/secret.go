@@ -47,8 +47,7 @@ type PatchSecretRequest struct {
 	Sync []SyncTarget `json:"sync"`
 }
 
-// SecretMutator mirrors ClusterMutator for the secret RMW helper. Return
-// nil to no-op.
+// SecretMutator is the UpdateSecretRMW callback. Return nil to no-op.
 type SecretMutator func(current *Secret) *PatchSecretRequest
 
 // ErrSecretRMWContention mirrors ErrRMWContention for secret updates.

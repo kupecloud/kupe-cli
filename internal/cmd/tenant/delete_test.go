@@ -125,8 +125,8 @@ func TestDeleteAcceptedPrintsTerminating(t *testing.T) {
 
 func TestDeleteCascadeListsClustersAndSendsCascade(t *testing.T) {
 	fake := clienttest.New()
-	fake.Clusters["prod"] = &client.Cluster{Name: "prod", Status: &client.ClusterStatus{Phase: client.PhaseRunning}}
-	fake.Clusters["staging"] = &client.Cluster{Name: "staging", Status: &client.ClusterStatus{Phase: client.PhaseRunning}}
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod", Status: &client.ClusterStatus{Phase: client.PhaseRunning}}
+	fake.ClustersByName["staging"] = &client.Cluster{Name: "staging", Status: &client.ClusterStatus{Phase: client.PhaseRunning}}
 	f := oidcFactory(t, fake)
 	if err := run(NewCmd(f), "delete", "--confirm", "acme", "--cascade"); err != nil {
 		t.Fatalf("delete --cascade: %v", err)

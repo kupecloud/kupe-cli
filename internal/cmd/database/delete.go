@@ -52,7 +52,7 @@ every bound cluster namespace.
 			if err := cli.ConfirmDeleteByName(io, yes, "database", name); err != nil {
 				return err
 			}
-			if err := api.DeleteDatabase(cmd.Context(), name); err != nil {
+			if err := api.Databases().Delete(cmd.Context(), name); err != nil {
 				return translateDeleteErr(err, name)
 			}
 			fmt.Fprintf(io.Out, "database/%s delete requested\n", name)

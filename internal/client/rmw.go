@@ -2,8 +2,14 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+// ErrRMWContention is returned when an RMW helper hits two consecutive 412
+// ETag mismatches (i.e., another writer updated the resource each time the
+// CLI tried). It wraps the final 412, so it surfaces as cli.ExitConflict.
+var ErrRMWContention = errors.New("concurrent update contention; retry")
 
 // updateRMW is the read-modify-write cycle behind every *RMW helper: GET the
 // current resource and its ETag, ask mutate for a patch, PATCH with

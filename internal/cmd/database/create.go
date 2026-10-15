@@ -79,7 +79,7 @@ create the database with --no-deletion-protection.`,
 					"Creating %q with high availability: two instances, each reserving and billing for the requested CPU, memory and storage.\n\n", name)
 			}
 
-			created, _, err := api.CreateDatabase(cmd.Context(), req)
+			created, _, err := api.Databases().Create(cmd.Context(), req)
 			if err != nil {
 				return translateErr(err)
 			}

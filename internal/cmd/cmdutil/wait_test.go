@@ -305,6 +305,11 @@ func TestWaitForConverged(t *testing.T) {
 		{"degraded within the grace is ridden out", []observed{{client.PhaseDegraded, 5, false}, running(5, true)}, time.Hour, 5, ""},
 		{"degraded beyond the grace fails", []observed{{client.PhaseDegraded, 5, false}}, time.Millisecond, 5, client.PhaseDegraded},
 		{"terminating fails", []observed{{client.PhaseTerminating, 5, false}}, time.Hour, 5, client.PhaseTerminating},
+		// The first poll reads the status from before the PATCH: a Degraded
+		// the operator has not yet acted on must not fail a zero-grace
+		// cluster wait, and the change may heal it.
+		{"degraded before the change is seen is waited out", []observed{{client.PhaseDegraded, 4, false}, running(5, true)}, 0, 5, ""},
+		{"terminating fails even before the change is seen", []observed{{client.PhaseTerminating, 4, false}}, time.Hour, 5, client.PhaseTerminating},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -111,8 +111,9 @@ type Converge[T any] struct {
 // change (a resize the operator applies to a quota) never leaves Running,
 // so waiting for the phase to change would hang. A generation of 0 (an
 // older server that returns none) disables that check, and the wait
-// degrades to "phase is Running". Degraded beyond converge.DegradedGrace
-// and Terminating end the wait with a *TerminalPhaseError. Returns the last
+// degrades to "phase is Running". Degraded beyond converge.DegradedGrace,
+// once observedGeneration has caught up, and Terminating at any time end the
+// wait with a *TerminalPhaseError. Returns the last
 // resource seen (the zero value if none was).
 func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, name string, get PhaseGetter[T], converge Converge[T], generation int64, timeout time.Duration) (T, error) {
 	var latest T
@@ -122,8 +123,18 @@ func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, 
 		if phase != client.PhaseDegraded {
 			degradedSince = time.Time{}
 		}
+		// A status from before the operator saw this change says nothing
+		// about the change: the first poll can read the pre-PATCH status, and
+		// a resource Degraded before an update may be healed by it. Degraded
+		// counts only once observedGeneration has caught up (as in the
+		// Terraform provider, 5b74022).
+		applied := generation <= 0 || converge.ObservedGeneration(resource) >= generation
 		switch phase {
 		case client.PhaseDegraded:
+			if !applied {
+				degradedSince = time.Time{}
+				return false, nil
+			}
 			if degradedSince.IsZero() {
 				degradedSince = time.Now()
 			}
@@ -133,7 +144,7 @@ func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, 
 		case client.PhaseTerminating:
 			return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
 		case client.PhaseRunning:
-			if generation > 0 && converge.ObservedGeneration(resource) < generation {
+			if !applied {
 				return false, nil
 			}
 			return converge.Settled == nil || converge.Settled(resource), nil

@@ -162,37 +162,24 @@ func resourceRequest(cpu, memory, storage string) *client.ClusterResource {
 // validateCreateOpts runs the same checks the operator's admission webhook
 // runs, so the user sees flag-shaped errors instead of K8s field paths. The
 // webhook is still authoritative — this is purely a UX shortcut.
+//
+// --storage-limit is required client-side even though the webhook doesn't
+// enforce it: when the operator sees empty storage it sets the namespace
+// ResourceQuota's requests.storage to 0, and the vcluster's 5Gi data PVC
+// then fails to provision. The user observes this as a "Provisioning
+// forever" cluster with no obvious error in the ManagedCluster status.
+// Catching it here turns silent failure into a loud "you forgot
+// --storage-limit" before the API call.
 func validateCreateOpts(opts *createOpts) error {
-	if opts.cpu == "" {
-		return cli.MisuseError("--cpu-limit is required").
-			WithHint("example: --cpu-limit 2 (vCPUs, or millicores like 500m)")
+	return cmdutil.ValidateQuantities(0, quantityFlags(opts.cpu, opts.memory, opts.storage, true)...)
+}
+
+// quantityFlags are the cluster's resource flags, required on create and
+// optional on update. Clusters have no length cap on a quantity.
+func quantityFlags(cpu, memory, storage string, required bool) []cmdutil.QuantityFlag {
+	return []cmdutil.QuantityFlag{
+		{Name: "--cpu-limit", Value: cpu, CPU: true, Required: required, Example: "2"},
+		{Name: "--memory-limit", Value: memory, Required: required, Example: "8Gi"},
+		{Name: "--storage-limit", Value: storage, Required: required, Example: "50Gi"},
 	}
-	if opts.memory == "" {
-		return cli.MisuseError("--memory-limit is required").
-			WithHint("example: --memory-limit 8Gi (the unit suffix Gi/Mi is required)")
-	}
-	// --storage-limit is required client-side even though the webhook
-	// doesn't enforce it: when the operator sees empty storage it sets
-	// the namespace ResourceQuota's requests.storage to 0, and the
-	// vcluster's 5Gi data PVC then fails to provision. The user observes
-	// this as a "Provisioning forever" cluster with no obvious error in
-	// the ManagedCluster status. Catching it here turns silent failure
-	// into a loud "you forgot --storage-limit" before the API call.
-	if opts.storage == "" {
-		return cli.MisuseError("--storage-limit is required").
-			WithHint("example: --storage-limit 50Gi (the unit suffix Gi/Mi is required)")
-	}
-	if !cmdutil.IsCPUQuantity(opts.cpu) {
-		return cli.MisuseError("--cpu-limit has an invalid format: " + opts.cpu).
-			WithHint("use a number of vCPUs (e.g. 2, 1.5) or millicores (e.g. 500m)")
-	}
-	if !cmdutil.IsUnitQuantity(opts.memory) {
-		return cli.MisuseError("--memory-limit must include a unit suffix; got: " + opts.memory).
-			WithHint("example: --memory-limit 8Gi or --memory-limit 8192Mi (plain numbers are ambiguous)")
-	}
-	if !cmdutil.IsUnitQuantity(opts.storage) {
-		return cli.MisuseError("--storage-limit must include a unit suffix; got: " + opts.storage).
-			WithHint("example: --storage-limit 50Gi or --storage-limit 50G")
-	}
-	return nil
 }

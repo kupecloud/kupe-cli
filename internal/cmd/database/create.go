@@ -114,40 +114,19 @@ create the database with --no-deletion-protection.`,
 // validateCreateOpts catches missing or malformed resources before the
 // request; the server remains authoritative for floors and ceilings.
 func validateCreateOpts(opts *createOpts) error {
-	for _, req := range []struct{ flag, value, example string }{
-		{"--cpu", opts.cpu, "--cpu 500m"},
-		{"--memory", opts.memory, "--memory 1Gi"},
-		{"--storage", opts.storage, "--storage 10Gi"},
-	} {
-		if req.value == "" {
-			return cli.MisuseError(req.flag + " is required").WithHint("example: " + req.example)
-		}
-	}
-	return validateResources(opts.cpu, opts.memory, opts.storage)
+	return validateResources(opts.cpu, opts.memory, opts.storage, true)
 }
 
 // maxQuantityLength is the longest CPU, memory or storage value the
 // database API accepts.
 const maxQuantityLength = 20
 
-// validateResources checks the format of each quantity that is set.
-func validateResources(cpu, memory, storage string) error {
-	for _, q := range []struct{ flag, value string }{{"--cpu", cpu}, {"--memory", memory}, {"--storage", storage}} {
-		if len(q.value) > maxQuantityLength {
-			return cli.MisuseError(fmt.Sprintf("%s is longer than %d characters: %s", q.flag, maxQuantityLength, q.value))
-		}
-	}
-	if cpu != "" && !cmdutil.IsCPUQuantity(cpu) {
-		return cli.MisuseError("--cpu has an invalid format: " + cpu).
-			WithHint("use cores or millicores without a unit (e.g. 2, 0.5, 500m)")
-	}
-	if memory != "" && !cmdutil.IsUnitQuantity(memory) {
-		return cli.MisuseError("--memory must include a unit suffix; got: " + memory).
-			WithHint("example: --memory 1Gi or --memory 512Mi")
-	}
-	if storage != "" && !cmdutil.IsUnitQuantity(storage) {
-		return cli.MisuseError("--storage must include a unit suffix; got: " + storage).
-			WithHint("example: --storage 10Gi")
-	}
-	return nil
+// validateResources checks the per-instance resource flags, all required on
+// create and each optional on update.
+func validateResources(cpu, memory, storage string, required bool) error {
+	return cmdutil.ValidateQuantities(maxQuantityLength,
+		cmdutil.QuantityFlag{Name: "--cpu", Value: cpu, CPU: true, Required: required, Example: "500m"},
+		cmdutil.QuantityFlag{Name: "--memory", Value: memory, Required: required, Example: "1Gi"},
+		cmdutil.QuantityFlag{Name: "--storage", Value: storage, Required: required, Example: "10Gi"},
+	)
 }

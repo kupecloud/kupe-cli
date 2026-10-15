@@ -42,7 +42,7 @@ automatically. Changes apply asynchronously; follow them with
 			name := args[0]
 			patch := client.PatchDatabaseRequest{}
 			if opts.cpu != "" || opts.memory != "" || opts.storage != "" {
-				if err := validateResources(opts.cpu, opts.memory, opts.storage); err != nil {
+				if err := validateResources(opts.cpu, opts.memory, opts.storage, false); err != nil {
 					return err
 				}
 				patch.Resources = &client.DatabaseResources{CPU: opts.cpu, Memory: opts.memory, Storage: opts.storage}

@@ -147,19 +147,7 @@ rarely the right answer outside of disaster recovery.`,
 // validateUpdateOpts mirrors the format checks in validateCreateOpts. Each
 // flag is optional on update — but if supplied, must be well-formed.
 func validateUpdateOpts(opts *updateOpts) error {
-	if opts.cpu != "" && !cmdutil.IsCPUQuantity(opts.cpu) {
-		return cli.MisuseError("--cpu-limit has an invalid format: " + opts.cpu).
-			WithHint("use a number of vCPUs (e.g. 2, 1.5) or millicores (e.g. 500m)")
-	}
-	if opts.memory != "" && !cmdutil.IsUnitQuantity(opts.memory) {
-		return cli.MisuseError("--memory-limit must include a unit suffix; got: " + opts.memory).
-			WithHint("example: --memory-limit 8Gi or --memory-limit 8192Mi (plain numbers are ambiguous)")
-	}
-	if opts.storage != "" && !cmdutil.IsUnitQuantity(opts.storage) {
-		return cli.MisuseError("--storage-limit must include a unit suffix; got: " + opts.storage).
-			WithHint("example: --storage-limit 50Gi or --storage-limit 50G")
-	}
-	return nil
+	return cmdutil.ValidateQuantities(0, quantityFlags(opts.cpu, opts.memory, opts.storage, false)...)
 }
 
 // buildPatch turns the update flags into a PatchClusterRequest. RunE's

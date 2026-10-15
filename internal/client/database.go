@@ -150,11 +150,23 @@ const bindingConditionConflict = "Conflict"
 
 // Conflicted reports whether the binding's Conflict condition is True.
 func (s *DatabaseBindingStatus) Conflicted() bool {
-	if s == nil {
-		return false
-	}
-	for _, c := range s.Conditions {
-		if c.Type == bindingConditionConflict {
+	return s != nil && conditionTrue(s.Conditions, bindingConditionConflict)
+}
+
+// conditionReady is True while every instance of a database is healthy on
+// the spec last applied; it is False while a change rolls out, even though
+// the phase stays Running.
+const conditionReady = "Ready"
+
+// Ready reports whether the database's Ready condition is True.
+func (s *DatabaseStatus) Ready() bool {
+	return s != nil && conditionTrue(s.Conditions, conditionReady)
+}
+
+// conditionTrue reports whether the condition of type t is True.
+func conditionTrue(conditions []Condition, t string) bool {
+	for _, c := range conditions {
+		if c.Type == t {
 			return c.Status == "True"
 		}
 	}

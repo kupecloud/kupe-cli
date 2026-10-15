@@ -85,6 +85,70 @@ func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name
 	return latest, err
 }
 
+// Converge says when a service's spec change has taken effect, for
+// WaitForConverged.
+type Converge[T any] struct {
+	// ObservedGeneration reads status.observedGeneration: the generation
+	// the operator last applied. The operator advances it only on a pass
+	// that applied the spec, so a failed pass never reads as converged.
+	ObservedGeneration func(T) int64
+	// Settled, when set, must also hold: for a database, its Ready
+	// condition, since the operator applies a change before its instances
+	// have rolled onto it and the phase stays Running meanwhile.
+	Settled func(T) bool
+	// DegradedGrace is how long a Degraded phase is ridden out before it
+	// ends the wait; 0 ends it at once. A single-instance database is
+	// Degraded while its only instance restarts to apply a CPU or memory
+	// change.
+	DegradedGrace time.Duration
+}
+
+// WaitForConverged is the wait behind `update --wait`: it polls get until
+// the operator has applied the spec at generation (observedGeneration
+// caught up), the phase is Running and converge.Settled holds.
+//
+// observedGeneration, not a phase transition, is the signal: an in-place
+// change (a resize the operator applies to a quota) never leaves Running,
+// so waiting for the phase to change would hang. A generation of 0 (an
+// older server that returns none) disables that check, and the wait
+// degrades to "phase is Running". Degraded beyond converge.DegradedGrace
+// and Terminating end the wait with a *TerminalPhaseError. Returns the last
+// resource seen (the zero value if none was).
+func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, name string, get PhaseGetter[T], converge Converge[T], generation int64, timeout time.Duration) (T, error) {
+	var latest T
+	var degradedSince time.Time
+	poll := PollPhase(get, func(resource T, phase string) (bool, error) {
+		latest = resource
+		if phase != client.PhaseDegraded {
+			degradedSince = time.Time{}
+		}
+		switch phase {
+		case client.PhaseDegraded:
+			if degradedSince.IsZero() {
+				degradedSince = time.Now()
+			}
+			if time.Since(degradedSince) >= converge.DegradedGrace {
+				return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
+			}
+		case client.PhaseTerminating:
+			return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
+		case client.PhaseRunning:
+			if generation > 0 && converge.ObservedGeneration(resource) < generation {
+				return false, nil
+			}
+			return converge.Settled == nil || converge.Settled(resource), nil
+		}
+		return false, nil
+	})
+	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
+		Label:         noun + " " + name,
+		PhaseOverride: "Updating",
+		Poll:          poll,
+		Timeout:       timeout,
+	})
+	return latest, err
+}
+
 // WaitForGone polls until get returns a plain 404. It reports "Deleting"
 // while the resource still exists, whatever its phase. A 404 that carries
 // an error code is a refusal (e.g. a feature switched off on the platform),

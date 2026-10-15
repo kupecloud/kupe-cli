@@ -5,14 +5,12 @@ package cluster
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
-	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
 // NewCmd returns the parent cluster command with every v1 subcommand
@@ -55,61 +53,15 @@ func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.
 	}
 }
 
-// waitForUpdateConverged is the wait strategy for `cluster update --wait`.
-//
-// Convergence is declared when the operator has reconciled at the
-// post-PATCH generation AND the cluster is back in Running phase:
-//
-//	status.observedGeneration >= postPatchGeneration  &&  phase == Running
-//
-// observedGeneration is the canonical K8s "I've processed this spec" signal
-// — it increments alongside metadata.generation each time the operator
-// completes a reconcile. Using it here unblocks two failure modes the older
-// transition-detection logic suffered from:
-//
-//  1. In-place updates (CPU/memory/storage limit bumps) never leave Running
-//     because the operator just patches the ResourceQuota — there is no
-//     rollout to observe. The old "must see phase != Running" gate hung
-//     forever in this case.
-//  2. Version upgrades DO transition Running → Upgrading → Running, but
-//     under observedGeneration the same code path handles both: the
-//     operator only stamps the new generation once the upgrade is complete,
-//     so we wait for the right moment without phase-string heuristics.
-//
-// Degraded is still a hard fail. postPatchGen of 0 disables the generation
-// gate (older servers that don't surface generation), in which case the
-// waiter degrades to "phase == Running" — same as a get-loop, which is
-// what the old code would have done before its transition gate was added.
-func waitForUpdateConverged(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, label string, postPatchGen int64, timeout time.Duration) (*client.Cluster, error) {
-	var latest *client.Cluster
-	poll := cmdutil.PollPhase(phaseGetter(api, name), func(c *client.Cluster, phase string) (bool, error) {
-		latest = c
-		if phase == client.PhaseDegraded {
-			return false, &cmdutil.TerminalPhaseError{Noun: "cluster", Name: name, Phase: phase}
+// converge is when a cluster's spec change has taken effect: Running at the
+// post-PATCH generation. A Degraded cluster fails the wait at once.
+var converge = cmdutil.Converge[*client.Cluster]{
+	ObservedGeneration: func(c *client.Cluster) int64 {
+		if c == nil || c.Status == nil {
+			return 0
 		}
-		if phase != client.PhaseRunning {
-			return false, nil
-		}
-		// Spec change accepted by the API, but the operator hasn't yet
-		// stamped a reconcile at this generation: keep waiting.
-		return postPatchGen <= 0 || observedGen(c) >= postPatchGen, nil
-	})
-	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:         label,
-		PhaseOverride: "Updating",
-		Poll:          poll,
-		Timeout:       timeout,
-	})
-	return latest, err
-}
-
-// observedGen returns status.observedGeneration or 0 if the status block is
-// missing. Centralised so the waiter doesn't sprinkle nil-checks.
-func observedGen(c *client.Cluster) int64 {
-	if c == nil || c.Status == nil {
-		return 0
-	}
-	return c.Status.ObservedGeneration
+		return c.Status.ObservedGeneration
+	},
 }
 
 // translateClusterErr rewrites server-side validation messages from kupe-api /

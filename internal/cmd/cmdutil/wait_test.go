@@ -263,3 +263,77 @@ func TestRunWait(t *testing.T) {
 		})
 	}
 }
+
+// observed is a resource as WaitForConverged sees it.
+type observed struct {
+	phase      string
+	generation int64
+	settled    bool
+}
+
+// observedSeq returns each entry in turn on successive polls, repeating the
+// last.
+func observedSeq(seq ...observed) PhaseGetter[observed] {
+	i := 0
+	return func(context.Context) (observed, string, error) {
+		o := seq[min(i, len(seq)-1)]
+		i++
+		return o, o.phase, nil
+	}
+}
+
+func TestWaitForConverged(t *testing.T) {
+	converge := func(grace time.Duration) Converge[observed] {
+		return Converge[observed]{
+			ObservedGeneration: func(o observed) int64 { return o.generation },
+			Settled:            func(o observed) bool { return o.settled },
+			DegradedGrace:      grace,
+		}
+	}
+	running := func(gen int64, settled bool) observed { return observed{client.PhaseRunning, gen, settled} }
+	tests := []struct {
+		name       string
+		seq        []observed
+		grace      time.Duration
+		generation int64
+		wantPhase  string // the terminal phase; "" = converged
+	}{
+		{"waits for observedGeneration to catch up", []observed{running(4, true), running(5, true)}, 0, 5, ""},
+		{"waits until settled at the generation", []observed{running(5, false), running(5, true)}, 0, 5, ""},
+		{"generation 0 disables the generation check", []observed{running(0, true)}, 0, 0, ""},
+		{"degraded fails at once without a grace", []observed{{client.PhaseDegraded, 5, false}}, 0, 5, client.PhaseDegraded},
+		{"degraded within the grace is ridden out", []observed{{client.PhaseDegraded, 5, false}, running(5, true)}, time.Hour, 5, ""},
+		{"degraded beyond the grace fails", []observed{{client.PhaseDegraded, 5, false}}, time.Millisecond, 5, client.PhaseDegraded},
+		{"terminating fails", []observed{{client.PhaseTerminating, 5, false}}, time.Hour, 5, client.PhaseTerminating},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			io, _, _ := cli.Test()
+			last, err := WaitForConverged(context.Background(), io, "database", "orders-db",
+				observedSeq(tt.seq...), converge(tt.grace), tt.generation, 20*time.Second)
+			if tt.wantPhase == "" {
+				if err != nil {
+					t.Fatalf("WaitForConverged: %v", err)
+				}
+				if want := tt.seq[len(tt.seq)-1]; last != want {
+					t.Fatalf("last = %+v; want %+v", last, want)
+				}
+				return
+			}
+			var terminal *TerminalPhaseError
+			if !errors.As(err, &terminal) || terminal.Phase != tt.wantPhase {
+				t.Fatalf("err = %v; want a terminal %s", err, tt.wantPhase)
+			}
+		})
+	}
+}
+
+func TestWaitForConverged_TimesOutWhenNeverApplied(t *testing.T) {
+	io, _, _ := cli.Test()
+	stale := observed{client.PhaseRunning, 6, true}
+	_, err := WaitForConverged(context.Background(), io, "cluster", "prod", observedSeq(stale),
+		Converge[observed]{ObservedGeneration: func(o observed) int64 { return o.generation }}, 7, 300*time.Millisecond)
+	if !errors.Is(err, ux.ErrWaitTimeout) {
+		t.Fatalf("err = %v; want ux.ErrWaitTimeout", err)
+	}
+}

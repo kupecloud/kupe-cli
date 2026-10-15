@@ -1,10 +1,13 @@
 package database
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
@@ -14,11 +17,13 @@ type updateOpts struct {
 	storage            string
 	highAvailability   bool
 	deletionProtection bool
+	wait               bool
+	waitTimeout        time.Duration
 	output             string
 }
 
 func newUpdateCmd(f *cli.Factory) *cobra.Command {
-	opts := &updateOpts{}
+	opts := &updateOpts{wait: true, waitTimeout: 30 * time.Minute}
 
 	cmd := &cobra.Command{
 		Use:   "update NAME",
@@ -31,8 +36,12 @@ switches over first). Storage grows online and can never shrink. To change
 the major version, use "kupe database upgrade".
 
 Concurrent updates from another client are detected and retried once
-automatically. Changes apply asynchronously; follow them with
-"kupe database get NAME".`,
+automatically. By default the command waits until the change is in effect:
+the platform has applied it and every instance runs it again. A database
+with a single instance is briefly Degraded while that instance restarts for
+a CPU or memory change; the wait rides that out, but fails if the database
+stays Degraded for 5 minutes. Pass --wait=false to return as soon as the
+change is accepted.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe database update orders-db --cpu 1 --memory 2Gi
   kupe db update orders-db --storage 20Gi
@@ -71,7 +80,19 @@ automatically. Changes apply asynchronously; follow them with
 			if err != nil {
 				return translateUpdateErr(err, name)
 			}
-			return printer.Database.One(f.IOStreams, format, updated)
+			if !opts.wait {
+				return printer.Database.One(f.IOStreams, format, updated)
+			}
+			// The PATCH response carries the generation the change produced.
+			final, werr := cmdutil.WaitForConverged(cmd.Context(), f.IOStreams, noun, name,
+				phaseGetter(api, name), converge, updated.Generation, opts.waitTimeout)
+			if werr != nil {
+				return cmdutil.MapWaitErr(werr, noun, name, "update")
+			}
+			if final == nil {
+				final = updated
+			}
+			return printer.Database.One(f.IOStreams, format, final)
 		},
 	}
 
@@ -80,6 +101,8 @@ automatically. Changes apply asynchronously; follow them with
 	cmd.Flags().StringVar(&opts.storage, "storage", "", "New storage per instance (e.g. 20Gi); grow only")
 	cmd.Flags().BoolVar(&opts.highAvailability, "ha", false, "Turn high availability on (--ha) or off (--ha=false)")
 	cmd.Flags().BoolVar(&opts.deletionProtection, "deletion-protection", false, "Turn deletion protection on (--deletion-protection) or off (--deletion-protection=false)")
+	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until the change is in effect before returning")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }

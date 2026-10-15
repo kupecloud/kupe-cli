@@ -57,8 +57,22 @@ func running(name string) *client.Database {
 	return &client.Database{
 		Name: name, Engine: "postgres", Version: "18", DeletionProtection: true,
 		Resources: &client.DatabaseResources{CPU: "500m", Memory: "1Gi", Storage: "10Gi"},
-		Status:    &client.DatabaseStatus{Phase: client.PhaseRunning, CurrentVersion: "18.0", InstancesReady: 1, InstancesDesired: 1},
+		Status: &client.DatabaseStatus{Phase: client.PhaseRunning, CurrentVersion: "18.0", InstancesReady: 1, InstancesDesired: 1,
+			Conditions: []client.Condition{{Type: "Ready", Status: "True", Reason: "DatabaseHealthy"}}},
 	}
+}
+
+// applying is name at generation, applied by the operator (observed) and
+// rolling onto its instances when ready is false.
+func applying(name string, generation, observed int64, ready bool) *client.Database {
+	db := running(name)
+	db.Generation = generation
+	db.Status.ObservedGeneration = observed
+	if !ready {
+		db.Status.Conditions = []client.Condition{{Type: "Ready", Status: "False", Reason: "DatabaseNotHealthy",
+			Message: "applying changes: Upgrading cluster (1 instances ready)"}}
+	}
+	return db
 }
 
 func hint(err error) string {
@@ -83,6 +97,17 @@ func assertNoCall(t *testing.T, fake *clienttest.Fake, prefix string) {
 			t.Fatalf("unexpected call %q in %v", c, fake.Calls)
 		}
 	}
+}
+
+// countCalls counts the fake's recorded calls equal to call.
+func countCalls(fake *clienttest.Fake, call string) int {
+	n := 0
+	for _, c := range fake.Calls {
+		if c == call {
+			n++
+		}
+	}
+	return n
 }
 
 func TestList_RendersTableColumnsAndFormats(t *testing.T) {
@@ -343,6 +368,48 @@ func TestUpdate_PatchesOnlyPassedFlags(t *testing.T) {
 				t.Fatalf("after update: %+v resources %+v", db, db.Resources)
 			}
 		})
+	}
+}
+
+func TestUpdate_WaitsUntilTheChangeIsInEffect(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 2, true)
+	// The read-modify-write GET, then the polls: applied but rolling, then
+	// every instance on the new spec.
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		applying("orders-db", 2, 2, true),
+		applying("orders-db", 3, 3, false),
+		applying("orders-db", 3, 3, true),
+	}
+	f := factoryWith(t, fake)
+	if _, _, err := run(f, newUpdateCmd(f), "orders-db", "--cpu", "1", "--wait-timeout", "20s"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 3 {
+		t.Fatalf("GETs = %d; want the RMW read and two polls", polls)
+	}
+}
+
+func TestUpdate_WaitFalseReturnsOnceAccepted(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 2, false)
+	f := factoryWith(t, fake)
+	if _, _, err := run(f, newUpdateCmd(f), "orders-db", "--cpu", "1", "--wait=false"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 1 {
+		t.Fatalf("GETs = %d; want only the RMW read", polls)
+	}
+}
+
+func TestUpdate_WaitTimesOutWhileStillRolling(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 3, false)
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newUpdateCmd(f), "orders-db", "--cpu", "1", "--wait-timeout", "300ms")
+	assertExit(t, err, cli.ExitTimeout)
+	if !strings.Contains(hint(err), "kupe database get orders-db") {
+		t.Fatalf("hint = %q; want the get command", hint(err))
 	}
 }
 

@@ -484,8 +484,8 @@ Phase:        Running
 ```
 
 **Exit codes (waiting):** as for `create`: `1` when the cluster enters
-`Degraded`, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C (the
-update continues).
+`Degraded` or starts being deleted, `7` lost contact with kupe-api, `8` on
+timeout, `130` Ctrl+C (the update continues).
 
 ### `kupe cluster delete NAME`
 
@@ -784,14 +784,27 @@ retried once, then exits `5`).
 | `--cpu`, `--memory`, `--storage` | New per-instance resources. Storage grows only. |
 | `--ha` / `--ha=false` | Turn high availability on or off. |
 | `--deletion-protection` / `--deletion-protection=false` | Turn deletion protection on or off. |
+| `--wait` | Wait until the change is in effect (default `true`). |
+| `--wait-timeout DURATION` | Give up after this long (default `30m`). Exits `8`. |
 | `-o, --output FORMAT` | Single-resource formats. |
 
-Changes apply asynchronously; follow them with `kupe database get NAME`. A
+By default the command waits until the change is in effect: the platform has
+applied it (`status.observedGeneration` reaches the generation the change
+produced) and every instance runs it again (the `Ready` condition is `True`;
+the phase stays `Running` while a change rolls out). A database with a single
+instance is `Degraded` while that instance restarts for a CPU or memory
+change; the wait rides that out, but exits `1` if the database stays
+`Degraded` for 5 minutes, and at once if it starts being deleted. Pass
+`--wait=false` to return as soon as the change is accepted. A
 smaller `--storage` (`400 storage_shrink_unsupported`) exits `2` with the
 API's message, for example `storage can only grow: 5Gi is smaller than the
 current 10Gi`, and a hint to check the current size with `kupe db get NAME`.
 Any other refused change exits `2` with the API's message, which names the
 field and the rule it broke.
+
+**Exit codes (waiting):** `1` when the database stays `Degraded` or starts
+being deleted, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C
+(the change continues).
 
 ### `kupe database upgrade NAME --version MAJOR`
 

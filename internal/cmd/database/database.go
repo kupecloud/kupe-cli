@@ -6,6 +6,7 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -61,6 +62,25 @@ func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.
 		return db, db.Status.Phase, nil
 	}
 }
+
+// converge is when a database's change has taken effect: the operator has
+// applied the spec, the phase is Running and the Ready condition is True, so
+// every instance runs the new spec. A single-instance database is Degraded
+// while its only instance restarts to apply a CPU or memory change, so
+// Degraded fails the wait only once it has lasted degradedGrace.
+var converge = cmdutil.Converge[*client.Database]{
+	ObservedGeneration: func(db *client.Database) int64 {
+		if db == nil || db.Status == nil {
+			return 0
+		}
+		return db.Status.ObservedGeneration
+	},
+	Settled:       func(db *client.Database) bool { return db != nil && db.Status.Ready() },
+	DegradedGrace: degradedGrace,
+}
+
+// degradedGrace bounds how long an update waits through a Degraded phase.
+const degradedGrace = 5 * time.Minute
 
 // validateRole rejects anything but the two database roles before a
 // request is made.

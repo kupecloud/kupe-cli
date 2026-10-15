@@ -470,3 +470,49 @@ func TestDatabaseBinding_EffectiveSecretName(t *testing.T) {
 		})
 	}
 }
+
+// TestDatabase_DecodesRotationStatus pins the status.rotations shape kupe-api
+// projects (internal/server/handlers.go rotationStatus), and that a server
+// predating it decodes to nil.
+func TestDatabase_DecodesRotationStatus(t *testing.T) {
+	const withRotations = `{"name":"orders-db","status":{"phase":"Running",
+  "rotations":{"owner":{"requestedAt":"","appliedAt":"","pending":false},
+    "app":{"requestedAt":"2026-10-09T12:00:00.123456789Z","appliedAt":"2026-10-01T08:00:00Z","pending":true}}}}`
+	var db Database
+	if err := json.Unmarshal([]byte(withRotations), &db); err != nil {
+		t.Fatal(err)
+	}
+	app := db.Status.Rotations.Role(DatabaseRoleApp)
+	if app.RequestedAt != "2026-10-09T12:00:00.123456789Z" || app.AppliedAt != "2026-10-01T08:00:00Z" || !app.Pending {
+		t.Fatalf("app rotation = %+v", app)
+	}
+	if owner := db.Status.Rotations.Role(DatabaseRoleOwner); owner != (RotationStatus{}) {
+		t.Fatalf("owner rotation = %+v; want never requested", owner)
+	}
+
+	var older Database
+	if err := json.Unmarshal([]byte(databaseJSON), &older); err != nil {
+		t.Fatal(err)
+	}
+	if older.Status.Rotations != nil {
+		t.Fatalf("a server without rotations should decode to nil, got %+v", older.Status.Rotations)
+	}
+}
+
+func TestDatabaseStatus_Ready(t *testing.T) {
+	var db Database
+	if err := json.Unmarshal([]byte(databaseJSON), &db); err != nil {
+		t.Fatal(err)
+	}
+	if !db.Status.Ready() {
+		t.Fatal("a Ready=True condition should read as ready")
+	}
+	db.Status.Conditions[0].Status = "False"
+	if db.Status.Ready() {
+		t.Fatal("a Ready=False condition should not read as ready")
+	}
+	var none *DatabaseStatus
+	if none.Ready() {
+		t.Fatal("a missing status is not ready")
+	}
+}

@@ -642,8 +642,8 @@ func TestRotateCredentials(t *testing.T) {
 		wantExit  int
 		wantCall  string
 	}{
-		{"--yes rotates the app role", []string{"--role", "app", "--yes"}, "", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:app"},
-		{"typing yes confirms the owner role", []string{"--role", "owner"}, "yes\n", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:owner"},
+		{"--yes rotates the app role", []string{"--role", "app", "--yes", "--wait=false"}, "", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:app"},
+		{"typing yes confirms the owner role", []string{"--role", "owner", "--wait=false"}, "yes\n", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:owner"},
 		{"role is required", []string{"--yes"}, "", nil, cli.ExitMisuse, ""},
 		{"unknown role is misuse", []string{"--role", "admin", "--yes"}, "", nil, cli.ExitMisuse, ""},
 		{"non-interactive without --yes is refused", []string{"--role", "app"}, "", nil, cli.ExitMisuse, ""},
@@ -678,6 +678,93 @@ func TestRotateCredentials(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rotations is a database whose app and owner rotations read app and owner.
+func rotations(app, owner client.RotationStatus) *client.Database {
+	db := running("orders-db")
+	db.Status.Rotations = &client.DatabaseRotations{App: app, Owner: owner}
+	return db
+}
+
+func TestRotateCredentials_Wait(t *testing.T) {
+	// The fake acknowledges every rotation with this token.
+	const token = "2026-10-09T12:00:00Z"
+	const earlier = "2026-10-01T08:00:00Z"
+	settled := client.RotationStatus{RequestedAt: earlier, AppliedAt: earlier}
+	pending := client.RotationStatus{RequestedAt: token, AppliedAt: earlier, Pending: true}
+	applied := client.RotationStatus{RequestedAt: token, AppliedAt: token}
+	terminating := rotations(pending, settled)
+	terminating.Status.Phase = client.PhaseTerminating
+
+	tests := []struct {
+		name       string
+		args       []string
+		seq        []*client.Database
+		wantExit   int
+		wantStdout string // substring
+		wantStderr string // substring
+		wantHint   string // substring
+	}{
+		{"waits until the app rotation is applied", []string{"--role", "app"},
+			[]*client.Database{rotations(pending, settled), rotations(applied, settled)},
+			cli.ExitOK, "database/orders-db app credentials rotated\n", "", ""},
+		{"the owner role reads the owner rotation", []string{"--role", "owner"},
+			[]*client.Database{rotations(applied, pending), rotations(applied, applied)},
+			cli.ExitOK, "database/orders-db owner credentials rotated\n", "", ""},
+		{"-o json reports the token applied", []string{"--role", "app", "-o", "json"},
+			[]*client.Database{rotations(applied, settled)},
+			cli.ExitOK, `"appliedAt": "` + token + `"`, "", ""},
+		{"an older kupe-api without rotation status is not waited on", []string{"--role", "app"},
+			[]*client.Database{running("orders-db")},
+			cli.ExitOK, "database/orders-db app credentials rotation requested\n", "does not report rotation progress", ""},
+		{"a rotation never applied times out, saying the old password still works", []string{"--role", "app", "--wait-timeout", "300ms"},
+			[]*client.Database{rotations(pending, settled)},
+			cli.ExitTimeout, "", "", "status.rotations.app"},
+		{"a database being deleted ends the wait", []string{"--role", "app"},
+			[]*client.Database{terminating},
+			cli.ExitGeneral, "", "", "kupe database get orders-db"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.GetDatabaseSeq["orders-db"] = tt.seq
+			f := factoryWith(t, fake)
+			out, stderr, err := run(f, newRotateCredentialsCmd(f), append([]string{"orders-db", "--yes", "--wait-timeout", "20s"}, tt.args...)...)
+			assertExit(t, err, tt.wantExit)
+			if !strings.Contains(out, tt.wantStdout) {
+				t.Errorf("stdout = %q; want %q", out, tt.wantStdout)
+			}
+			if !strings.Contains(stderr, tt.wantStderr) {
+				t.Errorf("stderr = %q; want %q", stderr, tt.wantStderr)
+			}
+			if !strings.Contains(hint(err), tt.wantHint) {
+				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
+			}
+		})
+	}
+}
+
+func TestRotateCredentials_WaitFalseJSON(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = running("orders-db")
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--role", "app", "--yes", "--wait=false", "-o", "json")
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, out)
+	}
+	if got["requestedAt"] != "2026-10-09T12:00:00Z" || got["pending"] != true || got["role"] != "app" {
+		t.Fatalf("rotation = %+v", got)
+	}
+	if _, ok := got["appliedAt"]; ok {
+		t.Fatalf("appliedAt should be absent before a wait: %+v", got)
+	}
+	assertNoCall(t, fake, "GetDatabase")
 }
 
 func TestWait(t *testing.T) {

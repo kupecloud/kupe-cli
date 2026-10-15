@@ -858,11 +858,35 @@ continues).
 ### `kupe database rotate-credentials NAME --role owner|app`
 
 Request a new password for one role: `owner` (schema changes) or `app` (read
-and write data). The current password stops working once the rotation
-completes; bound credentials Secrets are updated, but applications using the
-old password must restart. Prompts on TTY (type `yes`); `--yes` is required in
-non-interactive mode. Stdout: `database/NAME ROLE credentials rotation
-requested`. Exits `5` when the database is being deleted.
+and write data), and by default wait until it is in effect. Once it is, the
+current password stops working and every bound credentials Secret for the role
+carries the new one; applications using the old password must restart.
+Prompts on TTY (type `yes`); `--yes` is required in non-interactive mode.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--role` | — | `owner` or `app` (required). |
+| `--yes`, `-y` | off | Skip confirmation. |
+| `--wait` | `true` | Wait until the new password is in effect. |
+| `--wait-timeout` | `10m` | Give up after this long. Exits `8`. |
+| `-o, --output FORMAT` | table | `json`, `yaml` or `go-template=...` print `database`, `role`, `requestedAt`, `pending` and, after a wait, `appliedAt`. |
+
+The rotation is in effect once `status.rotations.ROLE.appliedAt` (in
+`kupe database get NAME -o yaml`) equals the `requestedAt` kupe-api returned
+for the request; the wait polls for exactly that. The values are opaque
+tokens, compared for equality only, so a later rotation requested by someone
+else replaces this one and the wait then times out. Stdout:
+`database/NAME ROLE credentials rotated`, or with `--wait=false`
+`database/NAME ROLE credentials rotation requested`. A kupe-api that does not
+report `status.rotations` yet cannot be waited on: the command says so on
+stderr and prints the requested line.
+
+**Exit codes:** `0` rotated (with `--wait=false`: requested), `2` bad
+`--role` or confirmation missing, `4` not found, `5` when the database is being
+deleted (`409 terminating`), `1` when it starts being deleted while waiting,
+`7` lost contact with kupe-api while waiting, `8` the rotation is not in effect
+by `--wait-timeout` (the old password still works; the platform keeps
+applying it), `130` Ctrl+C while waiting (the rotation continues).
 
 ### `kupe database wait NAME`
 

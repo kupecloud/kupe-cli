@@ -41,10 +41,42 @@ type DatabaseStatus struct {
 	// CurrentVersion is the full engine version running, e.g. "18.0".
 	CurrentVersion string `json:"currentVersion,omitempty" yaml:"currentVersion,omitempty"`
 	// PreviousVersion is set while a major version upgrade is in progress.
-	PreviousVersion  string      `json:"previousVersion,omitempty" yaml:"previousVersion,omitempty"`
-	InstancesReady   int32       `json:"instancesReady" yaml:"instancesReady"`
-	InstancesDesired int32       `json:"instancesDesired" yaml:"instancesDesired"`
-	Conditions       []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	PreviousVersion  string `json:"previousVersion,omitempty" yaml:"previousVersion,omitempty"`
+	InstancesReady   int32  `json:"instancesReady" yaml:"instancesReady"`
+	InstancesDesired int32  `json:"instancesDesired" yaml:"instancesDesired"`
+	// Rotations is each role's credential rotation state; nil from a
+	// kupe-api that predates it.
+	Rotations  *DatabaseRotations `json:"rotations,omitempty" yaml:"rotations,omitempty"`
+	Conditions []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+}
+
+// DatabaseRotations is the credential rotation state of each role.
+type DatabaseRotations struct {
+	Owner RotationStatus `json:"owner" yaml:"owner"`
+	App   RotationStatus `json:"app" yaml:"app"`
+}
+
+// Role returns the state of role (DatabaseRoleOwner or DatabaseRoleApp).
+func (r *DatabaseRotations) Role(role string) RotationStatus {
+	if role == DatabaseRoleOwner {
+		return r.Owner
+	}
+	return r.App
+}
+
+// RotationStatus is one role's credential rotation state. The values are
+// the opaque tokens rotate-credentials returns as requestedAt: compare them
+// for equality only. A rotation is in effect once AppliedAt equals the token
+// of its request: the new password works, the old one no longer does, and
+// every bound credentials Secret carries it.
+type RotationStatus struct {
+	// RequestedAt is the token of the last rotation requested; empty if
+	// none ever was.
+	RequestedAt string `json:"requestedAt" yaml:"requestedAt"`
+	// AppliedAt is the token of the last rotation the database applied.
+	AppliedAt string `json:"appliedAt" yaml:"appliedAt"`
+	// Pending is true while the last request is not yet applied.
+	Pending bool `json:"pending" yaml:"pending"`
 }
 
 // Condition is a Kubernetes-style status condition.
@@ -101,7 +133,8 @@ const (
 )
 
 // CredentialRotation acknowledges a rotate-credentials request. The
-// platform rotates the password asynchronously; none is returned.
+// platform rotates the password asynchronously; none is returned. Wait for
+// status.rotations.{role}.appliedAt to equal RequestedAt.
 type CredentialRotation struct {
 	Database    string `json:"database" yaml:"database"`
 	Role        string `json:"role" yaml:"role"`

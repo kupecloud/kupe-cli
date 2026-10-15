@@ -81,7 +81,7 @@ func TestDatabaseLifecycle(t *testing.T) {
 		t.Errorf("storage not grown: %+v", updated["resources"])
 	}
 
-	out := runCLIExpectOK(t, "db", "rotate-credentials", name, "--role", "app", "--yes")
+	out := runCLIExpectOK(t, "db", "rotate-credentials", name, "--role", "app", "--yes", "--wait=false")
 	if !strings.Contains(out, "rotation requested") {
 		t.Errorf("rotate stdout = %q", out)
 	}

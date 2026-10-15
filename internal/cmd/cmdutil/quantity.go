@@ -46,7 +46,7 @@ type QuantityFlag struct {
 func ValidateQuantities(maxLength int, flags ...QuantityFlag) error {
 	for _, q := range flags {
 		if q.Required && q.Value == "" {
-			return cli.MisuseError(q.Name + " is required").WithHint(q.example())
+			return cli.MisuseError(q.Name + " is required").WithHint(q.example() + q.unitNote())
 		}
 	}
 	for _, q := range flags {
@@ -70,4 +70,12 @@ func ValidateQuantities(maxLength int, flags ...QuantityFlag) error {
 
 func (q QuantityFlag) example() string {
 	return "example: " + q.Name + " " + q.Example
+}
+
+// unitNote says what form the value takes, for a required flag's hint.
+func (q QuantityFlag) unitNote() string {
+	if q.CPU {
+		return " (vCPUs, or millicores like 500m)"
+	}
+	return " (a unit suffix such as Gi or Mi is required)"
 }

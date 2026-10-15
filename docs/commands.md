@@ -319,6 +319,31 @@ Invalid keys exit with code `2`.
 
 ---
 
+## Refusals shared by clusters and databases
+
+Every `kupe cluster` and `kupe database` command maps the refusals both
+services share the same way. The API's message is the error text; the hint is
+the next step. kupe-api's error `code` decides; an older kupe-api that sends
+only the platform's sentence is matched on that sentence instead.
+
+| Refusal (`code`, HTTP status) | Exit | Hint |
+| --- | --- | --- |
+| Creation paused (`creation_paused`, 400) | `7` | retry later; status page link |
+| Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted |
+| The cluster or database is being deleted (`terminating`, 409) | `5` | `kupe <noun> wait NAME --for deleted` |
+| The tenant is being deleted (`tenant_terminating`, 409) | `5` | — |
+| The tenant is suspended (`tenant_suspended`, 409) | `5` | contact support |
+| No payment method yet (`payment_setup_required`, 409) | `5` | add one on the console's Billing page |
+| The plan's count limit (`plan_limit_reached`, 400) | `5` | delete one or upgrade the plan |
+| kupe-api temporarily unavailable (503, including "the tenant's database limit is still being set up") | `7` | retry in a few seconds |
+
+The tenant refusals cover growing an existing cluster or database (a larger
+size, high availability on) as well as creating one. Creates and updates are
+never retried automatically: a 503 on one is reported with the hint, so a
+script can decide to retry.
+
+---
+
 ## `kupe cluster` — Cluster lifecycle
 
 ### `kupe cluster list`
@@ -424,10 +449,12 @@ In CI/non-TTY, progress is written to stderr and the final resource render remai
 ```
 
 **Exit codes:** `0` success, `2` invalid flags or a spec the API rejected (the
-hint names the flags to check), `5` on 409 (name exists), `7` while the
-platform pauses cluster creation (`400 creation_paused`; the API's message
-and a hint to retry later) or when kupe-api stays unreachable for 90 seconds
-while waiting ("lost contact with kupe-api while waiting"), `8` on timeout,
+hint names the flags to check), `5` on 409 (name exists) or a tenant or plan
+refusal ([shared refusals](#refusals-shared-by-clusters-and-databases)), `7`
+while the platform pauses cluster creation (`400 creation_paused`; the API's
+message and a hint to retry later), on a 503, or when kupe-api stays
+unreachable for 90 seconds while waiting ("lost contact with kupe-api while
+waiting"), `8` on timeout,
 `130` Ctrl+C while waiting (creation continues), `1` when the cluster enters
 `Degraded` (`cluster "NAME" entered Degraded state`, hint: `kupe cluster get
 NAME`).
@@ -727,8 +754,9 @@ Create a database and wait for `status.phase=Running` by default.
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
 
-Platform floors and ceilings and the plan's database limit are enforced by the
-API; its message, including any per-field reasons, is shown as returned. While
+Platform floors and ceilings are enforced by the API; its message, including
+any per-field reasons, is shown as returned. The plan's database limit exits
+`5` with a hint. While
 the platform pauses database creation (`400 creation_paused`) the command
 exits `7` with the API's message and a hint to retry later. A `Degraded`
 phase fails the wait.
@@ -738,10 +766,12 @@ kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
 ```
 
 **Exit codes:** `0` success, `2` missing or malformed flags (no request made)
-or an API validation error, `5` name exists, `7` creation paused or lost
-contact with kupe-api while waiting, `8` wait timeout, `130` Ctrl+C while
-waiting (creation continues), `1` when the database enters `Degraded`
-(`database "NAME" entered Degraded state`, hint: `kupe database get NAME`).
+or an API validation error, `5` name exists or a tenant or plan refusal
+([shared refusals](#refusals-shared-by-clusters-and-databases)), `7` creation
+paused, a 503, or lost contact with kupe-api while waiting, `8` wait timeout,
+`130` Ctrl+C while waiting (creation continues), `1` when the database enters
+`Degraded` (`database "NAME" entered Degraded state`, hint: `kupe database
+get NAME`).
 
 ### `kupe database update NAME`
 

@@ -55,7 +55,7 @@ version changes nothing.`,
 				return &client.PatchDatabaseRequest{Version: &opts.version}
 			})
 			if err != nil {
-				return translateUpgradeErr(err)
+				return translateUpgradeErr(err, name)
 			}
 			return printer.Database.One(f.IOStreams, format, updated)
 		},

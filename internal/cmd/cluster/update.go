@@ -88,13 +88,13 @@ rarely the right answer outside of disaster recovery.`,
 			case opts.force:
 				u, _, uerr := api.Clusters().Update(cmd.Context(), name, "", *patch)
 				if uerr != nil {
-					return translateClusterErr(uerr)
+					return translateClusterErr(uerr, name)
 				}
 				updated = u
 			case opts.ifMatch != "":
 				u, _, uerr := api.Clusters().Update(cmd.Context(), name, opts.ifMatch, *patch)
 				if uerr != nil {
-					return translateClusterErr(uerr)
+					return translateClusterErr(uerr, name)
 				}
 				updated = u
 			default:
@@ -108,7 +108,7 @@ rarely the right answer outside of disaster recovery.`,
 					})
 				}
 				if uerr != nil {
-					return translateClusterErr(uerr)
+					return translateClusterErr(uerr, name)
 				}
 				updated = u
 			}

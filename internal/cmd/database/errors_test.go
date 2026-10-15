@@ -17,17 +17,19 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 	const (
 		unavailableHint = "this is a platform setting, not an outage, so retrying will not help; " +
 			"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted"
-		pausedHint     = "retry later; status updates are posted at https://status.kupe.cloud"
-		shrinkHint     = "pass a --storage at least the current size, shown by:  kupe db get orders-db"
-		protectedHint  = "turn it off first:  kupe db update orders-db --deletion-protection=false"
-		retryHint      = "retry:  kupe db delete orders-db"
-		pausedMessage  = "Database creation is temporarily paused while we expand platform capacity. Please try again later."
-		protectMessage = `database "orders-db" has deletionProtection enabled: set it to false before deleting`
+		pausedHint      = "retry later; status updates are posted at https://status.kupe.cloud"
+		shrinkHint      = "pass a --storage at least the current size, shown by:  kupe db get orders-db"
+		protectedHint   = "turn it off first:  kupe db update orders-db --deletion-protection=false"
+		retryHint       = "retry:  kupe db delete orders-db"
+		pausedMessage   = "Database creation is temporarily paused while we expand platform capacity. Please try again later."
+		protectMessage  = `database "orders-db" has deletionProtection enabled: set it to false before deleting`
+		terminatingHint = "it can no longer be changed; to wait until it is gone:  kupe database wait orders-db --for deleted"
+		retryLaterHint  = "retry in a few seconds; status updates are posted at https://status.kupe.cloud"
 	)
-	translate := func(err error) error { return translateErr(err) }
+	translate := func(err error) error { return translateErr(err, name) }
 	update := func(err error) error { return translateUpdateErr(err, name) }
 	del := func(err error) error { return translateDeleteErr(err, name) }
-	upgrade := func(err error) error { return translateUpgradeErr(err) }
+	upgrade := func(err error) error { return translateUpgradeErr(err, name) }
 	rotate := func(err error) error { return translateRotateErr(err, name) }
 
 	tests := []struct {
@@ -71,6 +73,18 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 			`database "orders-db" is being deleted (request-id: req-1)`, "", cli.ExitConflict},
 		{"rotate while deleting without a message", rotate, 409, "", "",
 			`cannot rotate credentials of database "orders-db": Conflict (request-id: req-1)`, "", cli.ExitConflict},
+		{"rotate of a terminating database", rotate, 409, client.CodeTerminating, `database "orders-db" is being deleted`,
+			`database "orders-db" is being deleted (request-id: req-1)`, terminatingHint, cli.ExitConflict},
+		{"update of a terminating database", update, 409, client.CodeTerminating, `database "orders-db" is being deleted`,
+			`database "orders-db" is being deleted (request-id: req-1)`, terminatingHint, cli.ExitConflict},
+		{"plan limit on create", translate, 400, client.CodePlanLimitReached,
+			"maximum database limit reached: your plan allows 1 database(s)",
+			"maximum database limit reached: your plan allows 1 database(s) (request-id: req-1)",
+			`delete a database ("kupe database delete <name>") or upgrade your plan`, cli.ExitConflict},
+		{"service quota still being set up", translate, 503, "",
+			"the tenant's database limit is still being set up; retry in a few seconds",
+			"service unavailable: the tenant's database limit is still being set up; retry in a few seconds (request-id: req-1)",
+			retryLaterHint, cli.ExitUnavailable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

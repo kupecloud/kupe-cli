@@ -81,7 +81,7 @@ create the database with --no-deletion-protection.`,
 
 			created, _, err := api.Databases().Create(cmd.Context(), req)
 			if err != nil {
-				return translateErr(err)
+				return translateErr(err, name)
 			}
 			if !opts.wait {
 				return printer.Database.One(f.IOStreams, format, created)

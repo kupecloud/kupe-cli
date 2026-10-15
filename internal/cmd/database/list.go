@@ -27,7 +27,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 			}
 			list, err := api.Databases().List(cmd.Context())
 			if err != nil {
-				return translateErr(err)
+				return translateErr(err, "")
 			}
 			return printer.Database.List(f.IOStreams, format, list)
 		},

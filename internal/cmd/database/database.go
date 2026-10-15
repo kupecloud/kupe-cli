@@ -53,7 +53,7 @@ func phaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*client.
 	return func(ctx context.Context) (*client.Database, string, error) {
 		db, _, err := api.Databases().Get(ctx, name)
 		if err != nil {
-			return nil, "", translateErr(err)
+			return nil, "", translateErr(err, name)
 		}
 		if db.Status == nil {
 			return db, "", nil

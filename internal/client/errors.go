@@ -182,6 +182,27 @@ func IsServerError(err error) bool {
 // POST /databases while the platform pauses creation.
 const CodeCreationPaused = "creation_paused"
 
+// Codes kupe-api returns for refusals every managed service can get, from
+// its own checks or mapped from the operator's admission denials (kupe-api
+// internal/errors/errors.go). Compare via ErrorCode.
+const (
+	// CodeTerminating: 409 for a change to a cluster or database that is
+	// being deleted, a rotation of one, or a binding of a database that is.
+	CodeTerminating = "terminating"
+	// CodeTenantTerminating: 409 for creating or growing a service while
+	// the tenant is being deleted.
+	CodeTenantTerminating = "tenant_terminating"
+	// CodeTenantSuspended: 409 for creating or growing a service while the
+	// tenant is suspended.
+	CodeTenantSuspended = "tenant_suspended"
+	// CodePaymentSetupRequired: 409 for creating or growing a service
+	// before the tenant has added a payment method.
+	CodePaymentSetupRequired = "payment_setup_required"
+	// CodePlanLimitReached: 400 for creating a cluster or database the
+	// tenant's plan has no room for.
+	CodePlanLimitReached = "plan_limit_reached"
+)
+
 // creationPausedText identifies the same refusal from servers that predate
 // CodeCreationPaused. Lower-case: the API and webhook capitalise it
 // differently.

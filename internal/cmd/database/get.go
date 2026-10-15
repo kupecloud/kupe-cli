@@ -27,7 +27,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 			}
 			db, _, err := api.Databases().Get(cmd.Context(), args[0])
 			if err != nil {
-				return translateErr(err)
+				return translateErr(err, args[0])
 			}
 			return printer.Database.One(f.IOStreams, format, db)
 		},

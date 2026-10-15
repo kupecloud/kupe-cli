@@ -112,7 +112,7 @@ that is longer than 63 characters.`,
 				SecretName: opts.secretName,
 			})
 			if err != nil {
-				return translateErr(err)
+				return translateErr(err, database)
 			}
 			if !opts.wait {
 				return printer.DatabaseBinding.One(f.IOStreams, format, b)
@@ -142,7 +142,7 @@ func bindingPhaseGetter(api client.Interface, database, name string) cmdutil.Pha
 	return func(ctx context.Context) (*client.DatabaseBinding, string, error) {
 		b, err := api.GetDatabaseBinding(ctx, database, name)
 		if err != nil {
-			return nil, "", translateErr(err)
+			return nil, "", translateErr(err, database)
 		}
 		if b.Status == nil {
 			return b, "", nil
@@ -223,7 +223,7 @@ func newBindingListCmd(f *cli.Factory) *cobra.Command {
 			}
 			list, err := api.ListDatabaseBindings(cmd.Context(), args[0])
 			if err != nil {
-				return translateErr(err)
+				return translateErr(err, args[0])
 			}
 			return printer.DatabaseBinding.List(f.IOStreams, format, list)
 		},
@@ -252,7 +252,7 @@ func newBindingGetCmd(f *cli.Factory) *cobra.Command {
 			}
 			b, err := api.GetDatabaseBinding(cmd.Context(), args[0], args[1])
 			if err != nil {
-				return translateErr(err)
+				return translateErr(err, args[0])
 			}
 			return printer.DatabaseBinding.One(f.IOStreams, format, b)
 		},
@@ -289,7 +289,7 @@ non-interactive environments).`,
 				return err
 			}
 			if err := api.DeleteDatabaseBinding(cmd.Context(), database, name); err != nil {
-				return translateErr(err)
+				return translateErr(err, database)
 			}
 			fmt.Fprintf(io.Out, "binding/%s delete requested\n", name)
 			fmt.Fprintf(io.ErrOut, "The role's password is unchanged; to revoke it too: kupe database rotate-credentials %s --role ROLE\n", database)

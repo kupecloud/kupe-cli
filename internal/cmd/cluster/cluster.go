@@ -116,21 +116,20 @@ func observedGen(c *client.Cluster) int64 {
 // the operator's admission webhook into CLI-shaped guidance. The webhook and
 // API leak K8s field paths ("spec.resources.cpu") that mean nothing to a CLI
 // user — translate to flag names ("--cpu-limit") and pin a Hint where there's a
-// next step the user can take.
+// next step the user can take. The refusals every service shares (creation
+// paused, terminating, the tenant gates, the plan limit, a 503) are
+// cmdutil.TranslateCommon's; name is the cluster the command acted on.
 //
 // Only patterns we can match with confidence get rewritten; anything else
 // falls through unchanged so we don't paper over a real bug with a friendly-
 // looking but wrong message. Kept in one place so create/update/delete share
 // the same vocabulary.
-func translateClusterErr(err error) error {
+func translateClusterErr(err error, name string) error {
 	if err == nil {
 		return nil
 	}
 	msg := err.Error()
 	switch {
-	case client.IsCreationPaused(err):
-		return cli.WrapAPI(cli.ExitUnavailable, "cluster creation is paused", err).
-			WithHint("retry later; status updates are posted at https://status.kupe.cloud")
 	case strings.Contains(msg, "spec.resources.cpu is required"):
 		return cli.MisuseError("--cpu-limit is required").
 			WithHint("example: --cpu-limit 2 (use a number of vCPUs, or a millicore value like 500m)")
@@ -161,11 +160,6 @@ func translateClusterErr(err error) error {
 	case strings.Contains(msg, "unsupported Kubernetes version"):
 		return cli.MisuseError(extractWebhookMessage(msg)).
 			WithHint("run \"kupe plan list\" to see supported versions")
-	case strings.Contains(msg, "maximum cluster limit reached"):
-		return cli.New(cli.ExitConflict, extractWebhookMessage(msg)).
-			WithHint("delete a cluster (\"kupe cluster delete <name>\") or upgrade your plan")
-	case strings.Contains(msg, "is being deleted; cannot create new ManagedClusters"):
-		return cli.New(cli.ExitConflict, "your tenant is being deleted; cannot create new clusters")
 	case strings.Contains(msg, "spec.tenantRef is immutable"):
 		return cli.MisuseError("a cluster's tenant cannot be changed after creation")
 	case strings.Contains(msg, "tenantRef.namespace must match"):
@@ -176,7 +170,7 @@ func translateClusterErr(err error) error {
 		return cli.WrapAPI(cli.ExitMisuse, "cluster spec rejected", err).
 			WithHint("check --cpu-limit (e.g. 2), --memory-limit (e.g. 8Gi), --storage-limit (e.g. 50Gi), and --version values")
 	}
-	return err
+	return cmdutil.TranslateCommon("cluster", name, err)
 }
 
 // clusterSpecRejectedPrefix starts kupe-api's message for a cluster spec that

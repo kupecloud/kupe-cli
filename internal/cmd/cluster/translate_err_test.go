@@ -41,10 +41,28 @@ func TestTranslateClusterErr(t *testing.T) {
 			cli.ExitMisuse, `cluster name "x" too long: at most 48 characters for this tenant`, "", "--cpu-limit"},
 		{"an unrelated validation error passes through", &client.APIError{StatusCode: 400, Message: "plan does not allow HA"},
 			cli.ExitMisuse, "plan does not allow HA", "", ""},
+		{"plan limit by code", &client.APIError{StatusCode: 400, Code: client.CodePlanLimitReached,
+			Message: "maximum cluster limit reached: starter plan allows 3 cluster(s), currently have 3"},
+			cli.ExitConflict, "maximum cluster limit reached: starter plan allows 3 cluster(s), currently have 3",
+			`delete a cluster ("kupe cluster delete <name>") or upgrade your plan`, ""},
+		{"older server: plan limit sentence without a code", &client.APIError{StatusCode: 400,
+			Message: "maximum cluster limit reached: starter plan allows 3 cluster(s), currently have 3"},
+			cli.ExitConflict, "maximum cluster limit reached: starter plan allows 3 cluster(s), currently have 3",
+			`delete a cluster ("kupe cluster delete <name>") or upgrade your plan`, "--cpu-limit"},
+		{"tenant being deleted by code", &client.APIError{StatusCode: 409, Code: client.CodeTenantTerminating,
+			Message: "tenant acme is being deleted; cannot grow clusters"},
+			cli.ExitConflict, "tenant acme is being deleted; cannot grow clusters", "", ""},
+		{"older server: tenant being deleted without a code", &client.APIError{StatusCode: 400,
+			Message: "tenant tenant-acme/acme is being deleted; cannot create new ManagedClusters"},
+			cli.ExitConflict, "tenant tenant-acme/acme is being deleted; cannot create new ManagedClusters", "", ""},
+		{"update of a terminating cluster", &client.APIError{StatusCode: 409, Code: client.CodeTerminating,
+			Message: `cluster "prod" is being deleted`},
+			cli.ExitConflict, `cluster "prod" is being deleted`,
+			"it can no longer be changed; to wait until it is gone:  kupe cluster wait prod --for deleted", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := translateClusterErr(tt.err)
+			err := translateClusterErr(tt.err, "prod")
 			if code := cli.ExitCode(err); code != tt.wantExit {
 				t.Fatalf("exit = %d; want %d (%v)", code, tt.wantExit, err)
 			}

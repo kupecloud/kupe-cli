@@ -798,8 +798,11 @@ produced) and every instance runs it again (the `Ready` condition is `True`;
 the phase stays `Running` while a change rolls out). A database with a single
 instance is `Degraded` while that instance restarts for a CPU or memory
 change; the wait rides that out, but exits `1` if the database stays
-`Degraded` for 5 minutes, and at once if it starts being deleted. Pass
-`--wait=false` to return as soon as the change is accepted. A
+`Degraded` for 5 minutes, and at once if it starts being deleted. A change to
+deletion protection alone is in effect at once (a delete reads it from the
+spec) and is not waited on, so turning protection off on a `Degraded` or
+never-provisioned database returns at once. Pass `--wait=false` to return as
+soon as the change is accepted. A
 smaller `--storage` (`400 storage_shrink_unsupported`) exits `2` with the
 API's message, for example `storage can only grow: 5Gi is smaller than the
 current 10Gi`, and a hint to check the current size with `kupe db get NAME`.

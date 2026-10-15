@@ -425,6 +425,26 @@ func TestUpdate_WaitFalseReturnsOnceAccepted(t *testing.T) {
 	}
 }
 
+// TestUpdate_DeletionProtectionAloneIsNotWaitedOn pins that turning
+// protection off on a database that will never be Ready (stuck
+// provisioning) returns at once, so the delete that follows is not held.
+func TestUpdate_DeletionProtectionAloneIsNotWaitedOn(t *testing.T) {
+	fake := clienttest.New()
+	stuck := applying("orders-db", 3, 2, false)
+	stuck.Status.Phase = client.PhaseProvisioning
+	fake.DatabasesByName["orders-db"] = stuck
+	f := factoryWith(t, fake)
+	if _, _, err := run(f, newUpdateCmd(f), "orders-db", "--deletion-protection=false", "--wait-timeout", "300ms"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 1 {
+		t.Fatalf("GETs = %d; want only the RMW read", polls)
+	}
+	if fake.DatabasesByName["orders-db"].DeletionProtection {
+		t.Fatal("deletion protection should be off")
+	}
+}
+
 func TestUpdate_WaitTimesOutWhileStillRolling(t *testing.T) {
 	fake := clienttest.New()
 	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 3, false)

@@ -40,8 +40,9 @@ automatically. By default the command waits until the change is in effect:
 the platform has applied it and every instance runs it again. A database
 with a single instance is briefly Degraded while that instance restarts for
 a CPU or memory change; the wait rides that out, but fails if the database
-stays Degraded for 5 minutes. Pass --wait=false to return as soon as the
-change is accepted.`,
+stays Degraded for 5 minutes. A change to deletion protection alone is in
+effect at once and is not waited on. Pass --wait=false to return as soon as
+the change is accepted.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe database update orders-db --cpu 1 --memory 2Gi
   kupe db update orders-db --storage 20Gi
@@ -80,7 +81,12 @@ change is accepted.`,
 			if err != nil {
 				return translateUpdateErr(err, name)
 			}
-			if !opts.wait {
+			// Deletion protection is read from the spec when a delete comes
+			// in, so it is in effect once the PATCH lands; only a resize or an
+			// HA change rolls the instances. Waiting on a protection-only
+			// change would hold the "turn protection off, then delete" path
+			// on a database that is Degraded or was never provisioned.
+			if !opts.wait || (patch.Resources == nil && patch.HighAvailability == nil) {
 				return printer.Database.One(f.IOStreams, format, updated)
 			}
 			// The PATCH response carries the generation the change produced.

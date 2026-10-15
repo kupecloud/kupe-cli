@@ -413,6 +413,26 @@ func TestUpdate_WaitsUntilTheChangeIsInEffect(t *testing.T) {
 	}
 }
 
+// The first poll after a PATCH is the realistic stale answer: Ready True
+// from before the change, at the old observedGeneration. It must not end
+// the wait.
+func TestUpdate_AStaleReadyBeforeTheOperatorSeesTheChangeIsNotTheEnd(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 2, true)
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		applying("orders-db", 2, 2, true), // the read-modify-write GET
+		applying("orders-db", 3, 2, true),
+		applying("orders-db", 3, 3, true),
+	}
+	f := factoryWith(t, fake)
+	if _, _, err := run(f, newUpdateCmd(f), "orders-db", "--cpu", "1", "--wait-timeout", "20s"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 3 {
+		t.Fatalf("GETs = %d; want the RMW read, the stale poll and the applied one", polls)
+	}
+}
+
 func TestUpdate_WaitFalseReturnsOnceAccepted(t *testing.T) {
 	fake := clienttest.New()
 	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 2, false)
@@ -873,6 +893,9 @@ func TestWait_ForDeletedWhenDatabasesUnavailableIsAnError(t *testing.T) {
 	assertExit(t, err, cli.ExitNotFound)
 	if out != "" {
 		t.Fatalf("must not report the database deleted: %q", out)
+	}
+	if !strings.Contains(hint(err), "this is a platform setting, not an outage") {
+		t.Fatalf("hint = %q; want the wait's error translated", hint(err))
 	}
 }
 

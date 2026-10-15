@@ -136,6 +136,25 @@ func TestUpdateWaitTimesOutWhenOperatorNeverReacts(t *testing.T) {
 	}
 }
 
+// TestUpdateTranslatesTheFirstRead pins that update's read of the current
+// cluster goes through the cluster's translation, so a kupe-api restart
+// carries the retry hint like every other cluster call.
+func TestUpdateTranslatesTheFirstRead(t *testing.T) {
+	fake := clienttest.New()
+	fake.GetClusterErr = &client.APIError{StatusCode: 503, Message: "service unavailable"}
+	f := factoryWith(t, fake)
+	cmd := newUpdateCmd(f)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	err := executeCmd(cmd, "prod", "--version", "1.33", "--wait=false")
+	if code := cli.ExitCode(err); code != cli.ExitUnavailable {
+		t.Fatalf("exit = %d; want %d (err: %v)", code, cli.ExitUnavailable, err)
+	}
+	var cliErr *cli.Error
+	if !errors.As(err, &cliErr) || !strings.Contains(cliErr.Hint, "retry in a few seconds") {
+		t.Fatalf("err = %v; want the translated retry hint", err)
+	}
+}
+
 // TestUpdateNoOpSkipsPATCHAndReturns asserts that when every update flag
 // already matches the cluster's current spec, the CLI does NOT call PATCH
 // at all — no operator transition to wait for, no round trip, no risk of

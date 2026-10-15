@@ -759,6 +759,9 @@ func TestRotateCredentials_Wait(t *testing.T) {
 			if !strings.Contains(stderr, tt.wantStderr) {
 				t.Errorf("stderr = %q; want %q", stderr, tt.wantStderr)
 			}
+			if strings.Contains(stderr, "does not report rotation progress") && strings.Contains(stderr, "credentials rotated") {
+				t.Errorf("a rotation that was not waited on must not be reported as rotated: %q", stderr)
+			}
 			if !strings.Contains(hint(err), tt.wantHint) {
 				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
 			}

@@ -133,14 +133,22 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 	if token == "" {
 		return "", false, nil
 	}
-	observable = true
-	poll := cmdutil.PollPhase(service.Getter(api, name), func(db *client.Database, phase string) (bool, error) {
+	// One read first: a platform that reports no rotations is not waited on
+	// at all, so the renderer never prints a success line for it.
+	get := service.Getter(api, name)
+	db, _, err := get(ctx)
+	if err != nil {
+		return "", true, err
+	}
+	if db.Status == nil || db.Status.Rotations == nil {
+		return "", false, nil
+	}
+	poll := cmdutil.PollPhase(get, func(db *client.Database, phase string) (bool, error) {
 		if phase == client.PhaseTerminating {
 			return false, &cmdutil.TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
 		}
 		if db.Status == nil || db.Status.Rotations == nil {
-			observable = false
-			return true, nil
+			return false, nil
 		}
 		applied = db.Status.Rotations.Role(role).AppliedAt
 		return applied == token, nil
@@ -152,7 +160,7 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 		Poll:          poll,
 		Timeout:       timeout,
 	})
-	return applied, observable, err
+	return applied, true, err
 }
 
 // rotateWaitErr explains why waiting for a rotation ended before it was in

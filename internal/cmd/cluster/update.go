@@ -75,7 +75,7 @@ rarely the right answer outside of disaster recovery.`,
 			//      branch without a second round-trip via RMW.
 			current, currentEtag, err := api.Clusters().Get(cmd.Context(), name)
 			if err != nil {
-				return err
+				return translateClusterErr(err, name)
 			}
 			if isNoOpUpdate(current, opts) {
 				return printer.Cluster.One(f.IOStreams, fmtp, current)

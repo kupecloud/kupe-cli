@@ -82,6 +82,11 @@ func translateClusterErr(err error, name string) error {
 	if err == nil {
 		return nil
 	}
+	// A coded refusal is the API's own answer; the sentence rewrites below
+	// are for uncoded validation messages only.
+	if client.ErrorCode(err) != "" {
+		return cmdutil.TranslateCommon("cluster", name, err)
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "spec.resources.cpu is required"):

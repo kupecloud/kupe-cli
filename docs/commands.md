@@ -768,8 +768,11 @@ Create a database and wait for `status.phase=Running` by default.
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
 
 Platform floors and ceilings are enforced by the API; its message, including
-any per-field reasons, is shown as returned. The plan's database limit exits
-`5` with a hint. While
+any per-field reasons, is shown as returned. A name longer than the tenant may
+use (`400 DATABASE_NAME_TOO_LONG`: at most 44 characters, fewer when the
+tenant name is over 12, since the platform derives longer names from it) exits
+`2` with the API's message and a hint to choose a shorter name. The plan's
+database limit exits `5` with a hint. While
 the platform pauses database creation (`400 creation_paused`) the command
 exits `7` with the API's message and a hint to retry later. A `Degraded`
 phase fails the wait.

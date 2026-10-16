@@ -357,6 +357,23 @@ func TestCreate_PausedCreationExits7(t *testing.T) {
 	}
 }
 
+// TestCreate_NameTooLongExits2WithHint: the platform's refusal of a name
+// longer than the tenant may use is a usage error with the next step.
+func TestCreate_NameTooLongExits2WithHint(t *testing.T) {
+	const message = `database name "orders-db" too long: at most 44 characters for this tenant`
+	fake := clienttest.New()
+	fake.CreateDatabaseErr = &client.APIError{StatusCode: 400, Code: "DATABASE_NAME_TOO_LONG", Field: "metadata.name", Message: message}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait=false")
+	assertExit(t, err, cli.ExitMisuse)
+	if err.Error() != message {
+		t.Fatalf("message = %q; want the API's message alone", err.Error())
+	}
+	if h := hint(err); !strings.Contains(h, "at most 44 characters") {
+		t.Errorf("hint = %q; want the name limit", h)
+	}
+}
+
 func TestCreate_ConflictExits5(t *testing.T) {
 	fake := clienttest.New()
 	fake.DatabasesByName["orders-db"] = running("orders-db")

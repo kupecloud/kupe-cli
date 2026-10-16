@@ -19,6 +19,16 @@ func translateErr(err error, name string) error {
 	return cmdutil.TranslateCommon(noun, name, err)
 }
 
+// translateCreateErr adds the refusal only a create can get: a name longer
+// than the tenant may use. It exits 2 like any other refused name.
+func translateCreateErr(err error, name string) error {
+	if client.ErrorCode(err) == client.DatabaseCodeNameTooLong {
+		return cli.WrapAPI(cli.ExitMisuse, fmt.Sprintf("database name %q is too long for this tenant", name), err).
+			WithHint("choose a shorter name: database names may be at most 44 characters, and fewer when the tenant name is over 12")
+	}
+	return translateErr(err, name)
+}
+
 // translateUpdateErr adds the refusal only a resize can get: a smaller
 // storage size.
 func translateUpdateErr(err error, name string) error {

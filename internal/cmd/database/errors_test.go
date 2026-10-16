@@ -25,8 +25,11 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		protectMessage  = `database "orders-db" has deletionProtection enabled: set it to false before deleting`
 		terminatingHint = "it can no longer be changed; to wait until it is gone:  kupe database wait orders-db --for deleted"
 		retryLaterHint  = "retry in a few seconds; status updates are posted at https://status.kupe.cloud"
+		nameHint        = "choose a shorter name: database names may be at most 44 characters, and fewer when the tenant name is over 12"
+		nameMessage     = `database name "orders-db" too long: at most 44 characters for this tenant`
 	)
 	translate := func(err error) error { return translateErr(err, name) }
+	create := func(err error) error { return translateCreateErr(err, name) }
 	update := func(err error) error { return translateUpdateErr(err, name) }
 	del := func(err error) error { return translateDeleteErr(err, name) }
 	upgrade := func(err error) error { return translateUpgradeErr(err, name) }
@@ -51,6 +54,12 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 			pausedMessage + " (request-id: req-1)", pausedHint, cli.ExitUnavailable},
 		{"creation paused without a message", translate, 400, client.CodeCreationPaused, "",
 			"database creation is paused: Bad Request (request-id: req-1)", pausedHint, cli.ExitUnavailable},
+		{"name too long for the tenant", create, 400, "DATABASE_NAME_TOO_LONG", nameMessage,
+			nameMessage + " (request-id: req-1)", nameHint, cli.ExitMisuse},
+		{"name too long for the tenant without a message", create, 400, "DATABASE_NAME_TOO_LONG", "",
+			`database name "orders-db" is too long for this tenant: Bad Request (request-id: req-1)`, nameHint, cli.ExitMisuse},
+		{"create keeps the shared refusals", create, 400, client.CodeCreationPaused, pausedMessage,
+			pausedMessage + " (request-id: req-1)", pausedHint, cli.ExitUnavailable},
 		{"storage shrink", update, 400, client.DatabaseCodeStorageShrinkUnsupported,
 			"storage can only grow: 5Gi is smaller than the current 10Gi",
 			"storage can only grow: 5Gi is smaller than the current 10Gi (request-id: req-1)", shrinkHint, cli.ExitMisuse},

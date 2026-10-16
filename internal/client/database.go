@@ -134,6 +134,11 @@ const (
 	// DatabaseCodeStorageShrinkUnsupported: 400 from PATCH when the
 	// requested storage is smaller than the current size.
 	DatabaseCodeStorageShrinkUnsupported = "storage_shrink_unsupported"
+	// DatabaseCodeNameTooLong: 400 from POST when the name is longer than
+	// the tenant may use: at most 44 characters, fewer for a tenant name
+	// over 12 characters. The platform sends DATABASE_NAME_TOO_LONG (field
+	// metadata.name); ErrorCode lower-cases it.
+	DatabaseCodeNameTooLong = "database_name_too_long"
 )
 
 // Database roles: owner can change the schema, app can read and write data.

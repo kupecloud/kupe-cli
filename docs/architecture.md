@@ -102,7 +102,7 @@ internal/
 │   ├── apikey/                  — list, create, delete.
 │   ├── secret/                  — list, get, create, update, delete.
 │   ├── database/                — list, get, create, update, upgrade, delete,
-│   │                              rotate-credentials, wait, binding add/list/get/delete.
+│   │                              rotate-credentials, wait, binding add/list/get/update/delete.
 │   ├── cmdutil/                 — Shared helpers: phase waits, wait-error mapping,
 │   │                              resource-quantity checks.
 │   ├── member/                  — list, add, update, remove.
@@ -125,7 +125,7 @@ internal/
 │   ├── secret.go                — ListSecrets, GetSecret, CreateSecret, UpdateSecret,
 │   │                              DeleteSecret, UpdateSecretRMW.
 │   ├── database.go              — Database + binding CRUD, UpdateDatabaseRMW,
-│   │                              RotateDatabaseCredentials.
+│   │                              UpdateDatabaseBindingRMW, RotateDatabaseCredentials.
 │   ├── rmw.go                   — Generic ETag read-modify-write loop behind every *RMW helper.
 │   ├── member.go                — ListMembers, AddMember, UpdateMember, RemoveMember.
 │   ├── invoice.go               — ListInvoices, GetInvoice.

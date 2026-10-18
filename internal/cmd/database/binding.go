@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,13 +35,15 @@ the database and a credentials Secret, and gains a network path to the
 database. Other namespaces see neither.
 
 Roles: owner can change the schema; readwrite can read and write data;
-readonly can read data. A binding's cluster, role and Secret name are fixed;
-to change one, delete the binding and add another.`,
+readonly can read data. "binding update" adds or removes namespaces; a
+binding's cluster, role and Secret name are fixed: to change one, delete the
+binding and add another.`,
 	}
 
 	cmd.AddCommand(newBindingAddCmd(f))
 	cmd.AddCommand(newBindingListCmd(f))
 	cmd.AddCommand(newBindingGetCmd(f))
+	cmd.AddCommand(newBindingUpdateCmd(f))
 	cmd.AddCommand(newBindingDeleteCmd(f))
 	return cmd
 }
@@ -78,7 +82,8 @@ not create: the command exits at once and says which names clash in which
 namespace. Pass --wait=false to return as soon as the request is accepted.
 
 The binding name defaults to DATABASE-CLUSTER-ROLE; pass --name if that is
-longer than 63 characters.`,
+longer than 63 characters. To add a namespace to a binding later, use
+"kupe database binding update".`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Migrations run with the owner role, the API and its workers with the readwrite role
   kupe database binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
@@ -125,7 +130,7 @@ longer than 63 characters.`,
 				SecretName: opts.secretName,
 			})
 			if err != nil {
-				return translateErr(err, database)
+				return translateBindingAddErr(err, database, name, opts)
 			}
 			if !opts.wait {
 				return printer.DatabaseBinding.One(f.IOStreams, format, b)
@@ -134,7 +139,7 @@ longer than 63 characters.`,
 			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, bindingNoun, name, client.PhaseReady,
 				bindingPhaseGetter(api, database, name), opts.waitTimeout)
 			if werr != nil {
-				return bindingWaitErr(werr, database, name, final)
+				return bindingWaitErr(werr, database, name, final, bindingCreated)
 			}
 			return printer.DatabaseBinding.One(f.IOStreams, format, final)
 		},
@@ -197,10 +202,44 @@ func bindingPhase(b *client.DatabaseBinding) string {
 	return phase
 }
 
-// bindingWaitErr explains why waiting for a new binding ended without it
-// being Ready. last is the binding as last seen, nil if never seen. The
-// binding exists in every case: the request was accepted before the wait.
-func bindingWaitErr(err error, database, name string, last *client.DatabaseBinding) error {
+// translateBindingAddErr adds what a defaulted name clashing with an
+// existing binding means: most often a binding of the same role into the
+// same cluster that the namespaces can be added to.
+func translateBindingAddErr(err error, database, name string, opts *bindingAddOpts) error {
+	if opts.name != "" || !client.IsConflict(err) || client.ErrorCode(err) != "" {
+		return translateErr(err, database)
+	}
+	add := ""
+	for _, ns := range opts.namespaces {
+		add += " --add-namespace " + ns
+	}
+	return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("a binding named %q already exists", name), err).WithHint(
+		fmt.Sprintf("to add the namespaces to it:  kupe database binding update %s %s%s\n", database, name, add) +
+			"or pass --name to add a second binding of the same role")
+}
+
+// bindingChange says what was accepted before a binding wait, for its
+// error messages.
+type bindingChange struct {
+	accepted string // "the binding was created"
+	stopped  string // "binding %q was created and is still being set up"
+}
+
+var (
+	bindingCreated = bindingChange{
+		accepted: "the binding was created",
+		stopped:  "stopped waiting; binding %q was created and is still being set up",
+	}
+	bindingUpdated = bindingChange{
+		accepted: "the change was accepted",
+		stopped:  "stopped waiting; the change to binding %q was accepted and is still being applied",
+	}
+)
+
+// bindingWaitErr explains why waiting for a binding ended without it being
+// Ready in every listed namespace. last is the binding as last seen, nil if
+// never seen. The request was accepted before the wait in every case.
+func bindingWaitErr(err error, database, name string, last *client.DatabaseBinding, change bindingChange) error {
 	var status client.DatabaseBindingStatus
 	phase := ""
 	if last != nil && last.Status != nil {
@@ -217,12 +256,16 @@ func bindingWaitErr(err error, database, name string, last *client.DatabaseBindi
 		if phase != "" {
 			msg = fmt.Sprintf("binding %q is still %s", name, phase)
 		}
-		if status.Message != "" {
+		// A Ready binding's message describes the listed namespaces only.
+		if status.Message != "" && status.Phase != client.PhaseReady {
 			msg += ": " + status.Message
 		}
-		return cli.TimeoutError(msg).WithHint("the binding was created and the platform keeps trying; it becomes Ready on its own once that clears\n" + check)
+		if removing := removingNamespaces(last); len(removing) > 0 {
+			msg += "; still removing " + quotedNamespaces(removing)
+		}
+		return cli.TimeoutError(msg).WithHint(change.accepted + " and the platform keeps trying; it becomes Ready on its own once that clears\n" + check)
 	case errors.Is(err, context.Canceled):
-		return cli.New(cli.ExitInterrupted, fmt.Sprintf("stopped waiting; binding %q was created and is still being set up", name)).
+		return cli.New(cli.ExitInterrupted, fmt.Sprintf(change.stopped, name)).
 			WithHint(check)
 	case cmdutil.IsTransientWaitErr(err):
 		return cli.Wrap(cli.ExitUnavailable, "lost contact with kupe-api while waiting", err).WithHint(check)
@@ -245,12 +288,47 @@ func bindingFailedErr(b *client.DatabaseBinding, check string) error {
 		hint = append(hint, fmt.Sprintf("namespace %s of cluster %s already has a Service %q or a Secret %q that the platform did not create",
 			ns, b.Cluster, b.Database, b.EffectiveSecretName()))
 	}
-	return cli.ConflictError(msg).WithHint(strings.Join(append(hint,
+	hint = append(hint,
 		"rename or remove that object, and the binding becomes Ready on its own",
 		fmt.Sprintf("or, if the Secret is the clash, choose another Secret name:  kupe database binding delete %s %s --yes", b.Database, b.Name),
 		"  then add the binding again with --secret-name",
-		check,
-	), "\n"))
+	)
+	if failed := conflictedNamespaces(b); len(failed) < len(b.Namespaces) {
+		remove := ""
+		for _, ns := range failed {
+			remove += " --remove-namespace " + ns
+		}
+		hint = append(hint, fmt.Sprintf("or stop binding into it:  kupe database binding update %s %s%s", b.Database, b.Name, remove))
+	}
+	return cli.ConflictError(msg).WithHint(strings.Join(append(hint, check), "\n"))
+}
+
+// removingNamespaces are the namespaces b no longer lists whose Service and
+// Secret the platform is still withdrawing.
+func removingNamespaces(b *client.DatabaseBinding) []string {
+	if b == nil {
+		return nil
+	}
+	var out []string
+	for _, ns := range b.NamespaceStates() {
+		if !ns.Listed {
+			out = append(out, ns.Name)
+		}
+	}
+	return out
+}
+
+// quotedNamespaces names namespaces as the platform's messages do:
+// namespace "a", or namespaces "a", "b".
+func quotedNamespaces(namespaces []string) string {
+	quoted := make([]string, len(namespaces))
+	for i, ns := range namespaces {
+		quoted[i] = strconv.Quote(ns)
+	}
+	if len(quoted) == 1 {
+		return "namespace " + quoted[0]
+	}
+	return "namespaces " + strings.Join(quoted, ", ")
 }
 
 // conflictedNamespaces are the listed namespaces the platform reports
@@ -328,6 +406,134 @@ func newBindingGetCmd(f *cli.Factory) *cobra.Command {
 	return cmd
 }
 
+type bindingUpdateOpts struct {
+	add         []string
+	remove      []string
+	wait        bool
+	waitTimeout time.Duration
+	output      string
+}
+
+func newBindingUpdateCmd(f *cli.Factory) *cobra.Command {
+	opts := &bindingUpdateOpts{}
+
+	cmd := &cobra.Command{
+		Use:   "update DATABASE BINDING [--add-namespace NAMESPACE]... [--remove-namespace NAMESPACE]...",
+		Short: "Add or remove namespaces of a binding",
+		Long: `Change the namespaces a binding delivers into. A namespace added gets the
+Service and credentials Secret; a namespace removed loses them and its network
+path to the database, while the other namespaces keep working. A binding
+lists 1 to 10 namespaces. Its cluster, role and Secret name cannot change.
+
+Removing a namespace does not change the role's password; rotate it with
+"kupe database rotate-credentials" if that namespace should also lose
+knowledge of it.
+
+The command reads the binding, edits its namespace list and writes it back.
+If the binding changed in between, it reads it again and retries once. By
+default it then waits until every listed namespace is Ready and every
+removed one is withdrawn. Pass --wait=false to return as soon as the change
+is accepted.`,
+		Args: cobra.ExactArgs(2),
+		Example: `  # Bind the readwrite role into the workers namespace too
+  kupe database binding update orders-db orders-db-prod-readwrite --add-namespace workers
+
+  # Stop binding it into the jobs namespace
+  kupe db binding update orders-db orders-db-prod-readwrite --remove-namespace jobs
+
+  # Add one and remove another in one change, without waiting
+  kupe db binding update orders-db orders-db-prod-readwrite --add-namespace reports --remove-namespace jobs --wait=false`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			database, name := args[0], args[1]
+			if len(opts.add) == 0 && len(opts.remove) == 0 {
+				return cli.MisuseError("pass --add-namespace or --remove-namespace")
+			}
+			for _, ns := range opts.add {
+				if slices.Contains(opts.remove, ns) {
+					return cli.MisuseError(fmt.Sprintf("namespace %s is both added and removed", ns))
+				}
+			}
+			format, err := printer.Resolve(f, opts.output)
+			if err != nil {
+				return err
+			}
+			api, err := f.Client()
+			if err != nil {
+				return err
+			}
+
+			var refused error
+			unchanged := false
+			updated, err := api.UpdateDatabaseBindingRMW(cmd.Context(), database, name, func(current *client.DatabaseBinding) *client.PatchDatabaseBindingRequest {
+				namespaces, err := editNamespaces(current, database, opts.add, opts.remove)
+				refused, unchanged = err, err == nil && slices.Equal(namespaces, current.Namespaces)
+				if err != nil || unchanged {
+					return nil
+				}
+				return &client.PatchDatabaseBindingRequest{Namespaces: namespaces}
+			})
+			if refused != nil {
+				return refused
+			}
+			if err != nil {
+				return translateBindingUpdateErr(err, database, name)
+			}
+			if unchanged {
+				fmt.Fprintf(f.IOStreams.ErrOut, "binding %q is unchanged: it lists %s\n", name, strings.Join(updated.Namespaces, ", "))
+			}
+			if !opts.wait {
+				return printer.DatabaseBinding.One(f.IOStreams, format, updated)
+			}
+
+			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, bindingNoun, name, client.PhaseReady,
+				bindingPhaseGetter(api, database, name), opts.waitTimeout)
+			if werr != nil {
+				return bindingWaitErr(werr, database, name, final, bindingUpdated)
+			}
+			return printer.DatabaseBinding.One(f.IOStreams, format, final)
+		},
+	}
+
+	cmd.Flags().StringArrayVar(&opts.add, "add-namespace", nil, "Namespace to add; repeat for each namespace")
+	cmd.Flags().StringArrayVar(&opts.remove, "remove-namespace", nil, "Namespace to remove; repeat for each namespace")
+	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until every listed namespace is Ready and every removed one is withdrawn")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 5*time.Minute, "Give up waiting after this long")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
+	return cmd
+}
+
+// editNamespaces is current's namespace list with add appended (those not
+// listed yet, in order) and remove taken out. A namespace already listed,
+// or one removed that is not listed, changes nothing. The result must list
+// 1 to maxNamespacesPerBinding namespaces.
+func editNamespaces(current *client.DatabaseBinding, database string, add, remove []string) ([]string, error) {
+	namespaces := slices.DeleteFunc(slices.Clone(current.Namespaces), func(ns string) bool { return slices.Contains(remove, ns) })
+	for _, ns := range add {
+		if !slices.Contains(namespaces, ns) {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	switch n := len(namespaces); {
+	case n == 0:
+		return nil, cli.MisuseError(fmt.Sprintf("binding %q must keep at least one namespace", current.Name)).
+			WithHint(fmt.Sprintf("to remove the binding:  kupe database binding delete %s %s", database, current.Name))
+	case n > maxNamespacesPerBinding:
+		return nil, cli.MisuseError(fmt.Sprintf("a binding can list at most %d namespaces; this change would list %d", maxNamespacesPerBinding, n)).
+			WithHint("bind the others with a second binding of the same role (binding add --name)")
+	}
+	return namespaces, nil
+}
+
+// translateBindingUpdateErr: a 409 terminating is the binding or its
+// database being deleted (the API's message says which); the shared row's
+// hint is about waiting for the database, so it is left out here.
+func translateBindingUpdateErr(err error, database, name string) error {
+	if client.ErrorCode(err) == client.CodeTerminating {
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("binding %q cannot change while it or its database is being deleted", name), err)
+	}
+	return translateErr(err, database)
+}
+
 func newBindingDeleteCmd(f *cli.Factory) *cobra.Command {
 	var yes bool
 
@@ -337,7 +543,8 @@ func newBindingDeleteCmd(f *cli.Factory) *cobra.Command {
 		Long: `Remove a binding: the Service and credentials Secret leave every namespace
 it lists, and their network path to the database closes. The role's password
 does not change; rotate it with "kupe database rotate-credentials" if those
-namespaces should also lose knowledge of it.
+namespaces should also lose knowledge of it. To remove only some of its
+namespaces, use "kupe database binding update --remove-namespace".
 
 The request is asynchronous: the Services and Secrets are removed in the
 background. Prompts on a TTY; pass --yes to skip (required in

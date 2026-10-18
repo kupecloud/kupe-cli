@@ -76,6 +76,10 @@ type Interface interface {
 	// CreateDatabaseBinding binds a database into namespaces of a cluster.
 	CreateDatabaseBinding(ctx context.Context, database string, req CreateDatabaseBindingRequest) (*DatabaseBinding, error)
 
+	// UpdateDatabaseBindingRMW changes a binding's namespaces with a
+	// read-modify-write cycle; one retry on 412 before ErrRMWContention.
+	UpdateDatabaseBindingRMW(ctx context.Context, database, name string, mutate DatabaseBindingMutator) (*DatabaseBinding, error)
+
 	// DeleteDatabaseBinding removes a binding.
 	DeleteDatabaseBinding(ctx context.Context, database, name string) error
 

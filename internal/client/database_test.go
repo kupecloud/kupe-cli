@@ -412,6 +412,74 @@ func TestCreateDatabaseBinding(t *testing.T) {
 	}
 }
 
+// TestUpdateDatabaseBindingRMW pins the read-edit-write the binding PATCH
+// needs: the body is only the new namespace list, If-Match carries the ETag
+// of the read the list was edited from, and a 412 re-reads and edits again.
+func TestUpdateDatabaseBindingRMW(t *testing.T) {
+	const path = "/api/v1/tenants/acme/databases/orders-db/bindings/orders-db-prod-readwrite"
+	addReports := func(b *DatabaseBinding) *PatchDatabaseBindingRequest {
+		return &PatchDatabaseBindingRequest{Namespaces: append(slices.Clone(b.Namespaces), "reports")}
+	}
+	tests := []struct {
+		name        string
+		patchStatus []int
+		mutate      DatabaseBindingMutator
+		wantPatches int32
+		wantErr     func(error) bool
+	}{
+		{"one PATCH", []int{http.StatusOK}, addReports, 1, nil},
+		{"a 412 re-reads and retries once", []int{http.StatusPreconditionFailed, http.StatusOK}, addReports, 2, nil},
+		{"two 412s are contention", []int{http.StatusPreconditionFailed, http.StatusPreconditionFailed}, addReports, 2,
+			func(err error) bool { return errors.Is(err, ErrRMWContention) && IsPreconditionFailed(err) }},
+		{"nil patch sends nothing", nil, func(*DatabaseBinding) *PatchDatabaseBindingRequest { return nil }, 0, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gets, patches int32
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != path {
+					t.Errorf("path = %s; want %s", r.URL.Path, path)
+				}
+				if r.Method == http.MethodGet {
+					n := atomic.AddInt32(&gets, 1)
+					w.Header().Set("ETag", fmt.Sprint(582020+n))
+					fmt.Fprintln(w, bindingJSON)
+					return
+				}
+				n := atomic.AddInt32(&patches, 1)
+				if r.Method != http.MethodPatch {
+					t.Errorf("method = %s; want PATCH", r.Method)
+				}
+				if got, want := r.Header.Get("If-Match"), fmt.Sprint(582020+atomic.LoadInt32(&gets)); got != want {
+					t.Errorf("If-Match = %q; want %q, the ETag of the latest read", got, want)
+				}
+				raw, _ := io.ReadAll(r.Body)
+				if string(raw) != `{"namespaces":["api","jobs","reports"]}` {
+					t.Errorf("body = %s; want only the new namespace list", raw)
+				}
+				status := tt.patchStatus[n-1]
+				w.WriteHeader(status)
+				if status == http.StatusPreconditionFailed {
+					fmt.Fprintln(w, `{"error":"resource has been modified (ETag mismatch)"}`)
+					return
+				}
+				fmt.Fprintln(w, bindingJSON)
+			})
+			b, err := c.UpdateDatabaseBindingRMW(context.Background(), "orders-db", "orders-db-prod-readwrite", tt.mutate)
+			if tt.wantErr != nil {
+				if !tt.wantErr(err) {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			} else if err != nil || b == nil {
+				t.Fatalf("RMW: binding=%v err=%v", b, err)
+			}
+			if got := atomic.LoadInt32(&patches); got != tt.wantPatches {
+				t.Fatalf("PATCH attempts = %d; want %d", got, tt.wantPatches)
+			}
+		})
+	}
+}
+
 func TestCreateDatabaseBinding_ConflictIsConflict(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)

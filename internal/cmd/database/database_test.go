@@ -1145,9 +1145,18 @@ func TestBindingAdd_Wait(t *testing.T) {
 				"rename or remove that object",
 				"kupe database binding delete orders-db orders-db-prod-readwrite --yes",
 				"--secret-name",
+				"or stop binding into it:  kupe database binding update orders-db orders-db-prod-readwrite --remove-namespace jobs",
 				check,
 			},
 			noHint: "namespace api of cluster prod",
+		},
+		{
+			name: "a conflict in every namespace does not suggest removing them all",
+			seq: []*client.DatabaseBinding{boundAs("Failed", conflictMessage,
+				[]client.DatabaseBindingNamespaceStatus{nsStatus("api", "Failed", conflictMessage), nsStatus("jobs", "Failed", conflictMessage)}, conflict...)},
+			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitConflict, wantGets: 1,
+			wantHint: []string{"namespace api of cluster prod", "namespace jobs of cluster prod", check},
+			noHint:   "--remove-namespace",
 		},
 		{
 			name:     "a failure without a conflict gives no conflict advice",
@@ -1207,6 +1216,176 @@ func TestBindingAdd_Wait(t *testing.T) {
 			}
 			if tt.noHint != "" && strings.Contains(hint(err), tt.noHint) {
 				t.Errorf("hint should not contain %q:\n%s", tt.noHint, hint(err))
+			}
+		})
+	}
+}
+
+// A defaulted name that is taken is most often the binding of the same role
+// into the same cluster, so the refusal says how to add the namespaces to it.
+func TestBindingAdd_DefaultNameTakenPointsAtUpdate(t *testing.T) {
+	exists := &client.APIError{StatusCode: 409, Message: `database binding "orders-db-prod-readwrite" already exists`}
+	for _, tt := range []struct {
+		name     string
+		extra    []string
+		wantHint string
+	}{
+		{"default name", nil, "to add the namespaces to it:  kupe database binding update orders-db orders-db-prod-readwrite --add-namespace jobs --add-namespace web\n" +
+			"or pass --name to add a second binding of the same role"},
+		{"explicit name", []string{"--name", "orders-db-prod-readwrite"}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.CreateDatabaseBindingErr = exists
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "jobs", "--namespace", "web", "--role", "readwrite", "--wait=false"}, tt.extra...)
+			_, _, err := run(f, newBindingAddCmd(f), args...)
+			assertExit(t, err, cli.ExitConflict)
+			if !strings.Contains(err.Error(), `database binding "orders-db-prod-readwrite" already exists`) {
+				t.Errorf("err = %v; want the API's message", err)
+			}
+			if hint(err) != tt.wantHint {
+				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
+			}
+		})
+	}
+}
+
+// TestBindingUpdate pins the namespace edit: what list is sent, what is
+// refused before a request, and that a change that changes nothing sends
+// none.
+func TestBindingUpdate(t *testing.T) {
+	const call = "UpdateDatabaseBinding:orders-db/orders-db-prod-readwrite:"
+	elevenAdds := []string{}
+	for i := range 9 {
+		elevenAdds = append(elevenAdds, "--add-namespace", fmt.Sprintf("ns%d", i))
+	}
+	tests := []struct {
+		name       string
+		args       []string
+		patchErr   error
+		wantExit   int
+		wantCall   string // "" = no PATCH
+		wantErr    string // substring
+		wantHint   string // substring
+		noHint     string
+		wantStderr string // substring
+	}{
+		{"adds a namespace at the end", []string{"--add-namespace", "web"}, nil, cli.ExitOK, call + "api,jobs,web", "", "", "", ""},
+		{"removes a namespace", []string{"--remove-namespace", "api"}, nil, cli.ExitOK, call + "jobs", "", "", "", ""},
+		{"adds and removes in one change", []string{"--add-namespace", "web", "--remove-namespace", "jobs", "--add-namespace", "reports"}, nil,
+			cli.ExitOK, call + "api,web,reports", "", "", "", ""},
+		{"a namespace already listed and one not listed change nothing", []string{"--add-namespace", "api", "--remove-namespace", "old"}, nil,
+			cli.ExitOK, "", "", "", "", `binding "orders-db-prod-readwrite" is unchanged: it lists api, jobs`},
+		{"removing every namespace is refused", []string{"--remove-namespace", "api", "--remove-namespace", "jobs"}, nil,
+			cli.ExitMisuse, "", `binding "orders-db-prod-readwrite" must keep at least one namespace`,
+			"to remove the binding:  kupe database binding delete orders-db orders-db-prod-readwrite", "", ""},
+		{"more than ten namespaces are refused", elevenAdds, nil,
+			cli.ExitMisuse, "", "a binding can list at most 10 namespaces; this change would list 11", "second binding", "", ""},
+		{"a flag is required", nil, nil, cli.ExitMisuse, "", "pass --add-namespace or --remove-namespace", "", "", ""},
+		{"a namespace cannot be added and removed", []string{"--add-namespace", "web", "--remove-namespace", "web"}, nil,
+			cli.ExitMisuse, "", "namespace web is both added and removed", "", "", ""},
+		{"a binding being deleted exits 5 without the database wait hint", []string{"--add-namespace", "web"},
+			&client.APIError{StatusCode: 409, Code: client.CodeTerminating, Message: `database binding "orders-db-prod-readwrite" is being deleted`},
+			cli.ExitConflict, call + "api,jobs,web", `database binding "orders-db-prod-readwrite" is being deleted`, "", "kupe database wait", ""},
+		{"an admission refusal shows the API's message", []string{"--add-namespace", "web"},
+			&client.APIError{StatusCode: 400, Message: `database "orders-db" would have 21 bound namespaces, the most one database can have is 20`},
+			cli.ExitMisuse, call + "api,jobs,web", "the most one database can have is 20", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.DatabaseBindings["orders-db-prod-readwrite"] = boundAs("Ready", "", []client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", ""), nsStatus("jobs", "Ready", "")})
+			fake.UpdateDatabaseBindingErr = tt.patchErr
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-db", "orders-db-prod-readwrite", "--wait=false"}, tt.args...)
+			_, stderr, err := run(f, newBindingUpdateCmd(f), args...)
+			assertExit(t, err, tt.wantExit)
+			if tt.wantCall == "" {
+				assertNoCall(t, fake, "UpdateDatabaseBinding")
+			} else if countCalls(fake, tt.wantCall) != 1 {
+				t.Errorf("calls = %v; want one %q", fake.Calls, tt.wantCall)
+			}
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Errorf("err = %v; want %q", err, tt.wantErr)
+			}
+			if !strings.Contains(hint(err), tt.wantHint) {
+				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
+			}
+			if tt.noHint != "" && strings.Contains(hint(err), tt.noHint) {
+				t.Errorf("hint = %q; must not contain %q", hint(err), tt.noHint)
+			}
+			if !strings.Contains(stderr, tt.wantStderr) {
+				t.Errorf("stderr = %q; want %q", stderr, tt.wantStderr)
+			}
+		})
+	}
+	t.Run("a binding of another database exits 4", func(t *testing.T) {
+		fake := clienttest.New()
+		fake.DatabasesByName["orders-db"] = running("orders-db")
+		fake.DatabaseBindings["users-db-prod-readwrite"] = &client.DatabaseBinding{Name: "users-db-prod-readwrite", Database: "users-db", Namespaces: []string{"api"}}
+		f := factoryWith(t, fake)
+		_, _, err := run(f, newBindingUpdateCmd(f), "orders-db", "users-db-prod-readwrite", "--add-namespace", "web")
+		assertExit(t, err, cli.ExitNotFound)
+		assertNoCall(t, fake, "UpdateDatabaseBinding")
+	})
+}
+
+// TestBindingUpdate_Wait: the wait ends once every listed namespace is Ready
+// and every removed one is withdrawn, never on the binding's phase alone.
+func TestBindingUpdate_Wait(t *testing.T) {
+	withdrawn := []client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", "")}
+	withdrawing := []client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", ""), nsStatus("jobs", "Ready", "")}
+	afterRemove := func(namespaces []client.DatabaseBindingNamespaceStatus) *client.DatabaseBinding {
+		b := boundAs("Ready", "the database is available in every listed namespace", namespaces)
+		b.Namespaces = []string{"api"}
+		return b
+	}
+	tests := []struct {
+		name     string
+		args     []string
+		seq      []*client.DatabaseBinding
+		wantExit int
+		wantGets int
+		wantOut  string
+		wantErr  string
+		wantHint string
+	}{
+		{"a removed namespace is waited on until it is withdrawn", []string{"--remove-namespace", "jobs", "--wait-timeout", "20s"},
+			[]*client.DatabaseBinding{afterRemove(withdrawing), afterRemove(withdrawn)}, cli.ExitOK, 2, "orders-db.api.svc.cluster.local", "", ""},
+		{"a withdrawal past the timeout says what is left", []string{"--remove-namespace", "jobs", "--wait-timeout", "50ms"},
+			[]*client.DatabaseBinding{afterRemove(withdrawing)}, cli.ExitTimeout, 1, "",
+			`binding "orders-db-prod-readwrite" is still Pending; still removing namespace "jobs"`, "the change was accepted and the platform keeps trying"},
+		{"--wait=false returns without polling", []string{"--remove-namespace", "jobs", "--wait=false"}, nil, cli.ExitOK, 0, "Namespaces:  api", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.DatabaseBindings["orders-db-prod-readwrite"] = boundAs("Ready", "", withdrawing)
+			fake.GetDatabaseBindingSeq["orders-db-prod-readwrite"] = tt.seq
+			f := factoryWith(t, fake)
+			out, _, err := run(f, newBindingUpdateCmd(f), append([]string{"orders-db", "orders-db-prod-readwrite"}, tt.args...)...)
+			assertExit(t, err, tt.wantExit)
+			gets := 0
+			for _, c := range fake.Calls {
+				if strings.HasPrefix(c, "GetDatabaseBinding:") {
+					gets++
+				}
+			}
+			if gets != tt.wantGets {
+				t.Errorf("GetDatabaseBinding calls = %d; want %d", gets, tt.wantGets)
+			}
+			if !strings.Contains(out, tt.wantOut) {
+				t.Errorf("stdout = %q; want %q", out, tt.wantOut)
+			}
+			if tt.wantErr != "" && (err == nil || err.Error() != tt.wantErr) {
+				t.Errorf("err = %v; want %q", err, tt.wantErr)
+			}
+			if !strings.Contains(hint(err), tt.wantHint) {
+				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
 			}
 		})
 	}
@@ -1348,7 +1527,7 @@ func TestNewCmd_RegistersAliasAndSubcommands(t *testing.T) {
 	}
 	for _, path := range [][]string{
 		{"list"}, {"get"}, {"create"}, {"update"}, {"upgrade"}, {"delete"}, {"rotate-credentials"}, {"wait"},
-		{"binding", "add"}, {"binding", "list"}, {"binding", "get"}, {"binding", "delete"},
+		{"binding", "add"}, {"binding", "list"}, {"binding", "get"}, {"binding", "update"}, {"binding", "delete"},
 	} {
 		if found, _, err := cmd.Find(path); err != nil || found == cmd {
 			t.Errorf("subcommand %v not registered", path)

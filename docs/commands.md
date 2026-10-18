@@ -44,7 +44,8 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `POST /api/v1/tenants/{tenant}/databases/{name}/rotate-credentials` | `kupe database rotate-credentials` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding add` | v1 |
-| `GET /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding get` | v1 |
+| `GET /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding get` (also `binding update`, before its `PATCH`) | v1 |
+| `PATCH /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/invoices` | `kupe invoice list` | v1 |
 | `GET /api/v1/tenants/{tenant}/invoices/{name}` | `kupe invoice get` | v1 |
@@ -926,16 +927,18 @@ As `kupe cluster wait`: `--for running|pending|provisioning|upgrading|degraded|t
 A binding grants one role of one database to up to 10 namespaces of one
 cluster. Each namespace gets a Service named after the database and a
 credentials Secret (the same Secret name in every namespace), and a network
-path to the database. The cluster, role and Secret name are fixed; to change
-one, delete the binding and add another. Removing a binding removes the
-Services, the Secrets and the network paths, but not knowledge of the
-password: rotate the role afterwards if that matters.
+path to the database. `binding update` adds or removes namespaces; the
+cluster, role and Secret name are fixed: to change one, delete the binding and
+add another. Removing a namespace or a binding removes its Services, Secrets
+and network paths, but not knowledge of the password: rotate the role
+afterwards if that matters.
 
 | Command | Description |
 |---------|-------------|
 | `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--name` defaults to `DATABASE-CLUSTER-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
 | `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds the namespace's `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
 | `kupe db binding get DATABASE BINDING` | Details including the Secret name, then a table of its namespaces with each one's phase, in-cluster host and message. A binding of another database exits `4`. |
+| `kupe db binding update DATABASE BINDING [--add-namespace NS]... [--remove-namespace NS]...` | Change the namespaces a binding lists and wait until every listed one is `Ready` and every removed one is withdrawn (see below). |
 | `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
 
 ```bash
@@ -991,7 +994,10 @@ after the database, or a Secret of the binding's Secret name, that the
 platform did not create. The binding does not replace it. The wait stops at
 once and exits `5` with the status message, the namespace and both names;
 rename or remove that object and the binding becomes `Ready` on its own, or
-delete the binding and add it again with another `--secret-name`.
+delete the binding and add it again with another `--secret-name`. When the
+binding also lists namespaces without a clash, the hint also gives the
+`binding update --remove-namespace` command that stops binding into the
+clashing ones.
 
 ```
 $ kupe db binding add orders-db --cluster prod --namespace api --role readwrite
@@ -1008,6 +1014,50 @@ Error: binding "orders-db-prod-readwrite" failed: a Secret named "orders-db-read
 binding is `Failed` on a name conflict, `1` `Failed` for any other reason, `7`
 lost contact with kupe-api while waiting, `8` wait timeout, `130` Ctrl+C while
 waiting (the binding was created).
+
+When the default name is taken, the binding of that role into that cluster
+usually exists already: the hint gives the `binding update` command that adds
+the namespaces to it, or says to pass `--name` for a second binding.
+
+#### `kupe database binding update DATABASE BINDING`
+
+Adds and removes namespaces of a binding. The command reads the binding,
+edits its namespace list and sends the whole new list (`PATCH` with
+`If-Match`); if the binding changed in between (`412`), it reads it again and
+retries once. Adding a namespace that is already listed, or removing one that
+is not, changes nothing: when nothing changes, no request is sent and stderr
+says `binding "NAME" is unchanged: it lists api, jobs`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--add-namespace NS` | — | Namespace to add; repeatable. Added at the end of the list. |
+| `--remove-namespace NS` | — | Namespace to remove; repeatable. |
+| `--wait` | `true` | Wait until every listed namespace is `Ready` and every removed one is gone from `status.namespaces`. `--wait=false` returns as soon as the change is accepted. |
+| `--wait-timeout DURATION` | `5m` | Give up after this long. Exits `8`. |
+| `-o, --output FORMAT` | table | Single-resource formats. |
+
+A binding keeps 1 to 10 namespaces: a change that would leave none (use
+`binding delete`) or more than 10 exits `2` before a request is sent. Admission
+checks the namespaces added like `binding add` does: a namespace already bound
+to the same role in that cluster, a Secret name already used there, or a
+database whose bindings would list more than 20 namespaces is refused with the
+platform's message. A change that only removes namespaces is never refused by
+those checks. While a removed namespace is withdrawn, `binding list` and
+`binding get` show it with `PHASE` `Removing`.
+
+```bash
+kupe db binding update orders-db orders-db-prod-readwrite --add-namespace workers
+kupe db binding update orders-db orders-db-prod-readwrite --remove-namespace jobs
+```
+
+**Exit codes (`binding update`):** `0` `Ready` in every listed namespace and
+every removed one withdrawn (or accepted with `--wait=false`), `2` missing or
+contradictory flags, a list that would be empty or over 10, or a change
+admission refused, `4` database or binding not found, `5` the binding or its
+database is being deleted (`409 terminating`), the binding kept changing
+(`412` twice), or a listed namespace is `Failed` on a name conflict, `1`
+`Failed` for any other reason, `7` lost contact with kupe-api while waiting,
+`8` wait timeout, `130` Ctrl+C while waiting (the change was accepted).
 
 ---
 

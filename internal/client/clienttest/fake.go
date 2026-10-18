@@ -7,6 +7,7 @@ package clienttest
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -99,6 +100,7 @@ type Fake struct {
 	ListDatabaseBindingsErr  error
 	GetDatabaseBindingErr    error
 	CreateDatabaseBindingErr error
+	UpdateDatabaseBindingErr error
 	DeleteDatabaseBindingErr error
 
 	// GetDatabaseBindingSeq scripts successive GetDatabaseBinding results
@@ -500,6 +502,32 @@ func (f *Fake) CreateDatabaseBinding(_ context.Context, database string, req cli
 	}
 	f.DatabaseBindings[req.Name] = b
 	return b, nil
+}
+
+// UpdateDatabaseBindingRMW implements client.Interface: it reads the stored
+// binding (not GetDatabaseBindingSeq), applies mutate's patch and records
+// "UpdateDatabaseBinding:<database>/<name>:<namespaces, comma-joined>" for
+// a patch sent.
+func (f *Fake) UpdateDatabaseBindingRMW(_ context.Context, database, name string, mutate client.DatabaseBindingMutator) (*client.DatabaseBinding, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.DatabaseBindings[name]
+	if !ok || b.Database != database {
+		return nil, bindingNotFound()
+	}
+	current := *b
+	current.Namespaces = slices.Clone(b.Namespaces)
+	patch := mutate(&current)
+	if patch == nil {
+		return &current, nil
+	}
+	f.record("UpdateDatabaseBinding:" + database + "/" + name + ":" + strings.Join(patch.Namespaces, ","))
+	if f.UpdateDatabaseBindingErr != nil {
+		return nil, f.UpdateDatabaseBindingErr
+	}
+	b.Namespaces = slices.Clone(patch.Namespaces)
+	updated := *b
+	return &updated, nil
 }
 
 // DeleteDatabaseBinding implements client.Interface.

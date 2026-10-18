@@ -313,10 +313,20 @@ func (c *Client) RotateDatabaseCredentials(ctx context.Context, name, role strin
 	return &rotation, nil
 }
 
-// bindings is the binding collection of one database. Bindings are never
-// patched; delete one and add another to change it.
-func (c *Client) bindings(database string) resource[DatabaseBinding, CreateDatabaseBindingRequest, struct{}] {
-	return newResource[DatabaseBinding, CreateDatabaseBindingRequest, struct{}](c, "databases", database, "bindings")
+// PatchDatabaseBindingRequest is the PATCH body: the binding's complete new
+// namespace list. Namespaces are the only field of a binding that can
+// change.
+type PatchDatabaseBindingRequest struct {
+	Namespaces []string `json:"namespaces"`
+}
+
+// DatabaseBindingMutator is the UpdateDatabaseBindingRMW callback: it gets
+// the binding as read and returns the patch to send, or nil to send none.
+type DatabaseBindingMutator func(current *DatabaseBinding) *PatchDatabaseBindingRequest
+
+// bindings is the binding collection of one database.
+func (c *Client) bindings(database string) resource[DatabaseBinding, CreateDatabaseBindingRequest, PatchDatabaseBindingRequest] {
+	return newResource[DatabaseBinding, CreateDatabaseBindingRequest, PatchDatabaseBindingRequest](c, "databases", database, "bindings")
 }
 
 // ListDatabaseBindings returns the bindings of one database. A missing
@@ -335,6 +345,15 @@ func (c *Client) GetDatabaseBinding(ctx context.Context, database, name string) 
 func (c *Client) CreateDatabaseBinding(ctx context.Context, database string, req CreateDatabaseBindingRequest) (*DatabaseBinding, error) {
 	b, _, err := c.bindings(database).Create(ctx, req)
 	return b, err
+}
+
+// UpdateDatabaseBindingRMW changes a binding's namespaces: it reads the
+// binding, asks mutate for the new list and sends it with If-Match set to
+// the ETag read. A binding changed in between (412) is read again and the
+// change retried once, then ErrRMWContention. A nil patch sends nothing and
+// returns the binding as read.
+func (c *Client) UpdateDatabaseBindingRMW(ctx context.Context, database, name string, mutate DatabaseBindingMutator) (*DatabaseBinding, error) {
+	return c.bindings(database).UpdateRMW(ctx, name, mutate)
 }
 
 // DeleteDatabaseBinding removes a binding. The role's password is not

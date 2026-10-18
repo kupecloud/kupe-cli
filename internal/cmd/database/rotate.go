@@ -49,9 +49,9 @@ the others unchanged.
 
 The wait ends once the new password is in effect in PostgreSQL (the old one
 then stops working) and every binding of that role carries it in its
-credentials Secret in every namespace it lists. The Secret reaches the cluster within seconds after that;
-applications using the old password must restart to pick it up. No password
-is shown.
+credentials Secret in every namespace it lists. The Secret reaches the cluster
+within seconds after that; applications using the old password must restart to
+pick it up. No password is shown.
 
 Pass --wait=false to return as soon as the rotation is requested. In
 "kupe database get NAME -o yaml", the rotation is in effect once
@@ -61,8 +61,8 @@ rotation of the same role is requested meanwhile, it replaces this one and the
 wait follows it.
 
 Rotate after removing a binding, or a namespace from one, if that namespace
-should also lose knowledge of the password. Prompts on a TTY; pass --yes to skip (required in
-non-interactive environments).`,
+should also lose knowledge of the password. Prompts on a TTY; pass --yes to
+skip (required in non-interactive environments).`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe database rotate-credentials orders-db --role readwrite
   kupe db rotate-credentials orders-db --role owner --yes

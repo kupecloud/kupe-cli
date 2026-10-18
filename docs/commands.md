@@ -942,33 +942,33 @@ afterwards if that matters.
 | `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
 
 ```bash
-kupe db binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
-kupe db binding add orders-db --cluster prod --namespace api --namespace workers --role readwrite
-kupe db binding add orders-db --cluster prod --namespace reports --role readonly
+kupe db binding add orders-db --cluster prod --namespace orders-migrate --role owner
+kupe db binding add orders-db --cluster prod --namespace orders-api --namespace orders-worker --role readwrite
+kupe db binding add orders-db --cluster prod --namespace orders-reports --role readonly
 ```
 
 ```
 $ kupe db binding list orders-db
-NAME                      CLUSTER  NAMESPACE  ROLE       SECRET               PHASE    AGE
-orders-db-prod-owner      prod     api        owner      orders-db-migrate    Ready    2m
-orders-db-prod-readwrite  prod     api        readwrite  orders-db-readwrite  Ready    2m
-orders-db-prod-readwrite  prod     workers    readwrite  orders-db-readwrite  Pending  2m
-orders-db-prod-readonly   prod     reports    readonly   orders-db-readonly   Ready    1m
+NAME                      CLUSTER  NAMESPACE       ROLE       SECRET               PHASE    AGE
+orders-db-prod-owner      prod     orders-migrate  owner      orders-db-owner      Ready    2m
+orders-db-prod-readwrite  prod     orders-api      readwrite  orders-db-readwrite  Ready    2m
+orders-db-prod-readwrite  prod     orders-worker   readwrite  orders-db-readwrite  Pending  2m
+orders-db-prod-readonly   prod     orders-reports  readonly   orders-db-readonly   Ready    1m
 
 $ kupe db binding get orders-db orders-db-prod-readwrite
 Name:        orders-db-prod-readwrite
 Database:    orders-db
 Cluster:     prod
-Namespaces:  api, workers
+Namespaces:  orders-api, orders-worker
 Role:        readwrite
 Secret:      orders-db-readwrite
 Phase:       Pending
-Message:     the database is not yet available in namespace "workers"; retrying
+Message:     the database is not yet available in namespace "orders-worker"; retrying
 Created:     2026-10-18T10:00:00Z (2m ago)
 
-NAMESPACE  PHASE    HOST                             MESSAGE
-api        Ready    orders-db.api.svc.cluster.local
-workers    Pending                                   the binding could not be reconciled; retrying
+NAMESPACE      PHASE    HOST                                    MESSAGE
+orders-api     Ready    orders-db.orders-api.svc.cluster.local
+orders-worker  Pending                                          the binding could not be reconciled; retrying
 ```
 
 A namespace's `PHASE` is `Pending` until the platform reports it.
@@ -986,8 +986,8 @@ not running yet or is being deleted. The platform keeps trying, and the binding
 becomes `Ready` on its own once both are running. A wait that times out while
 the binding is `Pending` exits `8` with the binding's status message, for
 example `binding "orders-db-prod-readwrite" is still Pending: the database is
-not yet available in namespace "workers"; retrying`, and a hint to check it
-with `kupe db binding get`.
+not yet available in namespace "orders-worker"; retrying`, and a hint to check
+it with `kupe db binding get`.
 
 A binding is `Failed` when one of its namespaces already has a Service named
 after the database, or a Secret of the binding's Secret name, that the
@@ -1000,9 +1000,9 @@ binding also lists namespaces without a clash, the hint also gives the
 clashing ones.
 
 ```
-$ kupe db binding add orders-db --cluster prod --namespace api --role readwrite
-Error: binding "orders-db-prod-readwrite" failed: a Secret named "orders-db-readwrite" already exists in namespace "api", not created by the platform; remove it, or bind with another secretName
-  namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create
+$ kupe db binding add orders-db --cluster prod --namespace orders-api --role readwrite
+Error: binding "orders-db-prod-readwrite" failed: a Secret named "orders-db-readwrite" already exists in namespace "orders-api", not created by the platform; remove it, or bind with another secretName
+  namespace orders-api of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create
   rename or remove that object, and the binding becomes Ready on its own
   or, if the Secret is the clash, choose another Secret name:  kupe database binding delete orders-db orders-db-prod-readwrite --yes
     then add the binding again with --secret-name
@@ -1026,7 +1026,7 @@ edits its namespace list and sends the whole new list (`PATCH` with
 `If-Match`); if the binding changed in between (`412`), it reads it again and
 retries once. Adding a namespace that is already listed, or removing one that
 is not, changes nothing: when nothing changes, no request is sent and stderr
-says `binding "NAME" is unchanged: it lists api, jobs`.
+says `binding "NAME" is unchanged: it lists orders-api, orders-worker`.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -1046,8 +1046,8 @@ those checks. While a removed namespace is withdrawn, `binding list` and
 `binding get` show it with `PHASE` `Removing`.
 
 ```bash
-kupe db binding update orders-db orders-db-prod-readwrite --add-namespace workers
-kupe db binding update orders-db orders-db-prod-readwrite --remove-namespace jobs
+kupe db binding update orders-db orders-db-prod-readwrite --add-namespace orders-worker
+kupe db binding update orders-db orders-db-prod-readwrite --remove-namespace orders-worker
 ```
 
 **Exit codes (`binding update`):** `0` `Ready` in every listed namespace and

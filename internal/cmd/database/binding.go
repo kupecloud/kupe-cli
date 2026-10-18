@@ -85,15 +85,15 @@ The binding name defaults to DATABASE-CLUSTER-ROLE; pass --name if that is
 longer than 63 characters. To add a namespace to a binding later, use
 "kupe database binding update".`,
 		Args: cobra.ExactArgs(1),
-		Example: `  # Migrations run with the owner role, the API and its workers with the readwrite role
-  kupe database binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
-  kupe db binding add orders-db --cluster prod --namespace api --namespace workers --role readwrite
+		Example: `  # The migration Job runs with the owner role, the API and its worker with the readwrite role
+  kupe database binding add orders-db --cluster prod --namespace orders-migrate --role owner
+  kupe db binding add orders-db --cluster prod --namespace orders-api --namespace orders-worker --role readwrite
 
-  # A reporting job reads with the readonly role
-  kupe db binding add orders-db --cluster prod --namespace reports --role readonly
+  # Reporting reads with the readonly role
+  kupe db binding add orders-db --cluster prod --namespace orders-reports --role readonly
 
   # Bind into a cluster that is still being created, without waiting
-  kupe db binding add orders-db --cluster staging --namespace api --role readwrite --wait=false`,
+  kupe db binding add orders-db --cluster staging --namespace orders-api --role readwrite --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			database := args[0]
 			if opts.cluster == "" || len(opts.namespaces) == 0 {
@@ -435,14 +435,14 @@ default it then waits until every listed namespace is Ready and every
 removed one is withdrawn. Pass --wait=false to return as soon as the change
 is accepted.`,
 		Args: cobra.ExactArgs(2),
-		Example: `  # Bind the readwrite role into the workers namespace too
-  kupe database binding update orders-db orders-db-prod-readwrite --add-namespace workers
+		Example: `  # Bind the readwrite role into the orders-worker namespace too
+  kupe database binding update orders-db orders-db-prod-readwrite --add-namespace orders-worker
 
-  # Stop binding it into the jobs namespace
-  kupe db binding update orders-db orders-db-prod-readwrite --remove-namespace jobs
+  # Stop binding it into orders-worker
+  kupe db binding update orders-db orders-db-prod-readwrite --remove-namespace orders-worker
 
-  # Add one and remove another in one change, without waiting
-  kupe db binding update orders-db orders-db-prod-readwrite --add-namespace reports --remove-namespace jobs --wait=false`,
+  # Move the staging binding from the API to the worker in one change, without waiting
+  kupe db binding update orders-db orders-db-staging-readwrite --add-namespace orders-worker --remove-namespace orders-api --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			database, name := args[0], args[1]
 			if len(opts.add) == 0 && len(opts.remove) == 0 {

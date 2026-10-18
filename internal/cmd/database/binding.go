@@ -421,9 +421,11 @@ func newBindingUpdateCmd(f *cli.Factory) *cobra.Command {
 		Use:   "update DATABASE BINDING [--add-namespace NAMESPACE]... [--remove-namespace NAMESPACE]...",
 		Short: "Add or remove namespaces of a binding",
 		Long: `Change the namespaces a binding delivers into. A namespace added gets the
-Service and credentials Secret; a namespace removed loses them and its network
-path to the database, while the other namespaces keep working. A binding
-lists 1 to 10 namespaces. Its cluster, role and Secret name cannot change.
+Service and credentials Secret. A namespace removed loses the Secret, and the
+Service and its network path to the database unless another binding of the
+database lists that namespace in the same cluster; the other namespaces keep
+working. A binding lists 1 to 10 namespaces. Its cluster, role and Secret
+name cannot change.
 
 Removing a namespace does not change the role's password; rotate it with
 "kupe database rotate-credentials" if that namespace should also lose
@@ -540,15 +542,17 @@ func newBindingDeleteCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete DATABASE BINDING",
 		Short: "Remove a binding",
-		Long: `Remove a binding: the Service and credentials Secret leave every namespace
-it lists, and their network path to the database closes. The role's password
-does not change; rotate it with "kupe database rotate-credentials" if those
-namespaces should also lose knowledge of it. To remove only some of its
-namespaces, use "kupe database binding update --remove-namespace".
+		Long: `Remove a binding: its credentials Secret leaves every namespace it lists,
+and so do the Service and the network path to the database, except in a
+namespace another binding of the database still lists in the same cluster.
+The role's password does not change; rotate it with
+"kupe database rotate-credentials" if those namespaces should also lose
+knowledge of it. To remove only some of its namespaces, use
+"kupe database binding update --remove-namespace".
 
-The request is asynchronous: the Services and Secrets are removed in the
-background. Prompts on a TTY; pass --yes to skip (required in
-non-interactive environments).`,
+The request is asynchronous: the platform withdraws them in the background.
+Prompts on a TTY; pass --yes to skip (required in non-interactive
+environments).`,
 		Args:    cobra.ExactArgs(2),
 		Example: `  kupe database binding delete orders-db orders-db-prod-readwrite --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {

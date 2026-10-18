@@ -929,9 +929,10 @@ cluster. Each namespace gets a Service named after the database and a
 credentials Secret (the same Secret name in every namespace), and a network
 path to the database. `binding update` adds or removes namespaces; the
 cluster, role and Secret name are fixed: to change one, delete the binding and
-add another. Removing a namespace or a binding removes its Services, Secrets
-and network paths, but not knowledge of the password: rotate the role
-afterwards if that matters.
+add another. Removing a namespace or a binding removes its Secrets, and the
+Service and network path from each namespace no other binding of the database
+lists in the same cluster. It does not remove knowledge of the password:
+rotate the role afterwards if that matters.
 
 | Command | Description |
 |---------|-------------|

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1008,29 +1010,43 @@ func TestWait_ForDeletedWhenDatabasesUnavailableIsAnError(t *testing.T) {
 }
 
 func TestBindingAdd(t *testing.T) {
+	elevenNamespaces := []string{"orders-db", "--cluster", "prod", "--role", "readwrite"}
+	for i := range 11 {
+		elevenNamespaces = append(elevenNamespaces, "--namespace", fmt.Sprintf("ns%d", i))
+	}
 	tests := []struct {
-		name       string
-		args       []string
-		wantExit   int
-		wantName   string
-		wantSecret string
+		name           string
+		args           []string
+		wantExit       int
+		wantName       string
+		wantSecret     string
+		wantNamespaces []string
+		wantErr        string // substring
 	}{
-		{"defaults the name from database, cluster, namespace and role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"},
-			cli.ExitOK, "orders-db-prod-api-readwrite", ""},
+		{"defaults the name from database, cluster and role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"},
+			cli.ExitOK, "orders-db-prod-readwrite", "", []string{"api"}, ""},
 		{"the readonly role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readonly"},
-			cli.ExitOK, "orders-db-prod-api-readonly", ""},
+			cli.ExitOK, "orders-db-prod-readonly", "", []string{"api"}, ""},
+		{"--namespace repeats, in the order given", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--namespace", "jobs", "--role", "readwrite"},
+			cli.ExitOK, "orders-db-prod-readwrite", "", []string{"api", "jobs"}, ""},
+		{"ten namespaces are allowed", append([]string{"orders-db", "--cluster", "prod", "--role", "readwrite"}, elevenNamespaces[7:]...),
+			cli.ExitOK, "orders-db-prod-readwrite", "", []string{"ns1", "ns2", "ns3", "ns4", "ns5", "ns6", "ns7", "ns8", "ns9", "ns10"}, ""},
+		{"eleven namespaces are refused", elevenNamespaces, cli.ExitMisuse, "", "", nil, "a binding can list at most 10 namespaces; 11 given"},
 		{"explicit name and secret name", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "owner", "--name", "migrate", "--secret-name", "pg-owner"},
-			cli.ExitOK, "migrate", "pg-owner"},
+			cli.ExitOK, "migrate", "pg-owner", []string{"api"}, ""},
 		{"a default name over 63 characters asks for --name", []string{"orders-db", "--cluster", strings.Repeat("c", 50), "--namespace", "api", "--role", "readwrite"},
-			cli.ExitMisuse, "", ""},
-		// orders-db-<45 c>-api-app would be exactly 63 characters; the
+			cli.ExitMisuse, "", "", nil, "is longer than 63 characters"},
+		// orders-db-<49 c>-app would be exactly 63 characters; the
 		// readwrite name is longer, so it must ask for --name.
-		{"a cluster name that fit with app is too long with readwrite", []string{"orders-db", "--cluster", strings.Repeat("c", 45), "--namespace", "api", "--role", "readwrite"},
-			cli.ExitMisuse, "", ""},
-		{"app is not a role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, cli.ExitMisuse, "", ""},
-		{"cluster is required", []string{"orders-db", "--namespace", "api", "--role", "readwrite"}, cli.ExitMisuse, "", ""},
-		{"role must be owner, readwrite or readonly", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "admin"}, cli.ExitMisuse, "", ""},
-		{"missing database exits 4", []string{"ghost", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, cli.ExitNotFound, "", ""},
+		{"a cluster name that fit with app is too long with readwrite", []string{"orders-db", "--cluster", strings.Repeat("c", 49), "--namespace", "api", "--role", "readwrite"},
+			cli.ExitMisuse, "", "", nil, `default binding name "orders-db-` + strings.Repeat("c", 49) + `-readwrite" is longer than 63 characters`},
+		{"the default name leaves the namespaces out and may be exactly 63 characters", []string{"orders-db", "--cluster", strings.Repeat("c", 43), "--namespace", strings.Repeat("n", 40), "--role", "readwrite"},
+			cli.ExitOK, "orders-db-" + strings.Repeat("c", 43) + "-readwrite", "", []string{strings.Repeat("n", 40)}, ""},
+		{"cluster is required", []string{"orders-db", "--namespace", "api", "--role", "readwrite"}, cli.ExitMisuse, "", "", nil, "--cluster and --namespace are required"},
+		{"namespace is required", []string{"orders-db", "--cluster", "prod", "--role", "readwrite"}, cli.ExitMisuse, "", "", nil, "--cluster and --namespace are required"},
+		{"role must be owner, readwrite or readonly", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "admin"}, cli.ExitMisuse, "", "", nil, "invalid --role admin"},
+		{"app is not a role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, cli.ExitMisuse, "", "", nil, "invalid --role"},
+		{"missing database exits 4", []string{"ghost", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, cli.ExitNotFound, "", "", nil, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1045,8 +1061,8 @@ func TestBindingAdd(t *testing.T) {
 			if tt.wantExit == cli.ExitMisuse {
 				assertNoCall(t, fake, "CreateDatabaseBinding")
 			}
-			if strings.Contains(tt.name, "too long") && !strings.Contains(err.Error(), "is longer than 63 characters") {
-				t.Fatalf("err = %v; want the default name refused for its length", err)
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("err = %v; want %q", err, tt.wantErr)
 			}
 			if tt.wantName == "" {
 				return
@@ -1055,7 +1071,7 @@ func TestBindingAdd(t *testing.T) {
 			if b == nil {
 				t.Fatalf("binding %q not created; have %v", tt.wantName, fake.DatabaseBindings)
 			}
-			if b.Database != "orders-db" || b.Cluster != "prod" || b.Namespace != "api" || b.SecretName != tt.wantSecret {
+			if b.Database != "orders-db" || !slices.Equal(b.Namespaces, tt.wantNamespaces) || b.SecretName != tt.wantSecret {
 				t.Fatalf("binding = %+v", b)
 			}
 		})
@@ -1063,14 +1079,24 @@ func TestBindingAdd(t *testing.T) {
 }
 
 // boundAs is the binding `binding add orders-db --cluster prod --namespace
-// api --role readwrite` creates, as the API reports it in phase.
-func boundAs(phase, message string, conditions ...client.Condition) *client.DatabaseBinding {
+// api --namespace jobs --role readwrite` creates, as the API reports it:
+// phase at the top, and each namespace's status.
+func boundAs(phase, message string, namespaces []client.DatabaseBindingNamespaceStatus, conditions ...client.Condition) *client.DatabaseBinding {
 	return &client.DatabaseBinding{
-		Name: "orders-db-prod-api-readwrite", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "readwrite",
+		Name: "orders-db-prod-readwrite", Database: "orders-db", Cluster: "prod", Namespaces: []string{"api", "jobs"}, Role: "readwrite",
 		Status: &client.DatabaseBindingStatus{
-			Phase: phase, SecretName: "orders-db-readwrite", Message: message, Conditions: conditions,
+			Phase: phase, SecretName: "orders-db-readwrite", Message: message, Namespaces: namespaces, Conditions: conditions,
 		},
 	}
+}
+
+// nsStatus is one namespace's status in phase.
+func nsStatus(name, phase, message string) client.DatabaseBindingNamespaceStatus {
+	st := client.DatabaseBindingNamespaceStatus{Name: name, Phase: phase, Message: message}
+	if phase == client.PhaseReady {
+		st.Host = "orders-db." + name + ".svc.cluster.local"
+	}
+	return st
 }
 
 func TestBindingAdd_Wait(t *testing.T) {
@@ -1080,38 +1106,52 @@ func TestBindingAdd_Wait(t *testing.T) {
 		{Type: "Ready", Status: "False", Reason: "SyncConflict", Message: conflictMessage},
 		{Type: "Conflict", Status: "True", Reason: "SyncConflict", Message: conflictMessage},
 	}
-	check := "kupe database binding get orders-db orders-db-prod-api-readwrite"
+	bothReady := []client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", ""), nsStatus("jobs", "Ready", "")}
+	check := "kupe database binding get orders-db orders-db-prod-readwrite"
 	tests := []struct {
 		name     string
 		seq      []*client.DatabaseBinding
 		args     []string
 		wantExit int
 		wantGets int
-		wantOut  string
+		wantOut  []string
 		wantErr  []string
 		wantHint []string
 		noHint   string
 	}{
 		{
-			name: "ready renders the bound binding", seq: []*client.DatabaseBinding{boundAs("Ready", "the database is available in the namespace")},
-			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitOK, wantGets: 1, wantOut: "Ready",
+			name: "ready renders the bound binding with a row per namespace",
+			seq:  []*client.DatabaseBinding{boundAs("Ready", "the database is available in every listed namespace", bothReady)},
+			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitOK, wantGets: 1,
+			wantOut: []string{"Phase:", "Ready", "orders-db.api.svc.cluster.local", "orders-db.jobs.svc.cluster.local"},
 		},
 		{
-			name: "a name conflict fails at once with what to change",
-			seq:  []*client.DatabaseBinding{boundAs("Failed", conflictMessage, conflict...)},
+			name: "a Ready before the platform reports the namespaces is not the end",
+			seq: []*client.DatabaseBinding{
+				boundAs("Ready", "", nil),
+				boundAs("Ready", "", []client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", "")}),
+				boundAs("Ready", "the database is available in every listed namespace", bothReady),
+			},
+			args: []string{"--wait-timeout", "20s"}, wantExit: cli.ExitOK, wantGets: 3, wantOut: []string{"orders-db.jobs.svc.cluster.local"},
+		},
+		{
+			name: "a name conflict in one namespace fails at once and names that namespace",
+			seq: []*client.DatabaseBinding{boundAs("Failed", conflictMessage,
+				[]client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", ""), nsStatus("jobs", "Failed", conflictMessage)}, conflict...)},
 			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitConflict, wantGets: 1,
-			wantErr: []string{`binding "orders-db-prod-api-readwrite" failed: ` + conflictMessage},
+			wantErr: []string{`binding "orders-db-prod-readwrite" failed: ` + conflictMessage},
 			wantHint: []string{
-				`namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create`,
+				`namespace jobs of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create`,
 				"rename or remove that object",
-				"kupe database binding delete orders-db orders-db-prod-api-readwrite --yes",
+				"kupe database binding delete orders-db orders-db-prod-readwrite --yes",
 				"--secret-name",
 				check,
 			},
+			noHint: "namespace api of cluster prod",
 		},
 		{
 			name:     "a failure without a conflict gives no conflict advice",
-			seq:      []*client.DatabaseBinding{boundAs("Failed", "something else went wrong")},
+			seq:      []*client.DatabaseBinding{boundAs("Failed", "something else went wrong", nil)},
 			args:     []string{"--wait-timeout", "5s"},
 			wantExit: cli.ExitGeneral, wantGets: 1,
 			wantErr:  []string{"something else went wrong"},
@@ -1120,24 +1160,25 @@ func TestBindingAdd_Wait(t *testing.T) {
 		},
 		{
 			name: "pending past the timeout shows why and how to check",
-			seq:  []*client.DatabaseBinding{boundAs("Pending", "cluster prod does not exist")},
+			seq: []*client.DatabaseBinding{boundAs("Pending", `the database is not yet available in namespace "jobs"; retrying`,
+				[]client.DatabaseBindingNamespaceStatus{nsStatus("api", "Ready", ""), nsStatus("jobs", "Pending", "cluster prod is not running")})},
 			args: []string{"--wait-timeout", "50ms"}, wantExit: cli.ExitTimeout, wantGets: 1,
-			wantErr:  []string{`binding "orders-db-prod-api-readwrite" is still Pending: cluster prod does not exist`},
+			wantErr:  []string{`binding "orders-db-prod-readwrite" is still Pending: the database is not yet available in namespace "jobs"; retrying`},
 			wantHint: []string{"becomes Ready on its own", check},
 		},
 		{
 			name: "--wait=false returns the accepted binding without polling",
 			// The short timeout bounds the test if --wait=false were ignored.
-			args: []string{"--wait=false", "--wait-timeout", "50ms"}, wantExit: cli.ExitOK, wantGets: 0, wantOut: "Pending",
+			args: []string{"--wait=false", "--wait-timeout", "50ms"}, wantExit: cli.ExitOK, wantGets: 0, wantOut: []string{"Pending"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
 			fake.DatabasesByName["orders-db"] = running("orders-db")
-			fake.GetDatabaseBindingSeq["orders-db-prod-api-readwrite"] = tt.seq
+			fake.GetDatabaseBindingSeq["orders-db-prod-readwrite"] = tt.seq
 			f := factoryWith(t, fake)
-			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, tt.args...)
+			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "api", "--namespace", "jobs", "--role", "readwrite"}, tt.args...)
 			out, _, err := run(f, newBindingAddCmd(f), args...)
 			assertExit(t, err, tt.wantExit)
 			gets := 0
@@ -1149,8 +1190,10 @@ func TestBindingAdd_Wait(t *testing.T) {
 			if gets != tt.wantGets {
 				t.Errorf("GetDatabaseBinding calls = %d; want %d", gets, tt.wantGets)
 			}
-			if tt.wantOut != "" && !strings.Contains(out, tt.wantOut) {
-				t.Errorf("stdout should contain %q:\n%s", tt.wantOut, out)
+			for _, want := range tt.wantOut {
+				if !strings.Contains(out, want) {
+					t.Errorf("stdout should contain %q:\n%s", want, out)
+				}
 			}
 			for _, want := range tt.wantErr {
 				if err == nil || !strings.Contains(err.Error(), want) {
@@ -1169,63 +1212,129 @@ func TestBindingAdd_Wait(t *testing.T) {
 	}
 }
 
+// TestBindingPhase pins what a wait reads from a binding: Ready only once
+// every listed namespace is Ready and nothing is still being withdrawn,
+// Failed only for a listed namespace.
+func TestBindingPhase(t *testing.T) {
+	with := func(phase string, listed []string, reported ...client.DatabaseBindingNamespaceStatus) *client.DatabaseBinding {
+		return &client.DatabaseBinding{Namespaces: listed, Status: &client.DatabaseBindingStatus{Phase: phase, Namespaces: reported}}
+	}
+	tests := []struct {
+		name    string
+		binding *client.DatabaseBinding
+		want    string
+	}{
+		{"no status yet", &client.DatabaseBinding{Namespaces: []string{"api"}}, ""},
+		{"every listed namespace Ready", with("Ready", []string{"api", "jobs"}, nsStatus("api", "Ready", ""), nsStatus("jobs", "Ready", "")), "Ready"},
+		{"a listed namespace not reported yet", with("Ready", []string{"api", "jobs"}, nsStatus("api", "Ready", "")), "Pending"},
+		{"no namespace reported yet", with("Ready", []string{"api"}), "Pending"},
+		{"a removed namespace still being withdrawn", with("Ready", []string{"api"}, nsStatus("api", "Ready", ""), nsStatus("old", "Ready", "")), "Pending"},
+		{"a listed namespace Failed", with("Failed", []string{"api", "jobs"}, nsStatus("api", "Ready", ""), nsStatus("jobs", "Failed", "conflict")), "Failed"},
+		{"Failed only in a removed namespace", with("Failed", []string{"api"}, nsStatus("api", "Ready", ""), nsStatus("old", "Failed", "conflict")), "Pending"},
+		{"Failed before namespaces are reported", with("Failed", []string{"api"}), "Failed"},
+		{"Pending is Pending", with("Pending", []string{"api"}, nsStatus("api", "Pending", "")), "Pending"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := bindingPhase(tt.binding); got != tt.want {
+				t.Fatalf("bindingPhase = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBindingListGetDelete(t *testing.T) {
 	seed := func() *clienttest.Fake {
 		fake := clienttest.New()
 		fake.DatabasesByName["orders-db"] = running("orders-db")
 		fake.DatabasesByName["users-db"] = running("users-db")
-		fake.DatabaseBindings["orders-db-prod-api-readwrite"] = &client.DatabaseBinding{
-			Name: "orders-db-prod-api-readwrite", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "readwrite",
-			Status: &client.DatabaseBindingStatus{Phase: "Ready", Host: "orders-db.api.svc.cluster.local", SecretName: "orders-db-readwrite"},
+		fake.DatabaseBindings["orders-db-prod-readwrite"] = &client.DatabaseBinding{
+			Name: "orders-db-prod-readwrite", Database: "orders-db", Cluster: "prod", Namespaces: []string{"api", "jobs"}, Role: "readwrite",
+			Status: &client.DatabaseBindingStatus{Phase: "Pending", SecretName: "orders-db-readwrite",
+				Message: `the database is not yet available in namespace "jobs"; retrying`,
+				Namespaces: []client.DatabaseBindingNamespaceStatus{
+					nsStatus("api", "Ready", ""), nsStatus("jobs", "Pending", "cluster prod is not running"), nsStatus("reports", "Ready", ""),
+				}},
 		}
-		fake.DatabaseBindings["users-db-prod-web-readwrite"] = &client.DatabaseBinding{Name: "users-db-prod-web-readwrite", Database: "users-db"}
+		fake.DatabaseBindings["users-db-prod-readwrite"] = &client.DatabaseBinding{Name: "users-db-prod-readwrite", Database: "users-db"}
 		return fake
 	}
 
-	t.Run("list shows only that database's bindings", func(t *testing.T) {
+	t.Run("list shows a row per namespace of that database's bindings", func(t *testing.T) {
 		f := factoryWith(t, seed())
 		out, _, err := run(f, newBindingListCmd(f), "orders-db", "-o", "wide")
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
-		if !strings.Contains(out, "orders-db-prod-api-readwrite") || !strings.Contains(out, "orders-db-readwrite") ||
-			!strings.Contains(out, "orders-db.api.svc.cluster.local") || strings.Contains(out, "users-db") {
-			t.Fatalf("unexpected list:\n%s", out)
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		if len(lines) != 4 || strings.Contains(out, "users-db") {
+			t.Fatalf("want a header and three rows:\n%s", out)
+		}
+		for i, want := range [][]string{
+			{"NAME", "CLUSTER", "NAMESPACE", "ROLE", "SECRET", "PHASE", "AGE", "HOST", "MESSAGE"},
+			{"orders-db-prod-readwrite", "prod", "api", "readwrite", "orders-db-readwrite", "Ready", "orders-db.api.svc.cluster.local"},
+			{"orders-db-prod-readwrite", "prod", "jobs", "readwrite", "orders-db-readwrite", "Pending", "cluster prod is not running"},
+			{"orders-db-prod-readwrite", "prod", "reports", "readwrite", "orders-db-readwrite", "Removing", "orders-db.reports.svc.cluster.local"},
+		} {
+			for _, cell := range want {
+				if !strings.Contains(lines[i], cell) {
+					t.Errorf("row %d should contain %q:\n%s", i, cell, lines[i])
+				}
+			}
 		}
 	})
-	t.Run("get shows host and secret", func(t *testing.T) {
+	t.Run("list -o json keeps the API's bindings", func(t *testing.T) {
 		f := factoryWith(t, seed())
-		out, _, err := run(f, newBindingGetCmd(f), "orders-db", "orders-db-prod-api-readwrite")
+		out, _, err := run(f, newBindingListCmd(f), "orders-db", "-o", "json")
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		var got []client.DatabaseBinding
+		if err := json.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatalf("stdout is not a JSON list: %v\n%s", err, out)
+		}
+		if len(got) != 1 || !slices.Equal(got[0].Namespaces, []string{"api", "jobs"}) || len(got[0].Status.Namespaces) != 3 {
+			t.Fatalf("bindings = %+v", got)
+		}
+	})
+	t.Run("get shows the binding and a row per namespace", func(t *testing.T) {
+		f := factoryWith(t, seed())
+		out, _, err := run(f, newBindingGetCmd(f), "orders-db", "orders-db-prod-readwrite")
 		if err != nil {
 			t.Fatalf("get: %v", err)
 		}
-		if !strings.Contains(out, "orders-db.api.svc.cluster.local") || !strings.Contains(out, "orders-db-readwrite") {
-			t.Fatalf("unexpected details:\n%s", out)
+		for _, want := range []string{
+			"Namespaces:  api, jobs", "Secret:      orders-db-readwrite", "Phase:       Pending",
+			"NAMESPACE  PHASE", "api        Ready", "orders-db.api.svc.cluster.local", "jobs       Pending", "reports    Removing",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("details should contain %q:\n%s", want, out)
+			}
 		}
 	})
 	t.Run("get of another database's binding exits 4", func(t *testing.T) {
 		f := factoryWith(t, seed())
-		_, _, err := run(f, newBindingGetCmd(f), "orders-db", "users-db-prod-web-readwrite")
+		_, _, err := run(f, newBindingGetCmd(f), "orders-db", "users-db-prod-readwrite")
 		assertExit(t, err, cli.ExitNotFound)
 	})
 	t.Run("delete without --yes is refused non-interactively", func(t *testing.T) {
 		fake := seed()
 		f := factoryWith(t, fake)
-		_, _, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-readwrite")
+		_, _, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-readwrite")
 		assertExit(t, err, cli.ExitMisuse)
 		assertNoCall(t, fake, "DeleteDatabaseBinding")
 	})
 	t.Run("delete is requested and points at rotation", func(t *testing.T) {
 		fake := seed()
 		f := factoryWith(t, fake)
-		out, stderr, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-readwrite", "--yes")
+		out, stderr, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-readwrite", "--yes")
 		if err != nil {
 			t.Fatalf("delete: %v", err)
 		}
-		if _, still := fake.DatabaseBindings["orders-db-prod-api-readwrite"]; still {
+		if _, still := fake.DatabaseBindings["orders-db-prod-readwrite"]; still {
 			t.Fatal("binding still present")
 		}
-		if out != "binding/orders-db-prod-api-readwrite delete requested\n" || !strings.Contains(stderr, "rotate-credentials orders-db") {
+		if out != "binding/orders-db-prod-readwrite delete requested\n" || !strings.Contains(stderr, "rotate-credentials orders-db") {
 			t.Fatalf("stdout=%q stderr=%q", out, stderr)
 		}
 	})

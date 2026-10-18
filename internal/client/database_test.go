@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sync/atomic"
 	"testing"
 )
@@ -322,8 +323,12 @@ func TestRotateDatabaseCredentials_NotFound(t *testing.T) {
 	}
 }
 
-const bindingJSON = `{"name":"orders-db-api-readwrite","database":"orders-db","cluster":"prod","namespace":"api","role":"readwrite",
-  "secretName":"","status":{"phase":"Ready","host":"orders-db.api.svc.cluster.local","secretName":"orders-db-readwrite"},
+const bindingJSON = `{"name":"orders-db-prod-readwrite","database":"orders-db","cluster":"prod","namespaces":["api","jobs"],
+  "role":"readwrite","secretName":"","status":{"phase":"Pending","secretName":"orders-db-readwrite",
+  "message":"the database is not yet available in namespace \"jobs\"; retrying",
+  "namespaces":[{"name":"api","host":"orders-db.api.svc.cluster.local","phase":"Ready","deliveredRotation":"2026-10-09T12:00:00Z","message":""},
+    {"name":"jobs","host":"","phase":"Pending","deliveredRotation":"","message":"the database is not yet available"}],
+  "conditions":[]},
   "resourceVersion":"582020","createdAt":"2026-10-09T10:05:00Z"}`
 
 func TestListDatabaseBindings(t *testing.T) {
@@ -335,8 +340,15 @@ func TestListDatabaseBindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListDatabaseBindings: %v", err)
 	}
-	if len(list) != 1 || list[0].Status.Host != "orders-db.api.svc.cluster.local" || list[0].Status.SecretName != "orders-db-readwrite" {
+	if len(list) != 1 || list[0].Status.SecretName != "orders-db-readwrite" {
 		t.Fatalf("decoded bindings = %+v", list)
+	}
+	want := []DatabaseBindingNamespaceStatus{
+		{Name: "api", Host: "orders-db.api.svc.cluster.local", Phase: "Ready", DeliveredRotation: "2026-10-09T12:00:00Z"},
+		{Name: "jobs", Phase: "Pending", Message: "the database is not yet available"},
+	}
+	if got := list[0]; !slices.Equal(got.Namespaces, []string{"api", "jobs"}) || !slices.Equal(got.Status.Namespaces, want) {
+		t.Fatalf("namespaces = %v, status = %+v", got.Namespaces, got.Status.Namespaces)
 	}
 }
 
@@ -352,10 +364,10 @@ func TestListDatabaseBindings_MissingDatabaseIsNotFound(t *testing.T) {
 
 func TestGetDatabaseBinding(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/databases/orders-db/bindings/orders-db-api-readwrite")
+		expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/databases/orders-db/bindings/orders-db-prod-readwrite")
 		fmt.Fprintln(w, bindingJSON)
 	})
-	b, err := c.GetDatabaseBinding(context.Background(), "orders-db", "orders-db-api-readwrite")
+	b, err := c.GetDatabaseBinding(context.Background(), "orders-db", "orders-db-prod-readwrite")
 	if err != nil {
 		t.Fatalf("GetDatabaseBinding: %v", err)
 	}
@@ -370,8 +382,8 @@ func TestCreateDatabaseBinding(t *testing.T) {
 		req            CreateDatabaseBindingRequest
 		wantSecretSent bool
 	}{
-		{"secret name omitted when empty", CreateDatabaseBindingRequest{Name: "b", Cluster: "prod", Namespace: "api", Role: "readwrite"}, false},
-		{"secret name sent when set", CreateDatabaseBindingRequest{Name: "b", Cluster: "prod", Namespace: "api", Role: "readwrite", SecretName: "pg"}, true},
+		{"secret name omitted when empty", CreateDatabaseBindingRequest{Name: "b", Cluster: "prod", Namespaces: []string{"api", "jobs"}, Role: "readwrite"}, false},
+		{"secret name sent when set", CreateDatabaseBindingRequest{Name: "b", Cluster: "prod", Namespaces: []string{"api", "jobs"}, Role: "readwrite", SecretName: "pg"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -381,8 +393,14 @@ func TestCreateDatabaseBinding(t *testing.T) {
 				if _, ok := body["secretName"]; ok != tt.wantSecretSent {
 					t.Errorf("secretName present=%v; want %v", ok, tt.wantSecretSent)
 				}
-				if body["cluster"] != "prod" || body["namespace"] != "api" || body["role"] != "readwrite" || body["name"] != "b" {
+				if body["cluster"] != "prod" || body["role"] != "readwrite" || body["name"] != "b" {
 					t.Errorf("body = %v", body)
+				}
+				if ns, _ := json.Marshal(body["namespaces"]); string(ns) != `["api","jobs"]` {
+					t.Errorf("namespaces = %s; want [\"api\",\"jobs\"]", ns)
+				}
+				if _, old := body["namespace"]; old {
+					t.Errorf("body carries the old namespace field: %v", body)
 				}
 				w.WriteHeader(http.StatusCreated)
 				fmt.Fprintln(w, bindingJSON)
@@ -472,6 +490,33 @@ func TestDatabaseBinding_EffectiveSecretName(t *testing.T) {
 				t.Errorf("EffectiveSecretName() = %q; want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestDatabaseBinding_NamespaceStates lists the listed namespaces in order,
+// with what the platform reports for each, then any it still reports but no
+// longer lists (being withdrawn).
+func TestDatabaseBinding_NamespaceStates(t *testing.T) {
+	b := DatabaseBinding{
+		Namespaces: []string{"jobs", "api", "web"},
+		Status: &DatabaseBindingStatus{Namespaces: []DatabaseBindingNamespaceStatus{
+			{Name: "api", Phase: "Ready", Host: "orders-db.api.svc.cluster.local"},
+			{Name: "old", Phase: "Ready"},
+			{Name: "jobs", Phase: "Failed", Message: "conflict"},
+		}},
+	}
+	want := []BindingNamespace{
+		{Name: "jobs", Listed: true, Reported: true, Status: DatabaseBindingNamespaceStatus{Name: "jobs", Phase: "Failed", Message: "conflict"}},
+		{Name: "api", Listed: true, Reported: true, Status: DatabaseBindingNamespaceStatus{Name: "api", Phase: "Ready", Host: "orders-db.api.svc.cluster.local"}},
+		{Name: "web", Listed: true},
+		{Name: "old", Reported: true, Status: DatabaseBindingNamespaceStatus{Name: "old", Phase: "Ready"}},
+	}
+	if got := b.NamespaceStates(); !slices.Equal(got, want) {
+		t.Fatalf("NamespaceStates() =\n%+v\nwant\n%+v", got, want)
+	}
+	unreported := DatabaseBinding{Namespaces: []string{"api"}}
+	if got := unreported.NamespaceStates(); !slices.Equal(got, []BindingNamespace{{Name: "api", Listed: true}}) {
+		t.Fatalf("without status: %+v", got)
 	}
 }
 

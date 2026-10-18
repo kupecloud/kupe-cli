@@ -31,8 +31,8 @@ and bind them into namespaces of your clusters.
 
 A database belongs to the tenant, not to a cluster: deleting a cluster never
 deletes a database. Applications reach a database through a binding, which
-delivers a Service named after the database and a credentials Secret into one
-namespace of one cluster. Passwords are never shown by the CLI.
+delivers a Service named after the database and a credentials Secret into
+namespaces of one cluster. Passwords are never shown by the CLI.
 
 Resources (--cpu, --memory, --storage) are per instance and are billed at the
 standard unit rates: CPU and memory for every hour an instance is running,

@@ -2,7 +2,9 @@ package printer
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
@@ -14,11 +16,83 @@ var Database = Resource[client.Database]{
 	Name:          func(db *client.Database) string { return db.Name },
 }
 
-// DatabaseBinding renders database bindings.
-var DatabaseBinding = Resource[client.DatabaseBinding]{
+// DatabaseBinding renders database bindings. Tables show one row per
+// namespace; every other format renders the bindings as the API returns
+// them.
+var DatabaseBinding = bindingResource{Resource[client.DatabaseBinding]{
 	Columns:       databaseBindingColumns,
 	DetailColumns: databaseBindingDetailColumns,
 	Name:          func(b *client.DatabaseBinding) string { return b.Name },
+}}
+
+// bindingResource is a Resource whose table views expand each binding into
+// its namespaces.
+type bindingResource struct {
+	Resource[client.DatabaseBinding]
+}
+
+// List writes bindings to io.Out; a table has one row per namespace of
+// each binding.
+func (r bindingResource) List(io *cli.IOStreams, format *Format, items []client.DatabaseBinding) error {
+	if format.Kind != Table && format.Kind != Wide {
+		return r.Resource.List(io, format, items)
+	}
+	rows := make([]bindingRow, 0, len(items))
+	for i := range items {
+		rows = append(rows, bindingRows(&items[i])...)
+	}
+	return PrintTable(io.Out, rows, r.Columns(io.ColorEnabled), format.Kind == Wide)
+}
+
+// One writes one binding to io.Out; the detail view ends with a table of
+// its namespaces.
+func (r bindingResource) One(io *cli.IOStreams, format *Format, item *client.DatabaseBinding) error {
+	if format.Kind != Table && format.Kind != Wide {
+		return r.Resource.One(io, format, item)
+	}
+	if err := PrintDetails(io.Out, item, r.DetailColumns(io.ColorEnabled)); err != nil {
+		return err
+	}
+	fmt.Fprintln(io.Out)
+	return PrintTable(io.Out, bindingRows(item), bindingNamespaceColumns(io.ColorEnabled), true)
+}
+
+// bindingRow is one namespace of one binding in a table.
+type bindingRow struct {
+	binding   *client.DatabaseBinding
+	namespace client.BindingNamespace
+}
+
+// bindingRows is a row per namespace of b, or a single row with no
+// namespace if it lists none.
+func bindingRows(b *client.DatabaseBinding) []bindingRow {
+	states := b.NamespaceStates()
+	if len(states) == 0 {
+		return []bindingRow{{binding: b}}
+	}
+	rows := make([]bindingRow, 0, len(states))
+	for _, ns := range states {
+		rows = append(rows, bindingRow{binding: b, namespace: ns})
+	}
+	return rows
+}
+
+// phaseRemoving is the PHASE of a namespace removed from a binding whose
+// Service and Secret are still being withdrawn.
+const phaseRemoving = "Removing"
+
+// bindingNamespacePhase is a namespace's phase: Pending until the platform
+// reports it, Removing while it is withdrawn.
+func bindingNamespacePhase(ns client.BindingNamespace) string {
+	switch {
+	case ns.Name == "":
+		return ""
+	case !ns.Listed:
+		return phaseRemoving
+	case !ns.Reported || ns.Status.Phase == "":
+		return client.PhasePending
+	}
+	return ns.Status.Phase
 }
 
 // databaseColumns are the list columns for `kupe database list`: VERSION
@@ -61,34 +135,47 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 	}
 }
 
-// databaseBindingColumns are the list columns for `kupe database binding list`.
+// databaseBindingColumns are the list columns for `kupe database binding
+// list`: one row per namespace of each binding.
 func databaseBindingColumns(colorEnabled bool) Columns {
 	return Columns{
-		{Name: "NAME", Get: func(v any) string { return databaseBinding(v).Name }},
-		{Name: "CLUSTER", Get: func(v any) string { return databaseBinding(v).Cluster }},
-		{Name: "NAMESPACE", Get: func(v any) string { return databaseBinding(v).Namespace }},
-		{Name: "ROLE", Get: func(v any) string { return databaseBinding(v).Role }},
-		{Name: "SECRET", Get: func(v any) string { return databaseBinding(v).EffectiveSecretName() }},
+		{Name: "NAME", Get: func(v any) string { return bindingRowOf(v).binding.Name }},
+		{Name: "CLUSTER", Get: func(v any) string { return bindingRowOf(v).binding.Cluster }},
+		{Name: "NAMESPACE", Get: func(v any) string { return bindingRowOf(v).namespace.Name }},
+		{Name: "ROLE", Get: func(v any) string { return bindingRowOf(v).binding.Role }},
+		{Name: "SECRET", Get: func(v any) string { return bindingRowOf(v).binding.EffectiveSecretName() }},
 		{Name: "PHASE", Get: func(v any) string {
-			return ux.ColorPhase(bindingStatus(databaseBinding(v)).Phase, colorEnabled)
+			return ux.ColorPhase(bindingNamespacePhase(bindingRowOf(v).namespace), colorEnabled)
 		}},
-		{Name: "AGE", Get: func(v any) string { return ageFromRFC3339(databaseBinding(v).CreatedAt) }},
-		{Name: "HOST", Wide: true, Get: func(v any) string { return bindingStatus(databaseBinding(v)).Host }},
-		{Name: "MESSAGE", Wide: true, Get: func(v any) string { return bindingStatus(databaseBinding(v)).Message }},
+		{Name: "AGE", Get: func(v any) string { return ageFromRFC3339(bindingRowOf(v).binding.CreatedAt) }},
+		{Name: "HOST", Wide: true, Get: func(v any) string { return bindingRowOf(v).namespace.Status.Host }},
+		{Name: "MESSAGE", Wide: true, Get: func(v any) string { return bindingRowOf(v).namespace.Status.Message }},
+	}
+}
+
+// bindingNamespaceColumns is the namespace table under a binding's detail
+// view.
+func bindingNamespaceColumns(colorEnabled bool) Columns {
+	return Columns{
+		{Name: "NAMESPACE", Get: func(v any) string { return bindingRowOf(v).namespace.Name }},
+		{Name: "PHASE", Get: func(v any) string {
+			return ux.ColorPhase(bindingNamespacePhase(bindingRowOf(v).namespace), colorEnabled)
+		}},
+		{Name: "HOST", Get: func(v any) string { return bindingRowOf(v).namespace.Status.Host }},
+		{Name: "MESSAGE", Get: func(v any) string { return bindingRowOf(v).namespace.Status.Message }},
 	}
 }
 
 // databaseBindingDetailColumns is the key:value layout for
-// `kupe database binding get` and `add`.
+// `kupe database binding get` and `add`, above the namespace table.
 func databaseBindingDetailColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "Name", Get: func(v any) string { return databaseBinding(v).Name }},
 		{Name: "Database", Get: func(v any) string { return databaseBinding(v).Database }},
 		{Name: "Cluster", Get: func(v any) string { return databaseBinding(v).Cluster }},
-		{Name: "Namespace", Get: func(v any) string { return databaseBinding(v).Namespace }},
+		{Name: "Namespaces", Get: func(v any) string { return strings.Join(databaseBinding(v).Namespaces, ", ") }},
 		{Name: "Role", Get: func(v any) string { return databaseBinding(v).Role }},
 		{Name: "Secret", Get: func(v any) string { return databaseBinding(v).EffectiveSecretName() }},
-		{Name: "Host", Get: func(v any) string { return bindingStatus(databaseBinding(v)).Host }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(bindingStatus(databaseBinding(v)).Phase, colorEnabled)
 		}},
@@ -100,6 +187,16 @@ func databaseBindingDetailColumns(colorEnabled bool) Columns {
 func database(v any) *client.Database { return rowOf[client.Database](v) }
 
 func databaseBinding(v any) *client.DatabaseBinding { return rowOf[client.DatabaseBinding](v) }
+
+// bindingRowOf asserts a table row into a bindingRow with a binding, never
+// nil.
+func bindingRowOf(v any) bindingRow {
+	row := *rowOf[bindingRow](v)
+	if row.binding == nil {
+		row.binding = new(client.DatabaseBinding)
+	}
+	return row
+}
 
 func databaseStatus(db *client.Database) client.DatabaseStatus { return valueOf(db.Status) }
 

@@ -73,7 +73,7 @@ type Interface interface {
 	// GetDatabaseBinding returns one binding of a database.
 	GetDatabaseBinding(ctx context.Context, database, name string) (*DatabaseBinding, error)
 
-	// CreateDatabaseBinding binds a database into a cluster namespace.
+	// CreateDatabaseBinding binds a database into namespaces of a cluster.
 	CreateDatabaseBinding(ctx context.Context, database string, req CreateDatabaseBindingRequest) (*DatabaseBinding, error)
 
 	// DeleteDatabaseBinding removes a binding.

@@ -6,6 +6,7 @@ package clienttest
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -492,7 +493,7 @@ func (f *Fake) CreateDatabaseBinding(_ context.Context, database string, req cli
 		Name:       req.Name,
 		Database:   database,
 		Cluster:    req.Cluster,
-		Namespace:  req.Namespace,
+		Namespaces: slices.Clone(req.Namespaces),
 		Role:       req.Role,
 		SecretName: req.SecretName,
 		Status:     &client.DatabaseBindingStatus{Phase: "Pending"},

@@ -162,14 +162,16 @@ type CredentialRotation struct {
 	RequestedAt string `json:"requestedAt" yaml:"requestedAt"`
 }
 
-// DatabaseBinding grants one role of a database to one namespace of one
+// DatabaseBinding grants one role of a database to namespaces of one
 // cluster. Credentials are never returned.
 type DatabaseBinding struct {
-	Name      string `json:"name" yaml:"name"`
-	Database  string `json:"database" yaml:"database"`
-	Cluster   string `json:"cluster" yaml:"cluster"`
-	Namespace string `json:"namespace" yaml:"namespace"`
-	Role      string `json:"role" yaml:"role"`
+	Name     string `json:"name" yaml:"name"`
+	Database string `json:"database" yaml:"database"`
+	Cluster  string `json:"cluster" yaml:"cluster"`
+	// Namespaces are the namespaces inside the cluster the binding delivers
+	// into. The only field of a binding that can change.
+	Namespaces []string `json:"namespaces" yaml:"namespaces"`
+	Role       string   `json:"role" yaml:"role"`
 	// SecretName as requested; empty means the platform default. The
 	// effective name is in Status.SecretName.
 	SecretName      string                 `json:"secretName,omitempty" yaml:"secretName,omitempty"`
@@ -178,7 +180,7 @@ type DatabaseBinding struct {
 	CreatedAt       string                 `json:"createdAt" yaml:"createdAt"`
 }
 
-// EffectiveSecretName is the credentials Secret name in the namespace: the
+// EffectiveSecretName is the credentials Secret name in the namespaces: the
 // one the platform reports, else the one requested.
 func (b *DatabaseBinding) EffectiveSecretName() string {
 	if b.Status != nil && b.Status.SecretName != "" {
@@ -187,15 +189,75 @@ func (b *DatabaseBinding) EffectiveSecretName() string {
 	return b.SecretName
 }
 
-// DatabaseBindingStatus is the observed state. Phase: Pending | Ready | Failed.
+// BindingNamespace is one namespace of a binding as the platform reports it.
+type BindingNamespace struct {
+	// Name is the namespace inside the cluster.
+	Name string
+	// Listed is false for a namespace no longer in Namespaces whose Service
+	// and Secret the platform is still withdrawing.
+	Listed bool
+	// Reported is false while the platform has not recorded the namespace
+	// yet; Status is then the zero value.
+	Reported bool
+	Status   DatabaseBindingNamespaceStatus
+}
+
+// NamespaceStates lists every namespace of the binding: those in
+// Namespaces in their order, then any the platform still reports but that
+// are no longer listed (being withdrawn), in the order reported.
+func (b *DatabaseBinding) NamespaceStates() []BindingNamespace {
+	var reported []DatabaseBindingNamespaceStatus
+	if b.Status != nil {
+		reported = b.Status.Namespaces
+	}
+	out := make([]BindingNamespace, 0, len(b.Namespaces)+len(reported))
+	listed := make(map[string]bool, len(b.Namespaces))
+	for _, ns := range b.Namespaces {
+		listed[ns] = true
+		state := BindingNamespace{Name: ns, Listed: true}
+		for _, st := range reported {
+			if st.Name == ns {
+				state.Reported, state.Status = true, st
+				break
+			}
+		}
+		out = append(out, state)
+	}
+	for _, st := range reported {
+		if !listed[st.Name] {
+			out = append(out, BindingNamespace{Name: st.Name, Reported: true, Status: st})
+		}
+	}
+	return out
+}
+
+// DatabaseBindingStatus is the observed state. Phase: Pending | Ready |
+// Failed; Ready only when every listed namespace is.
 type DatabaseBindingStatus struct {
 	Phase string `json:"phase,omitempty" yaml:"phase,omitempty"`
-	// Host is the in-cluster DNS name applications connect to.
-	Host string `json:"host,omitempty" yaml:"host,omitempty"`
-	// SecretName is the effective credentials Secret name in the namespace.
-	SecretName string      `json:"secretName,omitempty" yaml:"secretName,omitempty"`
-	Message    string      `json:"message,omitempty" yaml:"message,omitempty"`
-	Conditions []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	// SecretName is the effective credentials Secret name in every
+	// namespace.
+	SecretName string `json:"secretName,omitempty" yaml:"secretName,omitempty"`
+	Message    string `json:"message,omitempty" yaml:"message,omitempty"`
+	// Namespaces is what was delivered into each namespace; empty until the
+	// platform has reconciled the binding. A namespace removed from the
+	// binding stays here until its Service and Secret are withdrawn.
+	Namespaces []DatabaseBindingNamespaceStatus `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+	Conditions []Condition                      `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+}
+
+// DatabaseBindingNamespaceStatus is what a binding delivered into one
+// namespace. Phase: Pending | Ready | Failed.
+type DatabaseBindingNamespaceStatus struct {
+	Name string `json:"name" yaml:"name"`
+	// Host is the in-cluster DNS name applications in the namespace
+	// connect to; empty while nothing is delivered.
+	Host  string `json:"host,omitempty" yaml:"host,omitempty"`
+	Phase string `json:"phase,omitempty" yaml:"phase,omitempty"`
+	// DeliveredRotation is the rotate-credentials token of the password
+	// the namespace's Secret carries; empty if the role was never rotated.
+	DeliveredRotation string `json:"deliveredRotation,omitempty" yaml:"deliveredRotation,omitempty"`
+	Message           string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // bindingConditionConflict is True while an object the platform did not
@@ -230,11 +292,11 @@ func conditionTrue(conditions []Condition, t string) bool {
 // CreateDatabaseBindingRequest is the POST body. The database comes from
 // the path.
 type CreateDatabaseBindingRequest struct {
-	Name       string `json:"name"`
-	Cluster    string `json:"cluster"`
-	Namespace  string `json:"namespace"`
-	Role       string `json:"role"`
-	SecretName string `json:"secretName,omitempty"`
+	Name       string   `json:"name"`
+	Cluster    string   `json:"cluster"`
+	Namespaces []string `json:"namespaces"`
+	Role       string   `json:"role"`
+	SecretName string   `json:"secretName,omitempty"`
 }
 
 // RotateDatabaseCredentials requests a new password for one role (one of
@@ -269,7 +331,7 @@ func (c *Client) GetDatabaseBinding(ctx context.Context, database, name string) 
 	return b, err
 }
 
-// CreateDatabaseBinding binds a database into a cluster namespace.
+// CreateDatabaseBinding binds a database into namespaces of a cluster.
 func (c *Client) CreateDatabaseBinding(ctx context.Context, database string, req CreateDatabaseBindingRequest) (*DatabaseBinding, error) {
 	b, _, err := c.bindings(database).Create(ctx, req)
 	return b, err

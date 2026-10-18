@@ -701,7 +701,7 @@ Alias: `kupe db`. Manages PostgreSQL databases and their bindings into
 cluster namespaces. A database belongs to the tenant, not to a cluster:
 deleting a cluster never deletes a database. Applications reach a database
 through a **binding**, which delivers a Service named after the database and a
-credentials Secret into one namespace of one cluster. The CLI never shows a
+credentials Secret into namespaces of one cluster. The CLI never shows a
 password.
 
 Resources (`--cpu`, `--memory`, `--storage`) are **per instance** and are
@@ -892,13 +892,14 @@ The rotation is in effect once `status.rotations.ROLE.appliedAt` (in
 `kupe database get NAME -o yaml`) equals the `requestedAt` kupe-api returned
 for the request and `status.rotations.ROLE.delivered` is `true`: the database
 uses the new password and every binding of the role has delivered it to its
-credentials Secret. The wait polls for exactly that; a kupe-api that does not
-report `delivered` is taken at `appliedAt` alone. The values are opaque
-tokens, compared for equality only. A later rotation of the same role,
-requested by someone else, replaces this one: the wait says so on stderr and
-waits for the newer rotation instead. Delivery ends at the binding's Secret
-on the platform side; the platform copies it into your cluster after that,
-and the wait does not observe the copy.
+credentials Secret in every namespace the binding lists. The wait polls for
+exactly that; a kupe-api that does not report `delivered` is taken at
+`appliedAt` alone. The values are opaque tokens, compared for equality only.
+A later rotation of the same role, requested by someone else, replaces this
+one: the wait says so on stderr and waits for the newer rotation instead.
+Delivery ends at the binding's Secrets on the platform side; the platform
+copies them into your cluster after that, and the wait does not observe the
+copy.
 Stdout:
 `database/NAME ROLE credentials rotated`, or with `--wait=false`
 `database/NAME ROLE credentials rotation requested`. A kupe-api that does not
@@ -920,31 +921,60 @@ rotation.
 As `kupe cluster wait`: `--for running|pending|provisioning|upgrading|degraded|terminating|deleted`
 (default `running`), `--timeout` (default `30m`, exit `8`).
 
-### `kupe database binding` — Bind a database into a cluster namespace
+### `kupe database binding` — Bind a database into cluster namespaces
 
-A binding grants one role of one database to one namespace of one cluster. All
-fields are fixed; to change one, delete the binding and add another. Removing a
-binding removes the Service, the Secret and the network path, but not
-knowledge of the password: rotate the role afterwards if that matters.
+A binding grants one role of one database to up to 10 namespaces of one
+cluster. Each namespace gets a Service named after the database and a
+credentials Secret (the same Secret name in every namespace), and a network
+path to the database. The cluster, role and Secret name are fixed; to change
+one, delete the binding and add another. Removing a binding removes the
+Services, the Secrets and the network paths, but not knowledge of the
+password: rotate the role afterwards if that matters.
 
 | Command | Description |
 |---------|-------------|
-| `kupe db binding add DATABASE --cluster C --namespace NS --role owner\|readwrite\|readonly [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` (see below). `--name` defaults to `DATABASE-CLUSTER-NAMESPACE-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
-| `kupe db binding list DATABASE` | `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds `HOST` and `MESSAGE`. Exits `4` if the database doesn't exist. |
-| `kupe db binding get DATABASE BINDING` | Details including the in-cluster host and the Secret name. A binding of another database exits `4`. |
+| `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--name` defaults to `DATABASE-CLUSTER-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
+| `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds the namespace's `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
+| `kupe db binding get DATABASE BINDING` | Details including the Secret name, then a table of its namespaces with each one's phase, in-cluster host and message. A binding of another database exits `4`. |
 | `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
 
 ```bash
 kupe db binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
-kupe db binding add orders-db --cluster prod --namespace api --role readwrite
+kupe db binding add orders-db --cluster prod --namespace api --namespace workers --role readwrite
 kupe db binding add orders-db --cluster prod --namespace reports --role readonly
 ```
+
+```
+$ kupe db binding list orders-db
+NAME                      CLUSTER  NAMESPACE  ROLE       SECRET               PHASE    AGE
+orders-db-prod-owner      prod     api        owner      orders-db-migrate    Ready    2m
+orders-db-prod-readwrite  prod     api        readwrite  orders-db-readwrite  Ready    2m
+orders-db-prod-readwrite  prod     workers    readwrite  orders-db-readwrite  Pending  2m
+orders-db-prod-readonly   prod     reports    readonly   orders-db-readonly   Ready    1m
+
+$ kupe db binding get orders-db orders-db-prod-readwrite
+Name:        orders-db-prod-readwrite
+Database:    orders-db
+Cluster:     prod
+Namespaces:  api, workers
+Role:        readwrite
+Secret:      orders-db-readwrite
+Phase:       Pending
+Message:     the database is not yet available in namespace "workers"; retrying
+Created:     2026-10-18T10:00:00Z (2m ago)
+
+NAMESPACE  PHASE    HOST                             MESSAGE
+api        Ready    orders-db.api.svc.cluster.local
+workers    Pending                                   the binding could not be reconciled; retrying
+```
+
+A namespace's `PHASE` is `Pending` until the platform reports it.
 
 `binding add` waits for the binding by default:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--wait` | `true` | Wait for `status.phase=Ready`. `--wait=false` returns as soon as the request is accepted. |
+| `--wait` | `true` | Wait until `status.phase` is `Ready` and every listed namespace is `Ready` in `status.namespaces`. `--wait=false` returns as soon as the request is accepted. |
 | `--wait-timeout DURATION` | `5m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats. |
 
@@ -952,24 +982,25 @@ A binding is `Pending` while its database or cluster does not exist yet, is
 not running yet or is being deleted. The platform keeps trying, and the binding
 becomes `Ready` on its own once both are running. A wait that times out while
 the binding is `Pending` exits `8` with the binding's status message, for
-example `binding "orders-db-prod-api-readwrite" is still Pending: cluster prod does
-not exist`, and a hint to check it with `kupe db binding get`.
+example `binding "orders-db-prod-readwrite" is still Pending: the database is
+not yet available in namespace "workers"; retrying`, and a hint to check it
+with `kupe db binding get`.
 
-A binding is `Failed` when the namespace already has a Service named after the
-database, or a Secret of the binding's Secret name, that the platform did not
-create. The binding does not replace it. The wait stops at once and exits `5`
-with the status message and both names; rename or remove that object and the
-binding becomes `Ready` on its own, or delete the binding and add it again with
-another `--secret-name`.
+A binding is `Failed` when one of its namespaces already has a Service named
+after the database, or a Secret of the binding's Secret name, that the
+platform did not create. The binding does not replace it. The wait stops at
+once and exits `5` with the status message, the namespace and both names;
+rename or remove that object and the binding becomes `Ready` on its own, or
+delete the binding and add it again with another `--secret-name`.
 
 ```
 $ kupe db binding add orders-db --cluster prod --namespace api --role readwrite
-Error: binding "orders-db-prod-api-readwrite" failed: a Secret named "orders-db-readwrite" already exists in namespace "api", not created by the platform; remove it, or bind with another secretName
+Error: binding "orders-db-prod-readwrite" failed: a Secret named "orders-db-readwrite" already exists in namespace "api", not created by the platform; remove it, or bind with another secretName
   namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create
   rename or remove that object, and the binding becomes Ready on its own
-  or, if the Secret is the clash, choose another Secret name:  kupe database binding delete orders-db orders-db-prod-api-readwrite --yes
+  or, if the Secret is the clash, choose another Secret name:  kupe database binding delete orders-db orders-db-prod-readwrite --yes
     then add the binding again with --secret-name
-  check status:  kupe database binding get orders-db orders-db-prod-api-readwrite
+  check status:  kupe database binding get orders-db orders-db-prod-readwrite
 ```
 
 **Exit codes (`binding add`):** `0` `Ready` (or accepted with `--wait=false`),

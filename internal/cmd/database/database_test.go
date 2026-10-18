@@ -699,12 +699,12 @@ func TestRotateCredentials(t *testing.T) {
 		wantExit  int
 		wantCall  string
 	}{
-		{"--yes rotates the app role", []string{"--role", "app", "--yes", "--wait=false"}, "", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:app"},
+		{"--yes rotates the readwrite role", []string{"--role", "readwrite", "--yes", "--wait=false"}, "", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:readwrite"},
 		{"typing yes confirms the owner role", []string{"--role", "owner", "--wait=false"}, "yes\n", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:owner"},
 		{"role is required", []string{"--yes"}, "", nil, cli.ExitMisuse, ""},
 		{"unknown role is misuse", []string{"--role", "admin", "--yes"}, "", nil, cli.ExitMisuse, ""},
-		{"non-interactive without --yes is refused", []string{"--role", "app"}, "", nil, cli.ExitMisuse, ""},
-		{"a database being deleted exits 5", []string{"--role", "app", "--yes"}, "",
+		{"non-interactive without --yes is refused", []string{"--role", "readwrite"}, "", nil, cli.ExitMisuse, ""},
+		{"a database being deleted exits 5", []string{"--role", "readwrite", "--yes"}, "",
 			&client.APIError{StatusCode: 409, Message: "database is being deleted"}, cli.ExitConflict, ""},
 	}
 	for _, tt := range tests {
@@ -737,10 +737,13 @@ func TestRotateCredentials(t *testing.T) {
 	}
 }
 
-// rotations is a database whose app and owner rotations read app and owner.
-func rotations(app, owner client.RotationStatus) *client.Database {
+// rotations is a database reporting all three roles: readwrite and owner
+// as given, readonly never rotated.
+func rotations(readwrite, owner client.RotationStatus) *client.Database {
 	db := running("orders-db")
-	db.Status.Rotations = &client.DatabaseRotations{App: app, Owner: owner}
+	db.Status.Rotations = client.DatabaseRotations{
+		client.DatabaseRoleOwner: owner, client.DatabaseRoleReadWrite: readwrite, client.DatabaseRoleReadOnly: {},
+	}
 	return db
 }
 
@@ -769,33 +772,33 @@ func TestRotateCredentials_Wait(t *testing.T) {
 		wantStderr string // substring
 		wantHint   string // substring
 	}{
-		{"waits until the app rotation is applied", []string{"--role", "app"},
+		{"waits until the readwrite rotation is applied", []string{"--role", "readwrite"},
 			[]*client.Database{rotations(pending, settled), rotations(applied, settled)},
-			cli.ExitOK, "database/orders-db app credentials rotated\n", "", ""},
+			cli.ExitOK, "database/orders-db readwrite credentials rotated\n", "", ""},
 		{"the owner role reads the owner rotation", []string{"--role", "owner"},
 			[]*client.Database{rotations(applied, pending), rotations(applied, applied)},
 			cli.ExitOK, "database/orders-db owner credentials rotated\n", "", ""},
-		{"-o json reports the token applied", []string{"--role", "app", "-o", "json"},
+		{"-o json reports the token applied", []string{"--role", "readwrite", "-o", "json"},
 			[]*client.Database{rotations(applied, settled)},
 			cli.ExitOK, `"appliedAt": "` + token + `"`, "", ""},
-		{"an older kupe-api without rotation status is not waited on", []string{"--role", "app"},
+		{"an older kupe-api without rotation status is not waited on", []string{"--role", "readwrite"},
 			[]*client.Database{running("orders-db")},
-			cli.ExitOK, "database/orders-db app credentials rotation requested\n", "does not report rotation progress", ""},
-		{"a rotation never applied times out, saying the old password still works", []string{"--role", "app", "--wait-timeout", "300ms"},
+			cli.ExitOK, "database/orders-db readwrite credentials rotation requested\n", "does not report rotation progress", ""},
+		{"a rotation never applied times out, saying the old password still works", []string{"--role", "readwrite", "--wait-timeout", "300ms"},
 			[]*client.Database{rotations(pending, settled)},
-			cli.ExitTimeout, "", "", "status.rotations.app"},
-		{"a database being deleted ends the wait", []string{"--role", "app"},
+			cli.ExitTimeout, "", "", "status.rotations.readwrite"},
+		{"a database being deleted ends the wait", []string{"--role", "readwrite"},
 			[]*client.Database{terminating},
 			cli.ExitGeneral, "", "", "kupe database get orders-db"},
-		{"an applied rotation waits until every binding has the new password", []string{"--role", "app"},
+		{"an applied rotation waits until every binding has the new password", []string{"--role", "readwrite"},
 			[]*client.Database{rotations(undelivered, settled), rotations(delivered, settled)},
-			cli.ExitOK, "database/orders-db app credentials rotated\n", "", ""},
-		{"a rotation applied but never delivered times out", []string{"--role", "app", "--wait-timeout", "300ms"},
+			cli.ExitOK, "database/orders-db readwrite credentials rotated\n", "", ""},
+		{"a rotation applied but never delivered times out", []string{"--role", "readwrite", "--wait-timeout", "300ms"},
 			[]*client.Database{rotations(undelivered, settled)},
 			cli.ExitTimeout, "", "", "delivered is true"},
-		{"a newer rotation is followed to the end", []string{"--role", "app"},
+		{"a newer rotation is followed to the end", []string{"--role", "readwrite"},
 			[]*client.Database{rotations(newerPending, settled), rotations(newerDelivered, settled)},
-			cli.ExitOK, "database/orders-db app credentials rotated\n", "A newer app rotation (" + newer + ") replaced this one", ""},
+			cli.ExitOK, "database/orders-db readwrite credentials rotated\n", "A newer readwrite rotation (" + newer + ") replaced this one", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -830,11 +833,11 @@ func TestRotateCredentials_WaitRidesOutATransientFirstRead(t *testing.T) {
 	fake.GetDatabaseErrOnce = &client.APIError{StatusCode: 503, Message: "service unavailable"}
 	fake.GetDatabaseSeq["orders-db"] = []*client.Database{rotations(client.RotationStatus{RequestedAt: token, AppliedAt: token}, client.RotationStatus{})}
 	f := factoryWith(t, fake)
-	out, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", "app", "--wait-timeout", "20s")
+	out, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", "readwrite", "--wait-timeout", "20s")
 	if err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
-	if out != "database/orders-db app credentials rotated\n" {
+	if out != "database/orders-db readwrite credentials rotated\n" {
 		t.Fatalf("stdout = %q", out)
 	}
 }
@@ -846,9 +849,9 @@ func TestRotateCredentials_WaitHintNeverSuggestsDatabaseWait(t *testing.T) {
 	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
 		rotations(client.RotationStatus{RequestedAt: "2026-10-09T12:00:00Z", Pending: true}, client.RotationStatus{}), nil}
 	f := factoryWith(t, fake)
-	_, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", "app", "--wait-timeout", "20s")
+	_, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", "readwrite", "--wait-timeout", "20s")
 	assertExit(t, err, cli.ExitNotFound)
-	if strings.Contains(hint(err), "kupe database wait") || !strings.Contains(hint(err), "status.rotations.app") {
+	if strings.Contains(hint(err), "kupe database wait") || !strings.Contains(hint(err), "status.rotations.readwrite") {
 		t.Fatalf("err = %v hint = %q; want the rotation status, never kupe database wait", err, hint(err))
 	}
 }
@@ -857,7 +860,7 @@ func TestRotateCredentials_WaitFalseJSON(t *testing.T) {
 	fake := clienttest.New()
 	fake.DatabasesByName["orders-db"] = running("orders-db")
 	f := factoryWith(t, fake)
-	out, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--role", "app", "--yes", "--wait=false", "-o", "json")
+	out, _, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--role", "readwrite", "--yes", "--wait=false", "-o", "json")
 	if err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
@@ -865,7 +868,7 @@ func TestRotateCredentials_WaitFalseJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, out)
 	}
-	if got["requestedAt"] != "2026-10-09T12:00:00Z" || got["pending"] != true || got["role"] != "app" {
+	if got["requestedAt"] != "2026-10-09T12:00:00Z" || got["pending"] != true || got["role"] != "readwrite" {
 		t.Fatalf("rotation = %+v", got)
 	}
 	if _, ok := got["appliedAt"]; ok {
@@ -924,15 +927,15 @@ func TestBindingAdd(t *testing.T) {
 		wantName   string
 		wantSecret string
 	}{
-		{"defaults the name from database, cluster, namespace and role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"},
-			cli.ExitOK, "orders-db-prod-api-app", ""},
+		{"defaults the name from database, cluster, namespace and role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"},
+			cli.ExitOK, "orders-db-prod-api-readwrite", ""},
 		{"explicit name and secret name", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "owner", "--name", "migrate", "--secret-name", "pg-owner"},
 			cli.ExitOK, "migrate", "pg-owner"},
-		{"a default name over 63 characters asks for --name", []string{"orders-db", "--cluster", strings.Repeat("c", 50), "--namespace", "api", "--role", "app"},
+		{"a default name over 63 characters asks for --name", []string{"orders-db", "--cluster", strings.Repeat("c", 50), "--namespace", "api", "--role", "readwrite"},
 			cli.ExitMisuse, "", ""},
-		{"cluster is required", []string{"orders-db", "--namespace", "api", "--role", "app"}, cli.ExitMisuse, "", ""},
-		{"role must be owner or app", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "admin"}, cli.ExitMisuse, "", ""},
-		{"missing database exits 4", []string{"ghost", "--cluster", "prod", "--namespace", "api", "--role", "app"}, cli.ExitNotFound, "", ""},
+		{"cluster is required", []string{"orders-db", "--namespace", "api", "--role", "readwrite"}, cli.ExitMisuse, "", ""},
+		{"role must be owner, readwrite or readonly", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "admin"}, cli.ExitMisuse, "", ""},
+		{"missing database exits 4", []string{"ghost", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, cli.ExitNotFound, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -959,12 +962,12 @@ func TestBindingAdd(t *testing.T) {
 }
 
 // boundAs is the binding `binding add orders-db --cluster prod --namespace
-// api --role app` creates, as the API reports it in phase.
+// api --role readwrite` creates, as the API reports it in phase.
 func boundAs(phase, message string, conditions ...client.Condition) *client.DatabaseBinding {
 	return &client.DatabaseBinding{
-		Name: "orders-db-prod-api-app", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "app",
+		Name: "orders-db-prod-api-readwrite", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "readwrite",
 		Status: &client.DatabaseBindingStatus{
-			Phase: phase, SecretName: "orders-db-app", Message: message, Conditions: conditions,
+			Phase: phase, SecretName: "orders-db-readwrite", Message: message, Conditions: conditions,
 		},
 	}
 }
@@ -976,7 +979,7 @@ func TestBindingAdd_Wait(t *testing.T) {
 		{Type: "Ready", Status: "False", Reason: "SyncConflict", Message: conflictMessage},
 		{Type: "Conflict", Status: "True", Reason: "SyncConflict", Message: conflictMessage},
 	}
-	check := "kupe database binding get orders-db orders-db-prod-api-app"
+	check := "kupe database binding get orders-db orders-db-prod-api-readwrite"
 	tests := []struct {
 		name     string
 		seq      []*client.DatabaseBinding
@@ -996,11 +999,11 @@ func TestBindingAdd_Wait(t *testing.T) {
 			name: "a name conflict fails at once with what to change",
 			seq:  []*client.DatabaseBinding{boundAs("Failed", conflictMessage, conflict...)},
 			args: []string{"--wait-timeout", "5s"}, wantExit: cli.ExitConflict, wantGets: 1,
-			wantErr: []string{`binding "orders-db-prod-api-app" failed: ` + conflictMessage},
+			wantErr: []string{`binding "orders-db-prod-api-readwrite" failed: ` + conflictMessage},
 			wantHint: []string{
-				`namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-app" that the platform did not create`,
+				`namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create`,
 				"rename or remove that object",
-				"kupe database binding delete orders-db orders-db-prod-api-app --yes",
+				"kupe database binding delete orders-db orders-db-prod-api-readwrite --yes",
 				"--secret-name",
 				check,
 			},
@@ -1018,7 +1021,7 @@ func TestBindingAdd_Wait(t *testing.T) {
 			name: "pending past the timeout shows why and how to check",
 			seq:  []*client.DatabaseBinding{boundAs("Pending", "cluster prod does not exist")},
 			args: []string{"--wait-timeout", "50ms"}, wantExit: cli.ExitTimeout, wantGets: 1,
-			wantErr:  []string{`binding "orders-db-prod-api-app" is still Pending: cluster prod does not exist`},
+			wantErr:  []string{`binding "orders-db-prod-api-readwrite" is still Pending: cluster prod does not exist`},
 			wantHint: []string{"becomes Ready on its own", check},
 		},
 		{
@@ -1031,9 +1034,9 @@ func TestBindingAdd_Wait(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
 			fake.DatabasesByName["orders-db"] = running("orders-db")
-			fake.GetDatabaseBindingSeq["orders-db-prod-api-app"] = tt.seq
+			fake.GetDatabaseBindingSeq["orders-db-prod-api-readwrite"] = tt.seq
 			f := factoryWith(t, fake)
-			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, tt.args...)
+			args := append([]string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, tt.args...)
 			out, _, err := run(f, newBindingAddCmd(f), args...)
 			assertExit(t, err, tt.wantExit)
 			gets := 0
@@ -1070,11 +1073,11 @@ func TestBindingListGetDelete(t *testing.T) {
 		fake := clienttest.New()
 		fake.DatabasesByName["orders-db"] = running("orders-db")
 		fake.DatabasesByName["users-db"] = running("users-db")
-		fake.DatabaseBindings["orders-db-prod-api-app"] = &client.DatabaseBinding{
-			Name: "orders-db-prod-api-app", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "app",
-			Status: &client.DatabaseBindingStatus{Phase: "Ready", Host: "orders-db.api.svc.cluster.local", SecretName: "orders-db-app"},
+		fake.DatabaseBindings["orders-db-prod-api-readwrite"] = &client.DatabaseBinding{
+			Name: "orders-db-prod-api-readwrite", Database: "orders-db", Cluster: "prod", Namespace: "api", Role: "readwrite",
+			Status: &client.DatabaseBindingStatus{Phase: "Ready", Host: "orders-db.api.svc.cluster.local", SecretName: "orders-db-readwrite"},
 		}
-		fake.DatabaseBindings["users-db-prod-web-app"] = &client.DatabaseBinding{Name: "users-db-prod-web-app", Database: "users-db"}
+		fake.DatabaseBindings["users-db-prod-web-readwrite"] = &client.DatabaseBinding{Name: "users-db-prod-web-readwrite", Database: "users-db"}
 		return fake
 	}
 
@@ -1084,44 +1087,44 @@ func TestBindingListGetDelete(t *testing.T) {
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
-		if !strings.Contains(out, "orders-db-prod-api-app") || !strings.Contains(out, "orders-db-app") ||
+		if !strings.Contains(out, "orders-db-prod-api-readwrite") || !strings.Contains(out, "orders-db-readwrite") ||
 			!strings.Contains(out, "orders-db.api.svc.cluster.local") || strings.Contains(out, "users-db") {
 			t.Fatalf("unexpected list:\n%s", out)
 		}
 	})
 	t.Run("get shows host and secret", func(t *testing.T) {
 		f := factoryWith(t, seed())
-		out, _, err := run(f, newBindingGetCmd(f), "orders-db", "orders-db-prod-api-app")
+		out, _, err := run(f, newBindingGetCmd(f), "orders-db", "orders-db-prod-api-readwrite")
 		if err != nil {
 			t.Fatalf("get: %v", err)
 		}
-		if !strings.Contains(out, "orders-db.api.svc.cluster.local") || !strings.Contains(out, "orders-db-app") {
+		if !strings.Contains(out, "orders-db.api.svc.cluster.local") || !strings.Contains(out, "orders-db-readwrite") {
 			t.Fatalf("unexpected details:\n%s", out)
 		}
 	})
 	t.Run("get of another database's binding exits 4", func(t *testing.T) {
 		f := factoryWith(t, seed())
-		_, _, err := run(f, newBindingGetCmd(f), "orders-db", "users-db-prod-web-app")
+		_, _, err := run(f, newBindingGetCmd(f), "orders-db", "users-db-prod-web-readwrite")
 		assertExit(t, err, cli.ExitNotFound)
 	})
 	t.Run("delete without --yes is refused non-interactively", func(t *testing.T) {
 		fake := seed()
 		f := factoryWith(t, fake)
-		_, _, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-app")
+		_, _, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-readwrite")
 		assertExit(t, err, cli.ExitMisuse)
 		assertNoCall(t, fake, "DeleteDatabaseBinding")
 	})
 	t.Run("delete is requested and points at rotation", func(t *testing.T) {
 		fake := seed()
 		f := factoryWith(t, fake)
-		out, stderr, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-app", "--yes")
+		out, stderr, err := run(f, newBindingDeleteCmd(f), "orders-db", "orders-db-prod-api-readwrite", "--yes")
 		if err != nil {
 			t.Fatalf("delete: %v", err)
 		}
-		if _, still := fake.DatabaseBindings["orders-db-prod-api-app"]; still {
+		if _, still := fake.DatabaseBindings["orders-db-prod-api-readwrite"]; still {
 			t.Fatal("binding still present")
 		}
-		if out != "binding/orders-db-prod-api-app delete requested\n" || !strings.Contains(stderr, "rotate-credentials orders-db") {
+		if out != "binding/orders-db-prod-api-readwrite delete requested\n" || !strings.Contains(stderr, "rotate-credentials orders-db") {
 			t.Fatalf("stdout=%q stderr=%q", out, stderr)
 		}
 	})

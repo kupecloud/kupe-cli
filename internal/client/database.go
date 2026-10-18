@@ -44,24 +44,23 @@ type DatabaseStatus struct {
 	PreviousVersion  string `json:"previousVersion,omitempty" yaml:"previousVersion,omitempty"`
 	InstancesReady   int32  `json:"instancesReady" yaml:"instancesReady"`
 	InstancesDesired int32  `json:"instancesDesired" yaml:"instancesDesired"`
-	// Rotations is each role's credential rotation state; nil from a
-	// kupe-api that predates it.
-	Rotations  *DatabaseRotations `json:"rotations,omitempty" yaml:"rotations,omitempty"`
-	Conditions []Condition        `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	// Rotations is each role's credential rotation state, keyed by role;
+	// nil from a kupe-api that predates it.
+	Rotations  DatabaseRotations `json:"rotations,omitempty" yaml:"rotations,omitempty"`
+	Conditions []Condition       `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
-// DatabaseRotations is the credential rotation state of each role.
-type DatabaseRotations struct {
-	Owner RotationStatus `json:"owner" yaml:"owner"`
-	App   RotationStatus `json:"app" yaml:"app"`
-}
+// DatabaseRotations is each role's credential rotation state, keyed by role
+// (owner, readwrite, readonly). JSON and YAML output keep the keys the
+// server sent.
+type DatabaseRotations map[string]RotationStatus
 
-// Role returns the state of role (DatabaseRoleOwner or DatabaseRoleApp).
-func (r *DatabaseRotations) Role(role string) RotationStatus {
-	if role == DatabaseRoleOwner {
-		return r.Owner
-	}
-	return r.App
+// Role returns role's state and whether the server reported it. A missing
+// key is treated like no rotation status: a kupe-api that does not report
+// the role cannot be waited on.
+func (r DatabaseRotations) Role(role string) (RotationStatus, bool) {
+	state, ok := r[role]
+	return state, ok
 }
 
 // RotationStatus is one role's credential rotation state. The values are
@@ -141,12 +140,18 @@ const (
 	DatabaseCodeNameTooLong = "database_name_too_long"
 )
 
-// Database roles: owner can change the schema, app can read and write data.
-// Bindings grant one; credential rotation targets one.
+// Database roles: owner can change the schema, readwrite can read and write
+// data, readonly can read data. Bindings grant one; credential rotation
+// targets one.
 const (
-	DatabaseRoleOwner = "owner"
-	DatabaseRoleApp   = "app"
+	DatabaseRoleOwner     = "owner"
+	DatabaseRoleReadWrite = "readwrite"
+	DatabaseRoleReadOnly  = "readonly"
 )
+
+// DatabaseRoles lists every database role, in the order help text names
+// them.
+var DatabaseRoles = []string{DatabaseRoleOwner, DatabaseRoleReadWrite, DatabaseRoleReadOnly}
 
 // CredentialRotation acknowledges a rotate-credentials request. The
 // platform rotates the password asynchronously; none is returned. Wait for
@@ -232,8 +237,8 @@ type CreateDatabaseBindingRequest struct {
 	SecretName string `json:"secretName,omitempty"`
 }
 
-// RotateDatabaseCredentials requests a new password for one role
-// (DatabaseRoleOwner or DatabaseRoleApp). The API answers 202; the old
+// RotateDatabaseCredentials requests a new password for one role (one of
+// DatabaseRoles). The API answers 202; the old
 // password stops working once the platform has rotated it.
 func (c *Client) RotateDatabaseCredentials(ctx context.Context, name, role string) (*CredentialRotation, error) {
 	var rotation CredentialRotation

@@ -161,7 +161,7 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 		if db.Status == nil || db.Status.Rotations == nil {
 			return false, nil
 		}
-		state := db.Status.Rotations.Role(role)
+		state, _ := db.Status.Rotations.Role(role)
 		if state.RequestedAt != "" && state.RequestedAt != result.RequestedAt {
 			fmt.Fprintf(io.ErrOut, "A newer %s rotation (%s) replaced this one; waiting for it instead.\n", role, state.RequestedAt)
 			result.RequestedAt = state.RequestedAt

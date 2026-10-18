@@ -84,11 +84,11 @@ var service = cmdutil.Service[client.Database, client.CreateDatabaseRequest, cli
 // degradedGrace bounds how long an update waits through a Degraded phase.
 const degradedGrace = 5 * time.Minute
 
-// validateRole rejects anything but the two database roles before a
-// request is made.
+// validateRole rejects anything but the database roles before a request is
+// made.
 func validateRole(role string) error {
 	switch role {
-	case client.DatabaseRoleOwner, client.DatabaseRoleApp:
+	case client.DatabaseRoleOwner, client.DatabaseRoleReadWrite, client.DatabaseRoleReadOnly:
 		return nil
 	case "":
 		return cli.MisuseError("--role is required").WithHint("use --role owner (schema changes) or --role app (read and write data)")

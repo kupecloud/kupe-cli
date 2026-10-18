@@ -38,10 +38,26 @@ func waitForBindingGone(t *testing.T, database, binding string, timeout time.Dur
 	}
 }
 
+// sameNamespaces reports whether a binding's JSON lists exactly want, in
+// order.
+func sameNamespaces(binding map[string]any, want ...string) bool {
+	got, _ := binding["namespaces"].([]any)
+	if len(got) != len(want) {
+		return false
+	}
+	for i, ns := range got {
+		if ns != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // TestDatabaseLifecycle covers the database and binding command surface
 // against the API:
 //
-//	create → list → get → update → rotate-credentials → binding add/list/get/delete → delete
+//	create → list → get → update → rotate-credentials (each role) →
+//	binding add (readwrite into two namespaces, readonly) / list / update / get / delete → delete
 //
 // It does not wait for Running, so every command that would wait passes
 // --wait=false: whether the platform provisions PostgreSQL and delivers
@@ -81,35 +97,54 @@ func TestDatabaseLifecycle(t *testing.T) {
 		t.Errorf("storage not grown: %+v", updated["resources"])
 	}
 
-	out := runCLIExpectOK(t, "db", "rotate-credentials", name, "--role", "app", "--yes", "--wait=false")
-	if !strings.Contains(out, "rotation requested") {
-		t.Errorf("rotate stdout = %q", out)
+	for _, role := range []string{"owner", "readwrite", "readonly"} {
+		out := runCLIExpectOK(t, "db", "rotate-credentials", name, "--role", role, "--yes", "--wait=false")
+		if !strings.Contains(out, "rotation requested") {
+			t.Errorf("rotate %s stdout = %q", role, out)
+		}
 	}
 
 	// The cluster need not exist; the binding stays Pending until it does,
 	// so the add does not wait for Ready.
-	binding := name + "-api-app"
+	binding := name + "-api-readwrite"
 	var bound map[string]any
-	runCLIJSON(t, &bound, "db", "binding", "add", name, "--cluster", "nonexistent-cluster", "--namespace", "api", "--role", "app", "--name", binding, "--wait=false")
-	if bound["name"] != binding || bound["role"] != "app" {
+	runCLIJSON(t, &bound, "db", "binding", "add", name, "--cluster", "nonexistent-cluster",
+		"--namespace", "api", "--namespace", "jobs", "--role", "readwrite", "--name", binding, "--wait=false")
+	if bound["name"] != binding || bound["role"] != "readwrite" || !sameNamespaces(bound, "api", "jobs") {
 		t.Fatalf("binding = %+v", bound)
+	}
+	// The default name is DATABASE-CLUSTER-ROLE.
+	readonly := name + "-nonexistent-cluster-readonly"
+	var boundReadonly map[string]any
+	runCLIJSON(t, &boundReadonly, "db", "binding", "add", name, "--cluster", "nonexistent-cluster", "--namespace", "reports", "--role", "readonly", "--wait=false")
+	if boundReadonly["name"] != readonly || boundReadonly["role"] != "readonly" || !sameNamespaces(boundReadonly, "reports") {
+		t.Fatalf("readonly binding = %+v", boundReadonly)
 	}
 	var bindings []map[string]any
 	runCLIJSON(t, &bindings, "db", "binding", "list", name)
-	if len(bindings) != 1 || bindings[0]["name"] != binding {
+	if len(bindings) != 2 {
 		t.Fatalf("bindings = %+v", bindings)
+	}
+
+	var changed map[string]any
+	runCLIJSON(t, &changed, "db", "binding", "update", name, binding, "--add-namespace", "workers", "--remove-namespace", "jobs", "--wait=false")
+	if !sameNamespaces(changed, "api", "workers") {
+		t.Fatalf("updated binding = %+v", changed)
 	}
 	var gotBinding map[string]any
 	runCLIJSON(t, &gotBinding, "db", "binding", "get", name, binding)
-	if gotBinding["namespace"] != "api" {
+	if !sameNamespaces(gotBinding, "api", "workers") {
 		t.Errorf("binding get = %+v", gotBinding)
 	}
-	if out := runCLIExpectOK(t, "db", "binding", "delete", name, binding, "--yes"); out != "binding/"+binding+" delete requested\n" {
-		t.Errorf("binding delete stdout = %q", out)
+	for _, b := range []string{binding, readonly} {
+		if out := runCLIExpectOK(t, "db", "binding", "delete", name, b, "--yes"); out != "binding/"+b+" delete requested\n" {
+			t.Errorf("binding delete stdout = %q", out)
+		}
 	}
 	// The delete is asynchronous: the binding stays readable until the
-	// platform has removed its Service and Secret.
+	// platform has removed its Services and Secrets.
 	waitForBindingGone(t, name, binding, 2*time.Minute)
+	waitForBindingGone(t, name, readonly, 2*time.Minute)
 
 	if out := runCLIExpectOK(t, "db", "delete", name, "--yes", "--wait=false"); out != "database/"+name+" delete requested\n" {
 		t.Errorf("delete stdout = %q", out)

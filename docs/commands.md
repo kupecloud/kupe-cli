@@ -870,17 +870,19 @@ changing while the delete was in flight (hint: retry), `7` lost contact with
 kupe-api while waiting, `8` wait timeout, `130` Ctrl+C while waiting (deletion
 continues).
 
-### `kupe database rotate-credentials NAME --role owner|app`
+### `kupe database rotate-credentials NAME --role owner|readwrite|readonly`
 
-Request a new password for one role: `owner` (schema changes) or `app` (read
-and write data), and by default wait until it is in effect. Once it is, the
-current password stops working and every bound credentials Secret for the role
-carries the new one; applications using the old password must restart.
+Request a new password for one role: `owner` (schema changes), `readwrite`
+(read and write data) or `readonly` (read data), and by default wait until it
+is in effect. Each role has its own password, so rotating one leaves the other
+two unchanged. Once the rotation is in effect, the current password stops
+working and every bound credentials Secret for the role carries the new one;
+applications using the old password must restart.
 Prompts on TTY (type `yes`); `--yes` is required in non-interactive mode.
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--role` | — | `owner` or `app` (required). |
+| `--role` | — | `owner`, `readwrite` or `readonly` (required). Any other value exits `2` before a request is sent. |
 | `--yes`, `-y` | off | Skip confirmation. |
 | `--wait` | `true` | Wait until the new password is in effect. |
 | `--wait-timeout` | `10m` | Give up after this long. Exits `8`. |
@@ -900,8 +902,8 @@ and the wait does not observe the copy.
 Stdout:
 `database/NAME ROLE credentials rotated`, or with `--wait=false`
 `database/NAME ROLE credentials rotation requested`. A kupe-api that does not
-report `status.rotations` yet cannot be waited on: the command says so on
-stderr and prints the requested line.
+report `status.rotations`, or does not report the role asked for, cannot be
+waited on: the command says so on stderr and prints the requested line.
 
 **Exit codes:** `0` rotated (with `--wait=false`: requested), `2` bad
 `--role` or confirmation missing, `4` not found, `5` when the database is being
@@ -927,14 +929,15 @@ knowledge of the password: rotate the role afterwards if that matters.
 
 | Command | Description |
 |---------|-------------|
-| `kupe db binding add DATABASE --cluster C --namespace NS --role owner\|app [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` (see below). `--name` defaults to `DATABASE-CLUSTER-NAMESPACE-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
+| `kupe db binding add DATABASE --cluster C --namespace NS --role owner\|readwrite\|readonly [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` (see below). `--name` defaults to `DATABASE-CLUSTER-NAMESPACE-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
 | `kupe db binding list DATABASE` | `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds `HOST` and `MESSAGE`. Exits `4` if the database doesn't exist. |
 | `kupe db binding get DATABASE BINDING` | Details including the in-cluster host and the Secret name. A binding of another database exits `4`. |
 | `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
 
 ```bash
 kupe db binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
-kupe db binding add orders-db --cluster prod --namespace api --role app
+kupe db binding add orders-db --cluster prod --namespace api --role readwrite
+kupe db binding add orders-db --cluster prod --namespace reports --role readonly
 ```
 
 `binding add` waits for the binding by default:
@@ -949,7 +952,7 @@ A binding is `Pending` while its database or cluster does not exist yet, is
 not running yet or is being deleted. The platform keeps trying, and the binding
 becomes `Ready` on its own once both are running. A wait that times out while
 the binding is `Pending` exits `8` with the binding's status message, for
-example `binding "orders-db-prod-api-app" is still Pending: cluster prod does
+example `binding "orders-db-prod-api-readwrite" is still Pending: cluster prod does
 not exist`, and a hint to check it with `kupe db binding get`.
 
 A binding is `Failed` when the namespace already has a Service named after the
@@ -960,13 +963,13 @@ binding becomes `Ready` on its own, or delete the binding and add it again with
 another `--secret-name`.
 
 ```
-$ kupe db binding add orders-db --cluster prod --namespace api --role app
-Error: binding "orders-db-prod-api-app" failed: a Secret named "orders-db-app" already exists in namespace "api", not created by the platform; remove it, or bind with another secretName
-  namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-app" that the platform did not create
+$ kupe db binding add orders-db --cluster prod --namespace api --role readwrite
+Error: binding "orders-db-prod-api-readwrite" failed: a Secret named "orders-db-readwrite" already exists in namespace "api", not created by the platform; remove it, or bind with another secretName
+  namespace api of cluster prod already has a Service "orders-db" or a Secret "orders-db-readwrite" that the platform did not create
   rename or remove that object, and the binding becomes Ready on its own
-  or, if the Secret is the clash, choose another Secret name:  kupe database binding delete orders-db orders-db-prod-api-app --yes
+  or, if the Secret is the clash, choose another Secret name:  kupe database binding delete orders-db orders-db-prod-api-readwrite --yes
     then add the binding again with --secret-name
-  check status:  kupe database binding get orders-db orders-db-prod-api-app
+  check status:  kupe database binding get orders-db orders-db-prod-api-readwrite
 ```
 
 **Exit codes (`binding add`):** `0` `Ready` (or accepted with `--wait=false`),

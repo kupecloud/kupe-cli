@@ -40,10 +40,12 @@ func newRotateCredentialsCmd(f *cli.Factory) *cobra.Command {
 	opts := &rotateOpts{wait: true, waitTimeout: 10 * time.Minute}
 
 	cmd := &cobra.Command{
-		Use:   "rotate-credentials NAME --role owner|app",
+		Use:   "rotate-credentials NAME --role owner|readwrite|readonly",
 		Short: "Rotate the password of one database role",
-		Long: `Request a new password for one database role: owner (schema changes) or
-app (read and write data), and by default wait until it is in effect.
+		Long: `Request a new password for one database role: owner (schema changes),
+readwrite (read and write data) or readonly (read data), and by default wait
+until it is in effect. Each role has its own password; rotating one leaves
+the others unchanged.
 
 The wait ends once the new password is in effect in PostgreSQL (the old one
 then stops working) and every binding of that role carries it in its
@@ -62,9 +64,9 @@ Rotate after removing a binding if that namespace should also lose knowledge
 of the password. Prompts on a TTY; pass --yes to skip (required in
 non-interactive environments).`,
 		Args: cobra.ExactArgs(1),
-		Example: `  kupe database rotate-credentials orders-db --role app
+		Example: `  kupe database rotate-credentials orders-db --role readwrite
   kupe db rotate-credentials orders-db --role owner --yes
-  kupe db rotate-credentials orders-db --role app --yes --wait=false -o json`,
+  kupe db rotate-credentials orders-db --role readonly --yes --wait=false -o json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			io := f.IOStreams
@@ -121,7 +123,7 @@ Rotating the %s password of database %q:
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.role, "role", "", "Role whose password is rotated: owner or app (required)")
+	cmd.Flags().StringVar(&opts.role, "role", "", "Role whose password is rotated: owner, readwrite or readonly (required)")
 	cmd.Flags().BoolVarP(&opts.yes, "yes", "y", false, "Skip interactive confirmation")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until the new password is in effect before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 10*time.Minute, "Give up waiting after this long")

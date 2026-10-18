@@ -28,8 +28,9 @@ namespace of one cluster: the namespace receives a Service named after the
 database and a credentials Secret, and gains a network path to the database.
 Other namespaces see neither.
 
-Roles: owner can change the schema; app can read and write data. All fields
-of a binding are fixed; to change one, delete the binding and add another.`,
+Roles: owner can change the schema; readwrite can read and write data;
+readonly can read data. All fields of a binding are fixed; to change one,
+delete the binding and add another.`,
 	}
 
 	cmd.AddCommand(newBindingAddCmd(f))
@@ -57,7 +58,7 @@ func newBindingAddCmd(f *cli.Factory) *cobra.Command {
 	opts := &bindingAddOpts{}
 
 	cmd := &cobra.Command{
-		Use:   "add DATABASE --cluster CLUSTER --namespace NAMESPACE --role owner|app",
+		Use:   "add DATABASE --cluster CLUSTER --namespace NAMESPACE --role owner|readwrite|readonly",
 		Short: "Grant a database role to a cluster namespace",
 		Long: `Bind a database into one namespace of one cluster. Applications in that
 namespace connect to the host named after the database and read their
@@ -71,15 +72,18 @@ a Secret of the binding's Secret name, that the platform did not create: the
 command exits at once and says which names clash. Pass --wait=false to return
 as soon as the request is accepted.
 
-The binding name defaults to DATABASE-CLUSTER-NAMESPACE-ROLE; pass --name if
-that is longer than 63 characters.`,
+The binding name defaults to DATABASE-CLUSTER-NAMESPACE-ROLE. The role is
+part of it, so pass --name if that comes to more than 63 characters.`,
 		Args: cobra.ExactArgs(1),
-		Example: `  # Migrations run with the owner role, the API with the app role
+		Example: `  # Migrations run with the owner role, the API with the readwrite role
   kupe database binding add orders-db --cluster prod --namespace api --role owner --secret-name orders-db-migrate
-  kupe db binding add orders-db --cluster prod --namespace api --role app
+  kupe db binding add orders-db --cluster prod --namespace api --role readwrite
+
+  # A reporting job reads with the readonly role
+  kupe db binding add orders-db --cluster prod --namespace reports --role readonly
 
   # Bind into a cluster that is still being created, without waiting
-  kupe db binding add orders-db --cluster staging --namespace api --role app --wait=false`,
+  kupe db binding add orders-db --cluster staging --namespace api --role readwrite --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			database := args[0]
 			if opts.cluster == "" || opts.namespace == "" {
@@ -129,7 +133,7 @@ that is longer than 63 characters.`,
 
 	cmd.Flags().StringVar(&opts.cluster, "cluster", "", "Cluster to bind into (required)")
 	cmd.Flags().StringVar(&opts.namespace, "namespace", "", "Namespace inside the cluster that receives the Service and Secret (required)")
-	cmd.Flags().StringVar(&opts.role, "role", "", "Role granted: owner (schema changes) or app (read and write data) (required)")
+	cmd.Flags().StringVar(&opts.role, "role", "", "Role granted: owner (schema changes), readwrite (read and write data) or readonly (read data) (required)")
 	cmd.Flags().StringVar(&opts.secretName, "secret-name", "", "Name of the credentials Secret in the namespace (default DATABASE-ROLE)")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Binding name (default DATABASE-CLUSTER-NAMESPACE-ROLE)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the binding to become Ready before returning")
@@ -240,7 +244,7 @@ func newBindingGetCmd(f *cli.Factory) *cobra.Command {
 		Use:     "get DATABASE BINDING",
 		Short:   "Show a binding, including the host and Secret applications use",
 		Args:    cobra.ExactArgs(2),
-		Example: `  kupe database binding get orders-db orders-db-prod-api-app`,
+		Example: `  kupe database binding get orders-db orders-db-prod-api-readwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := printer.Resolve(f, output)
 			if err != nil {
@@ -277,7 +281,7 @@ The request is asynchronous: the Service and Secret are removed in the
 background. Prompts on a TTY; pass --yes to skip (required in
 non-interactive environments).`,
 		Args:    cobra.ExactArgs(2),
-		Example: `  kupe database binding delete orders-db orders-db-prod-api-app --yes`,
+		Example: `  kupe database binding delete orders-db orders-db-prod-api-readwrite --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			database, name := args[0], args[1]
 			io := f.IOStreams

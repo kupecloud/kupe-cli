@@ -1017,10 +1017,17 @@ func TestBindingAdd(t *testing.T) {
 	}{
 		{"defaults the name from database, cluster, namespace and role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"},
 			cli.ExitOK, "orders-db-prod-api-readwrite", ""},
+		{"the readonly role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "readonly"},
+			cli.ExitOK, "orders-db-prod-api-readonly", ""},
 		{"explicit name and secret name", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "owner", "--name", "migrate", "--secret-name", "pg-owner"},
 			cli.ExitOK, "migrate", "pg-owner"},
 		{"a default name over 63 characters asks for --name", []string{"orders-db", "--cluster", strings.Repeat("c", 50), "--namespace", "api", "--role", "readwrite"},
 			cli.ExitMisuse, "", ""},
+		// orders-db-<45 c>-api-app would be exactly 63 characters; the
+		// readwrite name is longer, so it must ask for --name.
+		{"a cluster name that fit with app is too long with readwrite", []string{"orders-db", "--cluster", strings.Repeat("c", 45), "--namespace", "api", "--role", "readwrite"},
+			cli.ExitMisuse, "", ""},
+		{"app is not a role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, cli.ExitMisuse, "", ""},
 		{"cluster is required", []string{"orders-db", "--namespace", "api", "--role", "readwrite"}, cli.ExitMisuse, "", ""},
 		{"role must be owner, readwrite or readonly", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "admin"}, cli.ExitMisuse, "", ""},
 		{"missing database exits 4", []string{"ghost", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, cli.ExitNotFound, "", ""},
@@ -1035,6 +1042,12 @@ func TestBindingAdd(t *testing.T) {
 			// --wait=false were ignored.
 			_, _, err := run(f, newBindingAddCmd(f), append(tt.args, "--wait=false", "--wait-timeout", "50ms")...)
 			assertExit(t, err, tt.wantExit)
+			if tt.wantExit == cli.ExitMisuse {
+				assertNoCall(t, fake, "CreateDatabaseBinding")
+			}
+			if strings.Contains(tt.name, "too long") && !strings.Contains(err.Error(), "is longer than 63 characters") {
+				t.Fatalf("err = %v; want the default name refused for its length", err)
+			}
 			if tt.wantName == "" {
 				return
 			}

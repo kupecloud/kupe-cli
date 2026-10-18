@@ -5,6 +5,7 @@
 package database
 
 import (
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -85,13 +86,16 @@ var service = cmdutil.Service[client.Database, client.CreateDatabaseRequest, cli
 const degradedGrace = 5 * time.Minute
 
 // validateRole rejects anything but the database roles before a request is
-// made.
+// made. Every invalid value gets the same message and hint.
 func validateRole(role string) error {
-	switch role {
-	case client.DatabaseRoleOwner, client.DatabaseRoleReadWrite, client.DatabaseRoleReadOnly:
+	if slices.Contains(client.DatabaseRoles, role) {
 		return nil
-	case "":
-		return cli.MisuseError("--role is required").WithHint("use --role owner (schema changes) or --role app (read and write data)")
 	}
-	return cli.MisuseError("invalid --role " + role).WithHint("use --role owner (schema changes) or --role app (read and write data)")
+	if role == "" {
+		return cli.MisuseError("--role is required").WithHint(roleHint)
+	}
+	return cli.MisuseError("invalid --role " + role).WithHint(roleHint)
 }
+
+// roleHint names every role and what it can do.
+const roleHint = "use --role owner (schema changes), --role readwrite (read and write data) or --role readonly (read data)"

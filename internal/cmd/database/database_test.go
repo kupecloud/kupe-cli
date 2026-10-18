@@ -700,9 +700,11 @@ func TestRotateCredentials(t *testing.T) {
 		wantCall  string
 	}{
 		{"--yes rotates the readwrite role", []string{"--role", "readwrite", "--yes", "--wait=false"}, "", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:readwrite"},
+		{"--yes rotates the readonly role", []string{"--role", "readonly", "--yes", "--wait=false"}, "", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:readonly"},
 		{"typing yes confirms the owner role", []string{"--role", "owner", "--wait=false"}, "yes\n", nil, cli.ExitOK, "RotateDatabaseCredentials:orders-db:owner"},
 		{"role is required", []string{"--yes"}, "", nil, cli.ExitMisuse, ""},
 		{"unknown role is misuse", []string{"--role", "admin", "--yes"}, "", nil, cli.ExitMisuse, ""},
+		{"app is not a role", []string{"--role", "app", "--yes"}, "", nil, cli.ExitMisuse, ""},
 		{"non-interactive without --yes is refused", []string{"--role", "readwrite"}, "", nil, cli.ExitMisuse, ""},
 		{"a database being deleted exits 5", []string{"--role", "readwrite", "--yes"}, "",
 			&client.APIError{StatusCode: 409, Message: "database is being deleted"}, cli.ExitConflict, ""},
@@ -735,6 +737,13 @@ func TestRotateCredentials(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rotationsOf is a database reporting exactly the roles in states.
+func rotationsOf(states client.DatabaseRotations) *client.Database {
+	db := running("orders-db")
+	db.Status.Rotations = states
+	return db
 }
 
 // rotations is a database reporting all three roles: readwrite and owner
@@ -778,12 +787,21 @@ func TestRotateCredentials_Wait(t *testing.T) {
 		{"the owner role reads the owner rotation", []string{"--role", "owner"},
 			[]*client.Database{rotations(applied, pending), rotations(applied, applied)},
 			cli.ExitOK, "database/orders-db owner credentials rotated\n", "", ""},
+		{"the readonly role reads the readonly rotation, not readwrite's", []string{"--role", "readonly"},
+			[]*client.Database{
+				rotationsOf(client.DatabaseRotations{"owner": settled, "readwrite": applied, "readonly": pending}),
+				rotationsOf(client.DatabaseRotations{"owner": settled, "readwrite": applied, "readonly": delivered}),
+			},
+			cli.ExitOK, "database/orders-db readonly credentials rotated\n", "", ""},
+		{"a pending readonly rotation keeps waiting while readwrite is applied", []string{"--role", "readonly", "--wait-timeout", "300ms"},
+			[]*client.Database{rotationsOf(client.DatabaseRotations{"owner": settled, "readwrite": applied, "readonly": pending})},
+			cli.ExitTimeout, "", "", "status.rotations.readonly"},
 		{"-o json reports the token applied", []string{"--role", "readwrite", "-o", "json"},
 			[]*client.Database{rotations(applied, settled)},
 			cli.ExitOK, `"appliedAt": "` + token + `"`, "", ""},
 		{"an older kupe-api without rotation status is not waited on", []string{"--role", "readwrite"},
 			[]*client.Database{running("orders-db")},
-			cli.ExitOK, "database/orders-db readwrite credentials rotation requested\n", "does not report rotation progress", ""},
+			cli.ExitOK, "database/orders-db readwrite credentials rotation requested\n", "does not report readwrite rotation progress", ""},
 		{"a rotation never applied times out, saying the old password still works", []string{"--role", "readwrite", "--wait-timeout", "300ms"},
 			[]*client.Database{rotations(pending, settled)},
 			cli.ExitTimeout, "", "", "status.rotations.readwrite"},
@@ -814,13 +832,83 @@ func TestRotateCredentials_Wait(t *testing.T) {
 			if !strings.Contains(stderr, tt.wantStderr) {
 				t.Errorf("stderr = %q; want %q", stderr, tt.wantStderr)
 			}
-			if strings.Contains(stderr, "does not report rotation progress") && strings.Contains(stderr, "credentials rotated") {
+			if strings.Contains(stderr, "rotation progress yet") && strings.Contains(stderr, "credentials rotated") {
 				t.Errorf("a rotation that was not waited on must not be reported as rotated: %q", stderr)
 			}
 			if !strings.Contains(hint(err), tt.wantHint) {
 				t.Errorf("hint = %q; want %q", hint(err), tt.wantHint)
 			}
 		})
+	}
+}
+
+// A kupe-api that reports rotations but not the role asked for (one that
+// predates it) is not waited on: the role's zero value is not a rotation in
+// progress.
+func TestRotateCredentials_WaitServerWithoutTheRole(t *testing.T) {
+	for _, role := range []string{client.DatabaseRoleReadWrite, client.DatabaseRoleReadOnly} {
+		t.Run(role, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+				rotationsOf(client.DatabaseRotations{"owner": {RequestedAt: "2026-10-01T08:00:00Z", AppliedAt: "2026-10-01T08:00:00Z"}}),
+			}
+			f := factoryWith(t, fake)
+			out, stderr, err := run(f, newRotateCredentialsCmd(f), "orders-db", "--yes", "--role", role, "--wait-timeout", "20s")
+			assertExit(t, err, cli.ExitOK)
+			if out != "database/orders-db "+role+" credentials rotation requested\n" {
+				t.Errorf("stdout = %q", out)
+			}
+			want := "kupe-api does not report " + role + " rotation progress yet, so the command cannot wait for it; the rotation was requested."
+			if !strings.Contains(stderr, want) {
+				t.Errorf("stderr = %q; want %q", stderr, want)
+			}
+			if n := countCalls(fake, "GetDatabase:orders-db"); n != 1 {
+				t.Errorf("GetDatabase calls = %d; want 1 (no polling)", n)
+			}
+		})
+	}
+}
+
+// TestValidateRole_TheThreeRoles pins the roles binding add and
+// rotate-credentials accept, and that every other value, the old role name
+// included, gets the same refusal before any request.
+func TestValidateRole_TheThreeRoles(t *testing.T) {
+	const wantHint = "use --role owner (schema changes), --role readwrite (read and write data) or --role readonly (read data)"
+	for _, role := range []string{"owner", "readwrite", "readonly"} {
+		if err := validateRole(role); err != nil {
+			t.Errorf("validateRole(%q) = %v; want nil", role, err)
+		}
+	}
+	for _, role := range []string{"app", "", "admin", "Readwrite", "read-only"} {
+		wantErr := "invalid --role " + role
+		if role == "" {
+			wantErr = "--role is required"
+		}
+		commands := map[string]func(*cli.Factory) *cobra.Command{
+			"binding add":        newBindingAddCmd,
+			"rotate-credentials": newRotateCredentialsCmd,
+		}
+		for name, newCmd := range commands {
+			t.Run(name+"/"+role, func(t *testing.T) {
+				fake := clienttest.New()
+				fake.DatabasesByName["orders-db"] = running("orders-db")
+				f := factoryWith(t, fake)
+				args := []string{"orders-db", "--role", role, "--yes"}
+				if name == "binding add" {
+					args = []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", role}
+				}
+				_, _, err := run(f, newCmd(f), args...)
+				assertExit(t, err, cli.ExitMisuse)
+				var e *cli.Error
+				if !errors.As(err, &e) || e.Msg != wantErr || e.Hint != wantHint {
+					t.Fatalf("err = %#v; want message %q and hint %q", err, wantErr, wantHint)
+				}
+				if len(fake.Calls) != 0 {
+					t.Fatalf("calls = %v; want none", fake.Calls)
+				}
+			})
+		}
 	}
 }
 

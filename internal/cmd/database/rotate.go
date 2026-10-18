@@ -103,7 +103,7 @@ Rotating the %s password of database %q:
 				case werr != nil:
 					return rotateWaitErr(werr, name, opts.role)
 				case !observable:
-					fmt.Fprintln(io.ErrOut, "kupe-api does not report rotation progress yet, so the command cannot wait for it; the rotation was requested.")
+					fmt.Fprintf(io.ErrOut, "kupe-api does not report %s rotation progress yet, so the command cannot wait for it; the rotation was requested.\n", opts.role)
 				default:
 					result.AppliedAt, result.Pending, result.Delivered, waited = applied, false, true, true
 				}
@@ -135,8 +135,10 @@ Rotating the %s password of database %q:
 // only equality counts. A rotation of the same role requested meanwhile
 // replaces this one (the requested token moves on): the wait then follows
 // that one, says so once, and result.RequestedAt is updated. observable is
-// false when the platform does not report rotations (an older kupe-api) or
-// acknowledged no token, so there is nothing to wait for. A database that
+// false when the platform does not report rotations, or does not report
+// this role's (an older kupe-api), or acknowledged no token, so there is
+// nothing to wait for: a role the server does not report is never waited
+// on as if its zero value were a rotation in progress. A database that
 // starts being deleted ends the wait.
 func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interface, name, role string, result *rotation, timeout time.Duration) (applied string, observable bool, err error) {
 	if result.RequestedAt == "" {
@@ -151,14 +153,14 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 	switch {
 	case err != nil && !cmdutil.IsTransientWaitErr(err):
 		return "", true, err
-	case err == nil && (db.Status == nil || db.Status.Rotations == nil):
+	case err == nil && !reportsRotation(db, role):
 		return "", false, nil
 	}
 	poll := cmdutil.PollPhase(get, func(db *client.Database, phase string) (bool, error) {
 		if phase == client.PhaseTerminating {
 			return false, &cmdutil.TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
 		}
-		if db.Status == nil || db.Status.Rotations == nil {
+		if !reportsRotation(db, role) {
 			return false, nil
 		}
 		state, _ := db.Status.Rotations.Role(role)
@@ -177,6 +179,15 @@ func waitForRotation(ctx context.Context, io *cli.IOStreams, api client.Interfac
 		Timeout:       timeout,
 	})
 	return applied, true, err
+}
+
+// reportsRotation reports whether db carries the rotation state of role.
+func reportsRotation(db *client.Database, role string) bool {
+	if db == nil || db.Status == nil {
+		return false
+	}
+	_, ok := db.Status.Rotations.Role(role)
+	return ok
 }
 
 // rotateWaitErr explains why waiting for a rotation ended before it was in

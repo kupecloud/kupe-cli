@@ -220,7 +220,7 @@ func TestCommands_DatabasesUnavailableSaysSo(t *testing.T) {
 	if err.Error() != "databases are not enabled" {
 		t.Fatalf("message = %q; want the API's message alone", err.Error())
 	}
-	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted") {
+	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace)") {
 		t.Fatalf("hint should name the clean-up that still works: %v", err)
 	}
 }

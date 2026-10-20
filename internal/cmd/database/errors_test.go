@@ -16,7 +16,7 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 	const name = "orders-db"
 	const (
 		unavailableHint = "this is a platform setting, not an outage, so retrying will not help; " +
-			"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted"
+			"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace)"
 		pausedHint      = "retry later; status updates are posted at https://status.kupe.cloud"
 		shrinkHint      = "pass a --storage at least the current size, shown by:  kupe db get orders-db"
 		protectedHint   = "turn it off first:  kupe db update orders-db --deletion-protection=false"

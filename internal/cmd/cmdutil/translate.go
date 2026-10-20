@@ -36,7 +36,8 @@ var refusals = []refusal{
 		fallback: func(string, string) string { return "databases are not available on this platform" },
 		hint: func(string, string) string {
 			return "this is a platform setting, not an outage, so retrying will not help; " +
-				"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted"
+				"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, " +
+				"and their bindings deleted or narrowed (binding update --remove-namespace)"
 		},
 	},
 	{

@@ -330,7 +330,7 @@ only the platform's sentence is matched on that sentence instead.
 | Refusal (`code`, HTTP status) | Exit | Hint |
 | --- | --- | --- |
 | Creation paused (`creation_paused`, 400) | `7` | retry later; status page link |
-| Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted |
+| Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted, and their bindings deleted or narrowed |
 | The cluster or database is being deleted (`terminating`, 409) | `5` | `kupe <noun> wait NAME --for deleted` |
 | The tenant is being deleted (`tenant_terminating`, 409) | `5` | — |
 | The tenant is suspended (`tenant_suspended`, 409) | `5` | contact support |
@@ -711,12 +711,14 @@ running, storage for every hour its volume is bound. A highly available database
 runs two instances, each with the requested resources.
 
 When databases are not enabled on the platform, `list`, `get`,
-`wait`, `delete`, `update NAME --deletion-protection=false` and
-`binding list/get/delete` keep working so existing databases can still be
-cleaned up. Other `kupe database` commands exit `4` with the API's message,
-"databases are not available on this platform" (`404 databases_unavailable`),
-and a hint that existing databases can still be cleaned up. This is a platform
-setting, not an outage, so retrying does not help.
+`wait`, `delete`, `update NAME --deletion-protection=false`,
+`binding list/get/delete` and `binding update --remove-namespace` keep working
+so existing databases and bindings can still be cleaned up. Other
+`kupe database` commands, and a `binding update` that adds a namespace, exit
+`4` with the API's message, "databases are not available on this platform"
+(`404 databases_unavailable`), and a hint that existing databases can still be
+cleaned up. This is a platform setting, not an outage, so retrying does not
+help.
 
 ### `kupe database list`
 

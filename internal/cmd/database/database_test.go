@@ -672,7 +672,7 @@ func TestDelete_WaitTimeoutSaysItIsStillDeleting(t *testing.T) {
 }
 
 func TestDelete_StatesRetentionVerbatimInHelpAndWarning(t *testing.T) {
-	const notice = "Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1."
+	const notice = "Deleting a database removes it and its automatic backups immediately, and they cannot be restored. Manual backups stay until you delete them."
 	fake := clienttest.New()
 	db := running("orders-db")
 	db.DeletionProtection = false
@@ -689,6 +689,13 @@ func TestDelete_StatesRetentionVerbatimInHelpAndWarning(t *testing.T) {
 	}
 	if !strings.Contains(stderr, notice) {
 		t.Errorf("warning is missing the retention notice:\n%s", stderr)
+	}
+	// The v1 wording promised a support-assisted recovery; nothing
+	// replaces it (D-9).
+	for _, gone := range []string{"support-assisted", "kept for 7 days", "self-service restore"} {
+		if strings.Contains(cmd.Long, gone) || strings.Contains(stderr, gone) {
+			t.Errorf("help or warning still says %q", gone)
+		}
 	}
 }
 

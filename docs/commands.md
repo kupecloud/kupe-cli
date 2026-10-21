@@ -838,7 +838,7 @@ once the change is applied, or starts being deleted, `7` lost contact with kupe-
 Delete a database and its data. On a TTY you must type the database
 name; `--yes` skips the prompt and is required in non-interactive mode.
 
-Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1.
+Deleting a database removes it and its automatic backups immediately, and they cannot be restored. Manual backups stay until you delete them.
 
 | Flag | Default | Description |
 | --- | --- | --- |
@@ -860,7 +860,7 @@ $ kupe db delete orders-db
 Deleting database "orders-db" also removes its Service and credentials Secrets from
 every bound cluster namespace.
 
-Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1.
+Deleting a database removes it and its automatic backups immediately, and they cannot be restored. Manual backups stay until you delete them.
 
 This will delete database "orders-db". Type the name to confirm: orders-db
 ✓ database orders-db deleted (01:42)

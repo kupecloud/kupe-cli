@@ -130,6 +130,7 @@ Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 	root.AddCommand(invoicecmd.NewCmd(factory))
 	root.AddCommand(plancmd.NewCmd(factory))
 	root.AddCommand(usercmd.NewCmd(factory))
+	markMisuse(root)
 
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
@@ -143,6 +144,51 @@ Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 // setting it on the root covers the whole tree. The message stays pflag's own.
 func flagParseError(_ *cobra.Command, err error) error {
 	return cli.Wrap(cli.ExitMisuse, "", err)
+}
+
+// markMisuse marks the validation cobra runs itself, after parsing, as misuse
+// too: a positional-argument error from a command's Args validator (wrong
+// count, or a value outside its valid set) and a required flag or flag group
+// left unsatisfied. Cobra returns these as plain errors (exit 1). It walks
+// the tree once, so call it after every command is added. Messages stay
+// cobra's own; an Args error that is already a *cli.Error keeps its code.
+//
+// Required flags and flag groups are checked in PreRunE because cobra runs
+// PreRunE immediately before its own ValidateRequiredFlags and
+// ValidateFlagGroups; checking one step earlier changes only the exit code.
+// A command's own PreRunE (or PreRun) still runs first, as before.
+func markMisuse(c *cobra.Command) {
+	if args := c.Args; args != nil {
+		c.Args = func(cmd *cobra.Command, a []string) error {
+			err := args(cmd, a)
+			var typed *cli.Error
+			if err == nil || errors.As(err, &typed) {
+				return err
+			}
+			return cli.Wrap(cli.ExitMisuse, "", err)
+		}
+	}
+	preE, pre := c.PreRunE, c.PreRun
+	c.PreRunE = func(cmd *cobra.Command, a []string) error {
+		switch {
+		case preE != nil:
+			if err := preE(cmd, a); err != nil {
+				return err
+			}
+		case pre != nil:
+			pre(cmd, a)
+		}
+		if err := cmd.ValidateRequiredFlags(); err != nil {
+			return cli.Wrap(cli.ExitMisuse, "", err)
+		}
+		if err := cmd.ValidateFlagGroups(); err != nil {
+			return cli.Wrap(cli.ExitMisuse, "", err)
+		}
+		return nil
+	}
+	for _, sub := range c.Commands() {
+		markMisuse(sub)
+	}
 }
 
 // helpTemplate trims Cobra's default to remove the noisy trailing "Use ..."

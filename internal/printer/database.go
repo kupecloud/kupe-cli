@@ -113,7 +113,7 @@ func databaseColumns(colorEnabled bool) Columns {
 		{Name: "STORAGE", Wide: true, Get: func(v any) string { return databaseResources(database(v)).Storage }},
 		{Name: "INSTANCES", Wide: true, Get: func(v any) string { return databaseInstances(database(v)) }},
 		{Name: "PROTECTED", Wide: true, Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
-		{Name: "BACKUPS", Wide: true, Get: func(v any) string { return backupRetention(database(v)) }},
+		{Name: "BACKUPS", Wide: true, Get: func(v any) string { return backupColumn(database(v)) }},
 	}
 }
 
@@ -234,6 +234,16 @@ func backupRetention(db *client.Database) string {
 		return ""
 	}
 	return fmt.Sprintf("%d days", *db.Backup.Retention)
+}
+
+// backupColumn is the wide list's BACKUPS cell: the retention, or
+// "defaults" for a database that never set its backup settings
+// (backup: null), as the Backups row of kupe database get does.
+func backupColumn(db *client.Database) string {
+	if db.Backup == nil {
+		return "defaults"
+	}
+	return backupRetention(db)
 }
 
 // backupSettings renders "14 days, Daily": the retention and the

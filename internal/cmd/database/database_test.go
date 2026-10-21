@@ -169,6 +169,49 @@ func TestList_RendersTableColumnsAndFormats(t *testing.T) {
 	}
 }
 
+// TestList_WideBackupsColumn pins the BACKUPS cell: the retention, or
+// "defaults" while the database keeps the platform defaults (backup: null).
+func TestList_WideBackupsColumn(t *testing.T) {
+	days := int32(14)
+	tests := []struct {
+		name   string
+		backup *client.DatabaseBackup
+		want   string
+	}{
+		{"a set retention shows in days", &client.DatabaseBackup{Retention: &days, Schedule: client.DatabaseBackupScheduleDaily}, "14 days"},
+		{"a database that never set backups shows defaults", nil, "defaults"},
+		{"a schedule without a retention leaves the cell empty", &client.DatabaseBackup{Schedule: client.DatabaseBackupScheduleDaily}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			db := running("orders-db")
+			db.Backup = tt.backup
+			fake.DatabasesByName["orders-db"] = db
+			f := factoryWith(t, fake)
+			out, _, err := run(f, newListCmd(f), "-o", "wide")
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+			if len(lines) != 2 {
+				t.Fatalf("want a header and one row in:\n%s", out)
+			}
+			col := strings.Index(lines[0], "BACKUPS")
+			if col < 0 {
+				t.Fatalf("no BACKUPS column in:\n%s", out)
+			}
+			got := ""
+			if len(lines[1]) > col {
+				got = strings.TrimSpace(lines[1][col:])
+			}
+			if got != tt.want {
+				t.Errorf("BACKUPS = %q; want %q in:\n%s", got, tt.want, out)
+			}
+		})
+	}
+}
+
 func TestList_PhaseFilter(t *testing.T) {
 	fake := clienttest.New()
 	fake.DatabasesByName["orders-db"] = running("orders-db")

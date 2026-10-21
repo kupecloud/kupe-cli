@@ -196,6 +196,7 @@ func (f *Fake) Databases() client.ResourceAPI[client.Database, client.CreateData
 				Resources:          req.Resources,
 				HighAvailability:   req.HighAvailability,
 				DeletionProtection: req.DeletionProtection == nil || *req.DeletionProtection,
+				Backup:             copyDatabaseBackup(req.Backup),
 				Status:             &client.DatabaseStatus{Phase: client.PhasePending},
 			}
 		},

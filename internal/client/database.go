@@ -16,7 +16,10 @@ type Database struct {
 	Resources          *DatabaseResources `json:"resources,omitempty" yaml:"resources,omitempty"`
 	HighAvailability   bool               `json:"highAvailability" yaml:"highAvailability"`
 	DeletionProtection bool               `json:"deletionProtection" yaml:"deletionProtection"`
-	Status             *DatabaseStatus    `json:"status,omitempty" yaml:"status,omitempty"`
+	// Backup is nil while the database has never set its backup settings:
+	// it keeps the platform defaults.
+	Backup *DatabaseBackup `json:"backup,omitempty" yaml:"backup,omitempty"`
+	Status *DatabaseStatus `json:"status,omitempty" yaml:"status,omitempty"`
 	// Generation bumps on every spec change; compare with
 	// status.observedGeneration to know when a change has been applied.
 	Generation      int64  `json:"generation,omitempty" yaml:"generation,omitempty"`
@@ -33,6 +36,24 @@ type DatabaseResources struct {
 	Storage string `json:"storage,omitempty" yaml:"storage,omitempty"`
 }
 
+// DatabaseBackup is a database's backup settings, sent on create and PATCH
+// and returned on every read. Retention is days of backups kept; Schedule
+// is how many full backups are kept within them (Daily or
+// DailyThenWeekly). A nil Retention or an empty Schedule is not sent; on a
+// response, a nil Retention was never set and the platform default
+// applies.
+type DatabaseBackup struct {
+	Retention *int32 `json:"retention,omitempty" yaml:"retention,omitempty"`
+	Schedule  string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+}
+
+// RecoveryWindow is the oldest and newest points a database can be
+// recovered to, as RFC 3339 timestamps.
+type RecoveryWindow struct {
+	Earliest string `json:"earliest" yaml:"earliest"`
+	Latest   string `json:"latest" yaml:"latest"`
+}
+
 // DatabaseStatus is the observed state. Phase values match clusters:
 // Pending | Provisioning | Running | Upgrading | Degraded | Terminating.
 type DatabaseStatus struct {
@@ -46,8 +67,16 @@ type DatabaseStatus struct {
 	InstancesDesired int32  `json:"instancesDesired" yaml:"instancesDesired"`
 	// Rotations is each role's credential rotation state, keyed by role;
 	// nil from a kupe-api that predates it.
-	Rotations  DatabaseRotations `json:"rotations,omitempty" yaml:"rotations,omitempty"`
-	Conditions []Condition       `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	Rotations DatabaseRotations `json:"rotations,omitempty" yaml:"rotations,omitempty"`
+	// LastBackupAt is when the newest full backup finished (RFC 3339);
+	// empty until the first one completes.
+	LastBackupAt string `json:"lastBackupAt,omitempty" yaml:"lastBackupAt,omitempty"`
+	// RecoveryWindow is nil until the backups report one.
+	RecoveryWindow *RecoveryWindow `json:"recoveryWindow,omitempty" yaml:"recoveryWindow,omitempty"`
+	// BackupSizeBytes is the storage every full backup and the WAL kept for
+	// the database take up, manual backups included; 0 until measured.
+	BackupSizeBytes int64       `json:"backupSizeBytes,omitempty" yaml:"backupSizeBytes,omitempty"`
+	Conditions      []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
 // DatabaseRotations is each role's credential rotation state, keyed by role
@@ -107,15 +136,38 @@ type CreateDatabaseRequest struct {
 	Resources          *DatabaseResources `json:"resources"`
 	HighAvailability   bool               `json:"highAvailability,omitempty"`
 	DeletionProtection *bool              `json:"deletionProtection,omitempty"`
+	// Backup nil takes the platform's backup defaults.
+	Backup *DatabaseBackup `json:"backup,omitempty"`
 }
 
 // PatchDatabaseRequest is the PATCH (JSON merge-patch) body. Nil fields are
-// left unchanged; at least one must be set.
+// left unchanged; at least one must be set. Backup changes only the keys it
+// sets.
 type PatchDatabaseRequest struct {
 	Version            *string            `json:"version,omitempty"`
 	Resources          *DatabaseResources `json:"resources,omitempty"`
 	HighAvailability   *bool              `json:"highAvailability,omitempty"`
 	DeletionProtection *bool              `json:"deletionProtection,omitempty"`
+	Backup             *DatabaseBackup    `json:"backup,omitempty"`
+}
+
+// IsEmpty reports whether the patch changes nothing. It names every field:
+// TestPatchDatabaseRequest_IsEmptyCoversEveryField fails when a new one is
+// left out.
+func (p PatchDatabaseRequest) IsEmpty() bool {
+	return p.Version == nil && p.Resources == nil && p.HighAvailability == nil &&
+		p.DeletionProtection == nil && p.Backup == nil
+}
+
+// NeedsWait reports whether the patch changes something the platform has
+// to apply to the running database before it is in effect: the version,
+// resources, high availability or backup settings (the operator applies a
+// backup change to the database's backup objects). Deletion protection is
+// read from the spec when a delete comes in, so it is in effect once the
+// PATCH lands. TestPatchDatabaseRequest_NeedsWaitCoversEveryField fails
+// when a new field is in neither group.
+func (p PatchDatabaseRequest) NeedsWait() bool {
+	return p.Version != nil || p.Resources != nil || p.HighAvailability != nil || p.Backup != nil
 }
 
 // Error codes the database endpoints return. Compare via ErrorCode(err).
@@ -138,7 +190,23 @@ const (
 	// over 12 characters. The platform sends DATABASE_NAME_TOO_LONG (field
 	// metadata.name); ErrorCode lower-cases it.
 	DatabaseCodeNameTooLong = "database_name_too_long"
+	// DatabaseCodeBackupsUnavailable: 400 from POST and PATCH when the
+	// request sets backup settings and the platform does not offer backups
+	// (field spec.backup).
+	DatabaseCodeBackupsUnavailable = "backups_unavailable"
 )
+
+// Backup schedules: how many full backups are kept within the retention.
+// Daily keeps one for every day; DailyThenWeekly one for each of the last 7
+// days and one a week before that.
+const (
+	DatabaseBackupScheduleDaily           = "Daily"
+	DatabaseBackupScheduleDailyThenWeekly = "DailyThenWeekly"
+)
+
+// DatabaseBackupSchedules lists every backup schedule, in the order help
+// text names them.
+var DatabaseBackupSchedules = []string{DatabaseBackupScheduleDaily, DatabaseBackupScheduleDailyThenWeekly}
 
 // Database roles: owner can change the schema, readwrite can read and write
 // data, readonly can read data. Bindings grant one; credential rotation

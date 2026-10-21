@@ -12,7 +12,7 @@ import (
 
 // deleteNotice is the platform's wording for what deleting a database
 // means; help, docs and the confirmation warning repeat it verbatim.
-const deleteNotice = "Deleting a database removes it immediately. Its storage is kept for 7 days for support-assisted recovery, then permanently deleted. There is no self-service restore in v1."
+const deleteNotice = "Deleting a database removes it and its automatic backups immediately, and they cannot be restored. Manual backups stay until you delete them."
 
 func newDeleteCmd(f *cli.Factory) *cobra.Command {
 	return service.DeleteCmd(f, cmdutil.Delete{

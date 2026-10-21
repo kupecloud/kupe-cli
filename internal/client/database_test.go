@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -79,17 +80,38 @@ func TestGetDatabase_ReturnsETag(t *testing.T) {
 
 func TestCreateDatabase_SendsOnlySetFields(t *testing.T) {
 	off := false
+	days := int32(14)
+	resources := &DatabaseResources{CPU: "500m", Memory: "1Gi", Storage: "10Gi"}
 	tests := []struct {
-		name    string
-		req     CreateDatabaseRequest
-		want    map[string]bool // field → present in body
-		wantDP  any
-		wantVer any
+		name       string
+		req        CreateDatabaseRequest
+		want       map[string]bool // field → present in body
+		wantDP     any
+		wantVer    any
+		wantBackup map[string]any // the backup object sent, when present
 	}{
 		{
-			name: "defaults leave version, HA and deletion protection to the server",
-			req:  CreateDatabaseRequest{Name: "orders-db", Engine: "postgres", Resources: &DatabaseResources{CPU: "500m", Memory: "1Gi", Storage: "10Gi"}},
-			want: map[string]bool{"version": false, "highAvailability": false, "deletionProtection": false},
+			name: "defaults leave version, HA, deletion protection and backups to the server",
+			req:  CreateDatabaseRequest{Name: "orders-db", Engine: "postgres", Resources: resources},
+			want: map[string]bool{"version": false, "highAvailability": false, "deletionProtection": false, "backup": false},
+		},
+		{
+			name:       "a retention alone sends only the retention",
+			req:        CreateDatabaseRequest{Name: "orders-db", Resources: resources, Backup: &DatabaseBackup{Retention: &days}},
+			want:       map[string]bool{"backup": true},
+			wantBackup: map[string]any{"retention": float64(14)},
+		},
+		{
+			name:       "a schedule alone sends only the schedule",
+			req:        CreateDatabaseRequest{Name: "orders-db", Resources: resources, Backup: &DatabaseBackup{Schedule: "DailyThenWeekly"}},
+			want:       map[string]bool{"backup": true},
+			wantBackup: map[string]any{"schedule": "DailyThenWeekly"},
+		},
+		{
+			name:       "retention and schedule are both sent",
+			req:        CreateDatabaseRequest{Name: "orders-db", Resources: resources, Backup: &DatabaseBackup{Retention: &days, Schedule: "Daily"}},
+			want:       map[string]bool{"backup": true},
+			wantBackup: map[string]any{"retention": float64(14), "schedule": "Daily"},
 		},
 		{
 			name: "explicit version, HA and disabled protection are sent",
@@ -115,6 +137,9 @@ func TestCreateDatabase_SendsOnlySetFields(t *testing.T) {
 				}
 				if tt.wantVer != nil && body["version"] != tt.wantVer {
 					t.Errorf("version = %v; want %v", body["version"], tt.wantVer)
+				}
+				if tt.wantBackup != nil && !reflect.DeepEqual(body["backup"], tt.wantBackup) {
+					t.Errorf("backup = %v; want %v", body["backup"], tt.wantBackup)
 				}
 				w.Header().Set("ETag", "1")
 				w.WriteHeader(http.StatusCreated)
@@ -143,25 +168,92 @@ func TestCreateDatabase_ConflictIsConflict(t *testing.T) {
 }
 
 func TestUpdateDatabase_SendsIfMatchAndOnlySetFields(t *testing.T) {
-	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		expectRequest(t, r, http.MethodPatch, "/api/v1/tenants/acme/databases/orders-db")
-		if got := r.Header.Get("If-Match"); got != "7" {
-			t.Errorf("If-Match = %q; want 7", got)
-		}
-		body := decodeBody(t, r)
-		if len(body) != 1 || body["deletionProtection"] != false {
-			t.Errorf("body = %v; want only deletionProtection=false", body)
-		}
-		w.Header().Set("ETag", "8")
-		fmt.Fprintln(w, databaseJSON)
-	})
 	off := false
-	_, etag, err := c.Databases().Update(context.Background(), "orders-db", "7", PatchDatabaseRequest{DeletionProtection: &off})
-	if err != nil {
-		t.Fatalf("UpdateDatabase: %v", err)
+	days := int32(21)
+	tests := []struct {
+		name  string
+		patch PatchDatabaseRequest
+		want  map[string]any // the whole body
+	}{
+		{"deletion protection alone", PatchDatabaseRequest{DeletionProtection: &off},
+			map[string]any{"deletionProtection": false}},
+		{"a retention alone leaves the schedule out", PatchDatabaseRequest{Backup: &DatabaseBackup{Retention: &days}},
+			map[string]any{"backup": map[string]any{"retention": float64(21)}}},
+		{"a schedule alone leaves the retention out", PatchDatabaseRequest{Backup: &DatabaseBackup{Schedule: "DailyThenWeekly"}},
+			map[string]any{"backup": map[string]any{"schedule": "DailyThenWeekly"}}},
 	}
-	if etag != "8" {
-		t.Fatalf("etag = %q; want 8", etag)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				expectRequest(t, r, http.MethodPatch, "/api/v1/tenants/acme/databases/orders-db")
+				if got := r.Header.Get("If-Match"); got != "7" {
+					t.Errorf("If-Match = %q; want 7", got)
+				}
+				if body := decodeBody(t, r); !reflect.DeepEqual(body, tt.want) {
+					t.Errorf("body = %v; want %v", body, tt.want)
+				}
+				w.Header().Set("ETag", "8")
+				fmt.Fprintln(w, databaseJSON)
+			})
+			_, etag, err := c.Databases().Update(context.Background(), "orders-db", "7", tt.patch)
+			if err != nil {
+				t.Fatalf("UpdateDatabase: %v", err)
+			}
+			if etag != "8" {
+				t.Fatalf("etag = %q; want 8", etag)
+			}
+		})
+	}
+}
+
+// TestDatabase_DecodesBackupStatus pins the backup keys of kupe-api's
+// database response: the settings, and the status the backups report. A
+// database that never set them, or has no backup yet, sends backup null,
+// lastBackupAt "", recoveryWindow null and backupSizeBytes 0.
+func TestDatabase_DecodesBackupStatus(t *testing.T) {
+	days := int32(14)
+	tests := []struct {
+		name string
+		body string
+		want func(*Database) bool
+	}{
+		{"settings and status",
+			`{"name":"orders-db","backup":{"retention":14,"schedule":"DailyThenWeekly"},
+			  "status":{"phase":"Running","lastBackupAt":"2026-10-16T02:14:07Z",
+			    "recoveryWindow":{"earliest":"2026-10-02T02:14:07Z","latest":"2026-10-16T10:41:33Z"},
+			    "backupSizeBytes":3435973837}}`,
+			func(db *Database) bool {
+				return reflect.DeepEqual(db.Backup, &DatabaseBackup{Retention: &days, Schedule: "DailyThenWeekly"}) &&
+					db.Status.LastBackupAt == "2026-10-16T02:14:07Z" &&
+					reflect.DeepEqual(db.Status.RecoveryWindow, &RecoveryWindow{Earliest: "2026-10-02T02:14:07Z", Latest: "2026-10-16T10:41:33Z"}) &&
+					db.Status.BackupSizeBytes == 3435973837
+			}},
+		{"a schedule without a retention leaves the retention to the default",
+			`{"name":"orders-db","backup":{"schedule":"Daily"},"status":{"phase":"Running"}}`,
+			func(db *Database) bool {
+				return db.Backup != nil && db.Backup.Retention == nil && db.Backup.Schedule == "Daily"
+			}},
+		{"never set and no backup yet",
+			`{"name":"orders-db","backup":null,
+			  "status":{"phase":"Running","lastBackupAt":"","recoveryWindow":null,"backupSizeBytes":0}}`,
+			func(db *Database) bool {
+				return db.Backup == nil && db.Status.LastBackupAt == "" && db.Status.RecoveryWindow == nil &&
+					db.Status.BackupSizeBytes == 0
+			}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintln(w, tt.body)
+			})
+			db, _, err := c.Databases().Get(context.Background(), "orders-db")
+			if err != nil {
+				t.Fatalf("GetDatabase: %v", err)
+			}
+			if !tt.want(db) {
+				t.Fatalf("decoded backup = %+v, status = %+v", db.Backup, db.Status)
+			}
+		})
 	}
 }
 
@@ -650,5 +742,91 @@ func TestDatabaseStatus_Ready(t *testing.T) {
 	var none *DatabaseStatus
 	if none.Ready() {
 		t.Fatal("a missing status is not ready")
+	}
+}
+
+// patchFieldsNotWaitedOn are the PatchDatabaseRequest fields in effect as
+// soon as the PATCH lands, so NeedsWait is false for them alone. Every other
+// field must make NeedsWait true.
+var patchFieldsNotWaitedOn = map[string]bool{"DeletionProtection": true}
+
+// patchFieldsNotInIsEmpty are PatchDatabaseRequest fields IsEmpty may
+// ignore. None today: every field sent is a change.
+var patchFieldsNotInIsEmpty = map[string]bool{}
+
+// patchWithOnly returns a patch with only field i set to a non-zero value.
+// A field kind it does not know fails the test, so a new kind is handled
+// here rather than skipped.
+func patchWithOnly(t *testing.T, i int) PatchDatabaseRequest {
+	t.Helper()
+	var p PatchDatabaseRequest
+	v := reflect.ValueOf(&p).Elem().Field(i)
+	switch v.Kind() {
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
+	case reflect.Map:
+		v.Set(reflect.MakeMap(v.Type()))
+	case reflect.String:
+		v.SetString("x")
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		v.SetInt(1)
+	default:
+		t.Fatalf("field %s has kind %s: teach patchWithOnly to set it",
+			reflect.TypeFor[PatchDatabaseRequest]().Field(i).Name, v.Kind())
+	}
+	return p
+}
+
+// TestPatchDatabaseRequest_IsEmptyCoversEveryField is the guard on the
+// update command's "nothing to update" check: a field added to the PATCH
+// body but not to IsEmpty would make a patch carrying only that field look
+// empty and be refused.
+func TestPatchDatabaseRequest_IsEmptyCoversEveryField(t *testing.T) {
+	if !(PatchDatabaseRequest{}).IsEmpty() {
+		t.Fatal("the zero patch must be empty")
+	}
+	typ := reflect.TypeFor[PatchDatabaseRequest]()
+	for name := range patchFieldsNotInIsEmpty {
+		if _, ok := typ.FieldByName(name); !ok {
+			t.Errorf("patchFieldsNotInIsEmpty names %q, which PatchDatabaseRequest no longer has", name)
+		}
+	}
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if !field.IsExported() || patchFieldsNotInIsEmpty[field.Name] {
+			continue
+		}
+		if patchWithOnly(t, i).IsEmpty() {
+			t.Errorf("IsEmpty() is true for a patch that sets %s: add it to IsEmpty", field.Name)
+		}
+	}
+}
+
+// TestPatchDatabaseRequest_NeedsWaitCoversEveryField is the guard on the
+// update command's wait: a field the platform applies but NeedsWait leaves
+// out would return before the change is in effect.
+func TestPatchDatabaseRequest_NeedsWaitCoversEveryField(t *testing.T) {
+	if (PatchDatabaseRequest{}).NeedsWait() {
+		t.Fatal("the zero patch must not be waited on")
+	}
+	typ := reflect.TypeFor[PatchDatabaseRequest]()
+	for name := range patchFieldsNotWaitedOn {
+		if _, ok := typ.FieldByName(name); !ok {
+			t.Errorf("patchFieldsNotWaitedOn names %q, which PatchDatabaseRequest no longer has", name)
+		}
+	}
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		want := !patchFieldsNotWaitedOn[field.Name]
+		if got := patchWithOnly(t, i).NeedsWait(); got != want {
+			t.Errorf("NeedsWait() = %v for a patch that sets only %s; want %v", got, field.Name, want)
+		}
 	}
 }

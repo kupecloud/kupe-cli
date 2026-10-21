@@ -65,6 +65,26 @@ func running(name string) *client.Database {
 	}
 }
 
+// detailValue is the value of the "name:" line of a detail view.
+func detailValue(out, name string) (string, bool) {
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(line, name+":"); ok {
+			return strings.TrimSpace(rest), true
+		}
+	}
+	return "", false
+}
+
+// backedUp gives db backup settings and the status its backups report.
+func backedUp(db *client.Database) *client.Database {
+	days := int32(14)
+	db.Backup = &client.DatabaseBackup{Retention: &days, Schedule: client.DatabaseBackupScheduleDailyThenWeekly}
+	db.Status.LastBackupAt = "2026-10-16T02:14:07Z"
+	db.Status.RecoveryWindow = &client.RecoveryWindow{Earliest: "2026-10-02T02:14:07Z", Latest: "2026-10-16T10:41:33Z"}
+	db.Status.BackupSizeBytes = 3435973837
+	return db
+}
+
 // applying is name at generation, applied by the operator (observed) and
 // rolling onto its instances when ready is false.
 func applying(name string, generation, observed int64, ready bool) *client.Database {
@@ -122,12 +142,14 @@ func TestList_RendersTableColumnsAndFormats(t *testing.T) {
 	}{
 		{"table shows the default columns", nil, []string{"NAME", "ENGINE", "VERSION", "RUNNING", "PHASE", "HA", "AGE", "orders-db", "18.0", "Running", "off"}, []string{"STORAGE"}},
 		{"wide adds resources and protection", []string{"-o", "wide"}, []string{"STORAGE", "INSTANCES", "PROTECTED", "10Gi", "1/1", "on"}, nil},
+		{"wide adds the backup retention", []string{"-o", "wide"}, []string{"BACKUPS", "14 days"}, nil},
+		{"the table leaves backups to wide", nil, nil, []string{"BACKUPS", "14 days"}},
 		{"name prints one name per line", []string{"-o", "name"}, []string{"orders-db\n"}, []string{"NAME"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.DatabasesByName["orders-db"] = backedUp(running("orders-db"))
 			f := factoryWith(t, fake)
 			out, _, err := run(f, newListCmd(f), tt.args...)
 			if err != nil {
@@ -196,6 +218,71 @@ func TestGet(t *testing.T) {
 			t.Fatalf("get: %v", err)
 		}
 		for _, w := range []string{"18 (running 18.0)", "Instances:", "1/1", "Deletion Protection:"} {
+			if !strings.Contains(out, w) {
+				t.Errorf("missing %q in:\n%s", w, out)
+			}
+		}
+	})
+	t.Run("details show the backup settings and status", func(t *testing.T) {
+		fake := clienttest.New()
+		fake.DatabasesByName["orders-db"] = backedUp(running("orders-db"))
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newGetCmd(f), "orders-db")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		for _, w := range []string{
+			"Backups:              14 days, DailyThenWeekly\n",
+			"Last Backup:          2026-10-16T02:14:07Z (",
+			"Recovery Window:      2026-10-02T02:14:07Z to 2026-10-16T10:41:33Z\n",
+			"Backup Size:          3.2 GiB\n",
+		} {
+			if !strings.Contains(out, w) {
+				t.Errorf("missing %q in:\n%s", w, out)
+			}
+		}
+	})
+	t.Run("a database that never set backups shows defaults and has none yet", func(t *testing.T) {
+		fake := clienttest.New()
+		fake.DatabasesByName["orders-db"] = running("orders-db") // backup: null
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newGetCmd(f), "orders-db")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if !strings.Contains(out, "Backups:              defaults\n") {
+			t.Errorf("want the Backups row to read defaults in:\n%s", out)
+		}
+		for name, want := range map[string]string{"Backups": "defaults", "Last Backup": "never", "Recovery Window": "", "Backup Size": ""} {
+			if got, ok := detailValue(out, name); !ok || got != want {
+				t.Errorf("%s = %q (found %v); want %q in:\n%s", name, got, ok, want, out)
+			}
+		}
+	})
+	t.Run("a schedule without a retention shows the schedule alone", func(t *testing.T) {
+		fake := clienttest.New()
+		db := running("orders-db")
+		db.Backup = &client.DatabaseBackup{Schedule: client.DatabaseBackupScheduleDaily}
+		fake.DatabasesByName["orders-db"] = db
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newGetCmd(f), "orders-db")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if !strings.Contains(out, "Backups:              Daily\n") {
+			t.Errorf("want the schedule alone in:\n%s", out)
+		}
+	})
+	t.Run("json carries the backup keys", func(t *testing.T) {
+		fake := clienttest.New()
+		fake.DatabasesByName["orders-db"] = backedUp(running("orders-db"))
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newGetCmd(f), "orders-db", "-o", "json")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		for _, w := range []string{`"backup": {`, `"retention": 14`, `"schedule": "DailyThenWeekly"`, `"lastBackupAt": "2026-10-16T02:14:07Z"`,
+			`"recoveryWindow": {`, `"earliest": "2026-10-02T02:14:07Z"`, `"backupSizeBytes": 3435973837`} {
 			if !strings.Contains(out, w) {
 				t.Errorf("missing %q in:\n%s", w, out)
 			}

@@ -113,6 +113,7 @@ func databaseColumns(colorEnabled bool) Columns {
 		{Name: "STORAGE", Wide: true, Get: func(v any) string { return databaseResources(database(v)).Storage }},
 		{Name: "INSTANCES", Wide: true, Get: func(v any) string { return databaseInstances(database(v)) }},
 		{Name: "PROTECTED", Wide: true, Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
+		{Name: "BACKUPS", Wide: true, Get: func(v any) string { return backupRetention(database(v)) }},
 	}
 }
 
@@ -131,6 +132,10 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Memory", Get: func(v any) string { return databaseResources(database(v)).Memory }},
 		{Name: "Storage", Get: func(v any) string { return databaseResources(database(v)).Storage }},
 		{Name: "Deletion Protection", Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
+		{Name: "Backups", Get: func(v any) string { return backupSettings(database(v)) }},
+		{Name: "Last Backup", Get: func(v any) string { return lastBackup(database(v)) }},
+		{Name: "Recovery Window", Get: func(v any) string { return recoveryWindow(database(v)) }},
+		{Name: "Backup Size", Get: func(v any) string { return backupSize(database(v)) }},
 		{Name: "Created", Get: func(v any) string { return createdWithAge(database(v).CreatedAt) }},
 	}
 }
@@ -220,6 +225,61 @@ func databaseInstances(db *client.Database) string {
 		return ""
 	}
 	return fmt.Sprintf("%d/%d", st.InstancesReady, st.InstancesDesired)
+}
+
+// backupRetention renders the retention as "14 days", empty while the
+// database has not set one (the platform default applies).
+func backupRetention(db *client.Database) string {
+	if db.Backup == nil || db.Backup.Retention == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d days", *db.Backup.Retention)
+}
+
+// backupSettings renders "14 days, Daily": the retention and the
+// schedule, each left out while unset. "defaults" for a database that
+// never set its backup settings (backup: null), which keeps the platform
+// defaults.
+func backupSettings(db *client.Database) string {
+	if db.Backup == nil {
+		return "defaults"
+	}
+	parts := make([]string, 0, 2)
+	if r := backupRetention(db); r != "" {
+		parts = append(parts, r)
+	}
+	if db.Backup.Schedule != "" {
+		parts = append(parts, db.Backup.Schedule)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// lastBackup renders when the newest full backup finished, with its age;
+// "never" until the first one completes.
+func lastBackup(db *client.Database) string {
+	if at := databaseStatus(db).LastBackupAt; at != "" {
+		return createdWithAge(at)
+	}
+	return "never"
+}
+
+// recoveryWindow renders "EARLIEST to LATEST", empty until the backups
+// report a window.
+func recoveryWindow(db *client.Database) string {
+	w := databaseStatus(db).RecoveryWindow
+	if w == nil {
+		return ""
+	}
+	return w.Earliest + " to " + w.Latest
+}
+
+// backupSize renders the backups' storage in binary units, empty until
+// the platform has measured it (0).
+func backupSize(db *client.Database) string {
+	if n := databaseStatus(db).BackupSizeBytes; n > 0 {
+		return humanBytes(n)
+	}
+	return ""
 }
 
 func onOff(b bool) string {

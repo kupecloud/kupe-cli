@@ -41,6 +41,12 @@ var refusals = []refusal{
 		},
 	},
 	{
+		// The platform does not offer backups: a request that sets backup
+		// settings is refused. The request was valid, so not a misuse.
+		code: client.DatabaseCodeBackupsUnavailable, phrase: "backups are not available on this platform", exit: cli.ExitUnavailable,
+		fallback: func(string, string) string { return "backups are not available on this platform" },
+	},
+	{
 		code: client.CodeTerminating, phrase: "is being deleted; it cannot be bound", exit: cli.ExitConflict,
 		fallback: func(noun, name string) string { return fmt.Sprintf("%s %q is being deleted", noun, name) },
 		hint: func(noun, name string) string {

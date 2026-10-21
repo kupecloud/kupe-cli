@@ -17,6 +17,8 @@ type updateOpts struct {
 	storage            string
 	highAvailability   bool
 	deletionProtection bool
+	backupRetention    int32
+	backupSchedule     string
 	wait               bool
 	waitTimeout        time.Duration
 	output             string
@@ -27,13 +29,14 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "update NAME",
-		Short: "Resize a database or change its availability or protection",
-		Long: `Change a database's per-instance resources, high availability, or deletion
-protection. Only the flags you pass are changed.
+		Short: "Resize a database or change its availability, protection or backups",
+		Long: `Change a database's per-instance resources, high availability, deletion
+protection or backup settings. Only the flags you pass are changed.
 
 Changing CPU or memory rolls the instances (a highly available database
 switches over first). Storage grows online and can never shrink. The major
-version cannot be changed yet.
+version cannot be changed yet. Shortening --backup-retention deletes the
+backups that fall outside the new window.
 
 Concurrent updates from another client are detected and retried once
 automatically. By default the command waits until the change is in effect:
@@ -47,7 +50,8 @@ the change is accepted.`,
 		Example: `  kupe database update orders-db --cpu 1 --memory 2Gi
   kupe db update orders-db --storage 20Gi
   kupe db update orders-db --ha
-  kupe db update orders-db --deletion-protection=false`,
+  kupe db update orders-db --deletion-protection=false
+  kupe db update orders-db --backup-retention 14`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			patch := client.PatchDatabaseRequest{}
@@ -63,8 +67,13 @@ the change is accepted.`,
 			if cmd.Flags().Changed("deletion-protection") {
 				patch.DeletionProtection = &opts.deletionProtection
 			}
+			backup, err := backupFromFlags(cmd.Flags(), opts.backupRetention, opts.backupSchedule)
+			if err != nil {
+				return err
+			}
+			patch.Backup = backup
 			if patch.IsEmpty() {
-				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection")
+				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule")
 			}
 
 			format, err := printer.Resolve(f, opts.output)
@@ -107,6 +116,8 @@ the change is accepted.`,
 	cmd.Flags().StringVar(&opts.storage, "storage", "", "New storage per instance (e.g. 20Gi); grow only")
 	cmd.Flags().BoolVar(&opts.highAvailability, "ha", false, "Turn high availability on (--ha) or off (--ha=false)")
 	cmd.Flags().BoolVar(&opts.deletionProtection, "deletion-protection", false, "Turn deletion protection on (--deletion-protection) or off (--deletion-protection=false)")
+	cmd.Flags().Int32Var(&opts.backupRetention, flagBackupRetention, 0, "New backup retention in `days` (the platform sets the range); shortening it deletes the backups that fall outside the new window")
+	cmd.Flags().StringVar(&opts.backupSchedule, flagBackupSchedule, "", "New backup schedule: Daily or DailyThenWeekly")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until the change is in effect before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)

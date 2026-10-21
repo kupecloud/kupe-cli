@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -239,6 +240,8 @@ func TestCreate_Validation(t *testing.T) {
 		{"cpu longer than 20 characters", []string{"--cpu", strings.Repeat("1", 21), "--memory", "1Gi", "--storage", "10Gi"}, "--cpu is longer than 20 characters"},
 		{"memory needs a unit", []string{"--cpu", "1", "--memory", "1024", "--storage", "10Gi"}, "--memory must include a unit"},
 		{"storage needs a unit", []string{"--cpu", "1", "--memory", "1Gi", "--storage", "10"}, "--storage must include a unit"},
+		{"schedule outside the two", []string{"--cpu", "1", "--memory", "1Gi", "--storage", "10Gi", "--backup-schedule", "Weekly"}, "invalid --backup-schedule Weekly"},
+		{"schedule spelt as the API spells it", []string{"--cpu", "1", "--memory", "1Gi", "--storage", "10Gi", "--backup-schedule", "daily"}, "invalid --backup-schedule daily"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -258,6 +261,7 @@ func TestCreate_Validation(t *testing.T) {
 
 func TestCreate_SendsFlags(t *testing.T) {
 	base := []string{"orders-db", "--cpu", "500m", "--memory", "1Gi", "--storage", "10Gi", "--wait=false"}
+	days := int32(14)
 	tests := []struct {
 		name          string
 		extra         []string
@@ -265,10 +269,17 @@ func TestCreate_SendsFlags(t *testing.T) {
 		wantHA        bool
 		wantProtected bool
 		wantStderr    string
+		wantBackup    *client.DatabaseBackup
 	}{
-		{"defaults keep protection on and leave the version to the platform", nil, "", false, true, ""},
-		{"explicit version and HA, with an HA billing note", []string{"--version", "17", "--ha"}, "17", true, true, "two instances"},
-		{"--no-deletion-protection turns protection off", []string{"--no-deletion-protection"}, "", false, false, ""},
+		{"defaults keep protection on and leave the version and backups to the platform", nil, "", false, true, "", nil},
+		{"explicit version and HA, with an HA billing note", []string{"--version", "17", "--ha"}, "17", true, true, "two instances", nil},
+		{"--no-deletion-protection turns protection off", []string{"--no-deletion-protection"}, "", false, false, "", nil},
+		{"both backup flags are sent", []string{"--backup-retention", "14", "--backup-schedule", "DailyThenWeekly"}, "", false, true, "",
+			&client.DatabaseBackup{Retention: &days, Schedule: client.DatabaseBackupScheduleDailyThenWeekly}},
+		{"a retention alone leaves the schedule to the platform", []string{"--backup-retention", "14"}, "", false, true, "",
+			&client.DatabaseBackup{Retention: &days}},
+		{"a schedule alone leaves the retention to the platform", []string{"--backup-schedule", "Daily"}, "", false, true, "",
+			&client.DatabaseBackup{Schedule: client.DatabaseBackupScheduleDaily}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -285,6 +296,9 @@ func TestCreate_SendsFlags(t *testing.T) {
 			if db.Engine != "postgres" || db.Version != tt.wantVersion || db.HighAvailability != tt.wantHA ||
 				db.DeletionProtection != tt.wantProtected || db.Resources.CPU != "500m" {
 				t.Fatalf("created = %+v", db)
+			}
+			if !reflect.DeepEqual(db.Backup, tt.wantBackup) {
+				t.Fatalf("backup = %+v; want %+v", db.Backup, tt.wantBackup)
 			}
 			if tt.wantStderr != "" && !strings.Contains(stderr, tt.wantStderr) {
 				t.Errorf("stderr missing %q:\n%s", tt.wantStderr, stderr)
@@ -385,29 +399,52 @@ func TestCreate_ConflictExits5(t *testing.T) {
 }
 
 func TestUpdate_PatchesOnlyPassedFlags(t *testing.T) {
+	days := func(n int32) *int32 { return &n }
+	stored := func(db *client.Database) {
+		db.Backup = &client.DatabaseBackup{Retention: days(14), Schedule: client.DatabaseBackupScheduleDailyThenWeekly}
+	}
 	tests := []struct {
-		name  string
-		args  []string
-		check func(*client.Database) bool
+		name   string
+		before func(*client.Database)
+		args   []string
+		check  func(*client.Database) bool
 	}{
-		{"storage alone keeps cpu and memory", []string{"--storage", "20Gi"}, func(db *client.Database) bool {
+		{"storage alone keeps cpu and memory", nil, []string{"--storage", "20Gi"}, func(db *client.Database) bool {
 			return db.Resources.Storage == "20Gi" && db.Resources.CPU == "500m" && db.Resources.Memory == "1Gi" && !db.HighAvailability
 		}},
-		{"--ha turns high availability on", []string{"--ha"}, func(db *client.Database) bool { return db.HighAvailability && db.DeletionProtection }},
-		{"--deletion-protection=false turns protection off", []string{"--deletion-protection=false"}, func(db *client.Database) bool {
+		{"--ha turns high availability on", nil, []string{"--ha"}, func(db *client.Database) bool { return db.HighAvailability && db.DeletionProtection }},
+		{"--deletion-protection=false turns protection off", nil, []string{"--deletion-protection=false"}, func(db *client.Database) bool {
 			return !db.DeletionProtection && !db.HighAvailability
+		}},
+		{"a retention alone keeps the schedule", stored, []string{"--backup-retention", "21"}, func(db *client.Database) bool {
+			return reflect.DeepEqual(db.Backup, &client.DatabaseBackup{Retention: days(21), Schedule: client.DatabaseBackupScheduleDailyThenWeekly}) &&
+				db.DeletionProtection && db.Resources.Storage == "10Gi"
+		}},
+		{"a schedule alone keeps the retention", stored, []string{"--backup-schedule", "Daily"}, func(db *client.Database) bool {
+			return reflect.DeepEqual(db.Backup, &client.DatabaseBackup{Retention: days(14), Schedule: client.DatabaseBackupScheduleDaily})
+		}},
+		{"backup flags on a database that never set them", nil, []string{"--backup-retention", "7", "--backup-schedule", "Daily"}, func(db *client.Database) bool {
+			return reflect.DeepEqual(db.Backup, &client.DatabaseBackup{Retention: days(7), Schedule: client.DatabaseBackupScheduleDaily})
+		}},
+		{"other flags leave the backup settings alone", stored, []string{"--ha"}, func(db *client.Database) bool {
+			return db.HighAvailability &&
+				reflect.DeepEqual(db.Backup, &client.DatabaseBackup{Retention: days(14), Schedule: client.DatabaseBackupScheduleDailyThenWeekly})
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := clienttest.New()
-			fake.DatabasesByName["orders-db"] = running("orders-db")
+			db := running("orders-db")
+			if tt.before != nil {
+				tt.before(db)
+			}
+			fake.DatabasesByName["orders-db"] = db
 			f := factoryWith(t, fake)
-			if _, _, err := run(f, newUpdateCmd(f), append([]string{"orders-db"}, tt.args...)...); err != nil {
+			if _, _, err := run(f, newUpdateCmd(f), append([]string{"orders-db", "--wait=false"}, tt.args...)...); err != nil {
 				t.Fatalf("update: %v", err)
 			}
 			if db := fake.DatabasesByName["orders-db"]; !tt.check(db) {
-				t.Fatalf("after update: %+v resources %+v", db, db.Resources)
+				t.Fatalf("after update: %+v resources %+v backup %+v", db, db.Resources, db.Backup)
 			}
 		})
 	}
@@ -484,6 +521,65 @@ func TestUpdate_DeletionProtectionAloneIsNotWaitedOn(t *testing.T) {
 	}
 }
 
+// TestUpdate_BackupChangeIsWaitedOn pins that a backup change alone is
+// waited on like a resize: the operator applies it to the database's backup
+// objects, so the command returns once the platform has applied it.
+func TestUpdate_BackupChangeIsWaitedOn(t *testing.T) {
+	for _, flag := range [][]string{{"--backup-retention", "14"}, {"--backup-schedule", "DailyThenWeekly"}} {
+		t.Run(flag[0], func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 2, true)
+			fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+				applying("orders-db", 2, 2, true), // the read-modify-write GET
+				applying("orders-db", 3, 2, true), // not yet applied
+				applying("orders-db", 3, 3, true),
+			}
+			f := factoryWith(t, fake)
+			if _, _, err := run(f, newUpdateCmd(f), append([]string{"orders-db", "--wait-timeout", "20s"}, flag...)...); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+			if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 3 {
+				t.Fatalf("GETs = %d; want the RMW read and two polls", polls)
+			}
+		})
+	}
+}
+
+// TestUpdate_BackupChangeRefusedByThePlatform: with databases off a backup
+// change is refused like any other change (404, PD-33's hint); with
+// backups not offered it exits 7 with the API's message.
+func TestUpdate_BackupChangeRefusedByThePlatform(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *client.APIError
+		wantExit int
+		wantHint string
+	}{
+		{"databases off", &client.APIError{StatusCode: 404, Code: client.DatabaseCodeUnavailable,
+			Message: "databases are not available on this platform"}, cli.ExitNotFound, "existing databases can still be listed"},
+		{"backups not offered", &client.APIError{StatusCode: 400, Code: client.DatabaseCodeBackupsUnavailable,
+			Field: "spec.backup", Message: "backups are not available on this platform"}, cli.ExitUnavailable, ""},
+		{"retention outside the range", &client.APIError{StatusCode: 400, Code: "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE",
+			Field: "spec.backup.retention", Message: "backup.retention must be between 7 and 35 days"}, cli.ExitMisuse, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.UpdateDatabaseErr = tt.err
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newUpdateCmd(f), "orders-db", "--backup-retention", "36")
+			assertExit(t, err, tt.wantExit)
+			if err.Error() != tt.err.Message {
+				t.Fatalf("message = %q; want the API's message alone", err.Error())
+			}
+			if h := hint(err); (tt.wantHint == "") != (h == "") || !strings.Contains(h, tt.wantHint) {
+				t.Fatalf("hint = %q; want %q", h, tt.wantHint)
+			}
+		})
+	}
+}
+
 func TestUpdate_WaitTimesOutWhileStillRolling(t *testing.T) {
 	fake := clienttest.New()
 	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 3, false)
@@ -504,6 +600,8 @@ func TestUpdate_Refusals(t *testing.T) {
 		{"no flags is misuse", []string{"orders-db"}, cli.ExitMisuse},
 		{"malformed memory is misuse", []string{"orders-db", "--memory", "2"}, cli.ExitMisuse},
 		{"missing database exits 4", []string{"ghost", "--ha"}, cli.ExitNotFound},
+		{"a schedule outside the two is misuse", []string{"orders-db", "--backup-schedule", "Weekly"}, cli.ExitMisuse},
+		{"a bad schedule beside a valid flag is misuse", []string{"orders-db", "--ha", "--backup-schedule", "dailythenweekly"}, cli.ExitMisuse},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

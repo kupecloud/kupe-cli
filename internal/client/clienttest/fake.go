@@ -420,6 +420,33 @@ func applyDatabasePatch(db *client.Database, patch client.PatchDatabaseRequest) 
 	if patch.DeletionProtection != nil {
 		db.DeletionProtection = *patch.DeletionProtection
 	}
+	if b := patch.Backup; b != nil {
+		// Key by key, as the API merges it: an unset key keeps its value.
+		if db.Backup == nil {
+			db.Backup = &client.DatabaseBackup{}
+		}
+		if b.Retention != nil {
+			days := *b.Retention
+			db.Backup.Retention = &days
+		}
+		if b.Schedule != "" {
+			db.Backup.Schedule = b.Schedule
+		}
+	}
+}
+
+// copyDatabaseBackup copies b so a stored database never shares the
+// caller's request.
+func copyDatabaseBackup(b *client.DatabaseBackup) *client.DatabaseBackup {
+	if b == nil {
+		return nil
+	}
+	out := &client.DatabaseBackup{Schedule: b.Schedule}
+	if b.Retention != nil {
+		days := *b.Retention
+		out.Retention = &days
+	}
+	return out
 }
 
 // RotateDatabaseCredentials implements client.Interface. The call is

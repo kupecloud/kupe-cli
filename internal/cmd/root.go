@@ -112,6 +112,7 @@ Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 
 	flags.Bind(root)
 	root.SetHelpTemplate(helpTemplate)
+	root.SetFlagErrorFunc(flagParseError)
 
 	factory := cli.NewFactory(io, flags)
 
@@ -133,6 +134,15 @@ Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 	return root
+}
+
+// flagParseError marks a flag that failed to parse (an unknown flag, a missing
+// value, a malformed or out-of-range value) as misuse, exit 2, per the exit
+// code table in docs/design.md. Cobra leaves these as plain errors (exit 1);
+// it hands every subcommand's parse error to the nearest FlagErrorFunc, so
+// setting it on the root covers the whole tree. The message stays pflag's own.
+func flagParseError(_ *cobra.Command, err error) error {
+	return cli.Wrap(cli.ExitMisuse, "", err)
 }
 
 // helpTemplate trims Cobra's default to remove the noisy trailing "Use ..."

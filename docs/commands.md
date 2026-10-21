@@ -754,7 +754,8 @@ users-db    postgres  17       17.6     Running  on   12d
 
 `VERSION` is the requested major; `RUNNING` is the full version the platform
 reports. `-o wide` adds `CPU`, `MEMORY`, `STORAGE`, `INSTANCES` (ready/desired),
-`PROTECTED` (deletion protection) and `BACKUPS` (the backup retention). `-o name`, `-o json`, `-o yaml`,
+`PROTECTED` (deletion protection) and `BACKUPS` (the backup retention, or
+`defaults` while the database keeps the platform defaults). `-o name`, `-o json`, `-o yaml`,
 `-o go-template=...` and `--phase` (a client-side filter, e.g. `--phase
 degraded`) behave as for clusters.
 

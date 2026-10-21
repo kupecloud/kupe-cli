@@ -138,7 +138,7 @@ Inspired by kubectl and gh. Stable across versions.
 |------|---------|---------|
 | `0` | Success | Any command that completed as requested |
 | `1` | General error | Network failure, internal error, unclassified 5xx; a resource entered `Degraded` while a command waited for it (a `Failed` binding too, unless it is a name conflict: `5`) |
-| `2` | Misuse | Unknown flag, missing required arg, invalid combination (Cobra sets this automatically for flag errors) |
+| `2` | Misuse | Unknown flag, missing required arg, invalid combination; any flag that fails to parse (a missing, malformed or out-of-range value) — set by the root command's flag error handler, as Cobra alone exits `1` |
 | `3` | Auth error | 401 Unauthorized, 403 Forbidden, missing token, logged-out context |
 | `4` | Not found | 404 on the requested resource |
 | `5` | Conflict | 409 (already exists, concurrent modification) or 412 (ETag mismatch) |

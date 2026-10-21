@@ -354,6 +354,7 @@ only the platform's sentence is matched on that sentence instead.
 | --- | --- | --- |
 | Creation paused (`creation_paused`, 400) | `7` | retry later; status page link |
 | Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted, and their bindings deleted or narrowed |
+| Backups not offered on the platform (`backups_unavailable`, 400), for a database create or update that sets a backup flag | `7` | — |
 | The cluster or database is being deleted (`terminating`, 409) | `5` | `kupe <noun> wait NAME --for deleted` |
 | The tenant is being deleted (`tenant_terminating`, 409) | `5` | — |
 | The tenant is suspended (`tenant_suspended`, 409) | `5` | contact support |
@@ -752,8 +753,8 @@ users-db    postgres  17       17.6     Running  on   12d
 ```
 
 `VERSION` is the requested major; `RUNNING` is the full version the platform
-reports. `-o wide` adds `CPU`, `MEMORY`, `STORAGE`, `INSTANCES` (ready/desired)
-and `PROTECTED` (deletion protection). `-o name`, `-o json`, `-o yaml`,
+reports. `-o wide` adds `CPU`, `MEMORY`, `STORAGE`, `INSTANCES` (ready/desired),
+`PROTECTED` (deletion protection) and `BACKUPS` (the backup retention). `-o name`, `-o json`, `-o yaml`,
 `-o go-template=...` and `--phase` (a client-side filter, e.g. `--phase
 degraded`) behave as for clusters.
 
@@ -771,8 +772,19 @@ CPU:                  500m
 Memory:               1Gi
 Storage:              10Gi
 Deletion Protection:  on
+Backups:              14 days, DailyThenWeekly
+Last Backup:          2026-10-12T02:14:07Z (8h ago)
+Recovery Window:      2026-10-09T10:02:41Z to 2026-10-12T10:41:33Z
+Backup Size:          3.2 GiB
 Created:              2026-10-09T10:00:00Z (3d ago)
 ```
+
+`Backups` is the retention and schedule the database set; the row shows
+`defaults` while the database keeps the platform defaults (7 days, `Daily`).
+`Last Backup` is when the newest full backup finished (`never` until the first
+one completes), `Recovery Window` the oldest and newest points the database can
+be recovered to, and `Backup Size` the storage every full backup and the WAL
+kept take up, manual backups included, in binary units (empty until measured).
 
 Exits `4` if the database doesn't exist.
 
@@ -789,6 +801,8 @@ Create a database and wait for `status.phase=Running` by default.
 | `--storage QUANTITY` | required | Storage per instance, with a unit (`10Gi`). Grows later, never shrinks. |
 | `--ha` | off | Two instances with a synchronous standby; resources are reserved and billed per instance. |
 | `--no-deletion-protection` | off | Create without deletion protection (it is on by default). |
+| `--backup-retention DAYS` | `7` | How far back backups reach, in days. The platform sets the range. |
+| `--backup-schedule SCHEDULE` | `Daily` | Full backups kept within the retention: `Daily` keeps one for every day, `DailyThenWeekly` one for each of the last 7 days and one a week before that. |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
@@ -803,6 +817,15 @@ the platform pauses database creation (`400 creation_paused`) the command
 exits `7` with the API's message and a hint to retry later. A `Degraded`
 phase fails the wait.
 
+A backup flag left out takes the platform default and is not sent. A
+`--backup-schedule` other than `Daily` or `DailyThenWeekly` (spelt exactly so)
+exits `2` before any request is made. A `--backup-retention` outside the
+platform's range (`400 DATABASE_BACKUP_RETENTION_OUT_OF_RANGE`) exits `2` with
+the API's message, for example `backup.retention must be between 7 and 35
+days`. While the platform does not offer backups, either flag exits `7` with
+the API's message, "backups are not available on this platform"
+(`400 backups_unavailable`).
+
 ```bash
 kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
 ```
@@ -810,15 +833,15 @@ kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
 **Exit codes:** `0` success, `2` missing or malformed flags (no request made)
 or an API validation error, `5` name exists or a tenant or plan refusal
 ([shared refusals](#refusals-shared-by-clusters-and-databases)), `7` creation
-paused, a 503, or lost contact with kupe-api while waiting, `8` wait timeout,
+paused, backups not offered, a 503, or lost contact with kupe-api while waiting, `8` wait timeout,
 `130` Ctrl+C while waiting (creation continues), `1` when the database enters
 `Degraded` (`database "NAME" entered Degraded state`, hint: `kupe database
 get NAME`).
 
 ### `kupe database update NAME`
 
-Change per-instance resources, high availability or deletion protection. The
-major version cannot be changed yet: kupe-api refuses every version change
+Change per-instance resources, high availability, deletion protection or
+backup settings. The major version cannot be changed yet: kupe-api refuses every version change
 (`400 major_upgrade_unavailable`), so `kupe database upgrade` is hidden until
 major upgrades are offered. Only the flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
 retried once, then exits `5`).
@@ -828,6 +851,8 @@ retried once, then exits `5`).
 | `--cpu`, `--memory`, `--storage` | New per-instance resources. Storage grows only. |
 | `--ha` / `--ha=false` | Turn high availability on or off. |
 | `--deletion-protection` / `--deletion-protection=false` | Turn deletion protection on or off. |
+| `--backup-retention DAYS` | New backup retention in days. Shortening it deletes the backups that fall outside the new window. |
+| `--backup-schedule SCHEDULE` | New backup schedule: `Daily` or `DailyThenWeekly`. |
 | `--wait` | Wait until the change is in effect (default `true`). |
 | `--wait-timeout DURATION` | Give up after this long (default `30m`). Exits `8`. |
 | `-o, --output FORMAT` | Single-resource formats. |
@@ -851,6 +876,15 @@ API's message, for example `storage can only grow: 5Gi is smaller than the
 current 10Gi`, and a hint to check the current size with `kupe db get NAME`.
 Any other refused change exits `2` with the API's message, which names the
 field and the rule it broke.
+
+A backup change sends only the backup flags passed; the other setting keeps
+its value. It is waited on until the platform has applied it. A
+`--backup-schedule` other than `Daily` or `DailyThenWeekly` exits `2` before
+any request is made; a `--backup-retention` outside the platform's range
+(`400 DATABASE_BACKUP_RETENTION_OUT_OF_RANGE`) exits `2` with the API's
+message. While the platform does not offer backups, either flag exits `7`
+(`400 backups_unavailable`); while databases are switched off, it exits `4`
+like any other change.
 
 **Exit codes (waiting):** `1` when the database stays `Degraded` for 5 minutes
 once the change is applied, or starts being deleted, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C

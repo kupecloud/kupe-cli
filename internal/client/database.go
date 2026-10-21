@@ -196,6 +196,18 @@ const (
 	DatabaseCodeBackupsUnavailable = "backups_unavailable"
 )
 
+// Backup schedules: how many full backups are kept within the retention.
+// Daily keeps one for every day; DailyThenWeekly one for each of the last 7
+// days and one a week before that.
+const (
+	DatabaseBackupScheduleDaily           = "Daily"
+	DatabaseBackupScheduleDailyThenWeekly = "DailyThenWeekly"
+)
+
+// DatabaseBackupSchedules lists every backup schedule, in the order help
+// text names them.
+var DatabaseBackupSchedules = []string{DatabaseBackupScheduleDaily, DatabaseBackupScheduleDailyThenWeekly}
+
 // Database roles: owner can change the schema, readwrite can read and write
 // data, readonly can read data. Bindings grant one; credential rotation
 // targets one.

@@ -259,4 +259,30 @@ func TestMarkMisuseHooks(t *testing.T) {
 			t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitNotFound, err)
 		}
 	})
+
+	// An error cli.ExitCode already classifies by value keeps that code;
+	// only a general (exit 1) Args error becomes misuse.
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"context.Canceled Args error keeps exit 130", context.Canceled, cli.ExitInterrupted},
+		{"plain Args error is misuse", errors.New("bad argument"), cli.ExitMisuse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &cobra.Command{
+				Use:  "args",
+				Args: func(*cobra.Command, []string) error { return tc.err },
+				RunE: noop,
+			}
+			err := run(t, c, "args")
+			if code := cli.ExitCode(err); code != tc.want {
+				t.Fatalf("exit = %d; want %d (%v)", code, tc.want, err)
+			}
+			if err.Error() != tc.err.Error() {
+				t.Fatalf("message changed:\n got %q\nwant %q", err.Error(), tc.err.Error())
+			}
+		})
+	}
 }

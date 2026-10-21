@@ -27,6 +27,14 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		retryLaterHint  = "retry in a few seconds; status updates are posted at https://status.kupe.cloud"
 		nameHint        = "choose a shorter name: database names may be at most 44 characters, and fewer when the tenant name is over 12"
 		nameMessage     = `database name "orders-db" too long: at most 44 characters for this tenant`
+		// kupe-api's backup refusals (handler_database.go): a coded 400 for
+		// backups not offered or a retention outside the range, a plain 400
+		// naming the field for a schedule or an empty backup.
+		backupsMessage     = "backups are not available on this platform"
+		retentionMessage   = "backup.retention must be between 7 and 35 days"
+		webhookRetention   = "backup retention of 36 days is outside the platform's range of 7 to 35 days"
+		scheduleMessage    = "backup.schedule must be one of Daily, DailyThenWeekly"
+		emptyBackupMessage = "backup must set at least one of retention, schedule"
 	)
 	translate := func(err error) error { return translateErr(err, name) }
 	create := func(err error) error { return translateCreateErr(err, name) }
@@ -90,6 +98,20 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 			"maximum database limit reached: your plan allows 1 database(s)",
 			"maximum database limit reached: your plan allows 1 database(s) (request-id: req-1)",
 			`delete a database ("kupe database delete <name>") or upgrade your plan`, cli.ExitConflict},
+		{"backups not offered on create", create, 400, client.DatabaseCodeBackupsUnavailable, backupsMessage,
+			backupsMessage + " (request-id: req-1)", "", cli.ExitUnavailable},
+		{"backups not offered on update", update, 400, client.DatabaseCodeBackupsUnavailable, backupsMessage,
+			backupsMessage + " (request-id: req-1)", "", cli.ExitUnavailable},
+		{"backups not offered without a message", update, 400, client.DatabaseCodeBackupsUnavailable, "",
+			"backups are not available on this platform: Bad Request (request-id: req-1)", "", cli.ExitUnavailable},
+		{"retention outside the range on create", create, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", retentionMessage,
+			retentionMessage + " (request-id: req-1)", "", cli.ExitMisuse},
+		{"retention outside the range on update, from the webhook", update, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", webhookRetention,
+			webhookRetention + " (request-id: req-1)", "", cli.ExitMisuse},
+		{"schedule refused, message only", update, 400, "", scheduleMessage,
+			scheduleMessage + " (request-id: req-1)", "", cli.ExitMisuse},
+		{"empty backup refused, message only", update, 400, "", emptyBackupMessage,
+			emptyBackupMessage + " (request-id: req-1)", "", cli.ExitMisuse},
 		{"service quota still being set up", translate, 503, "",
 			"the tenant's database limit is still being set up; retry in a few seconds",
 			"service unavailable: the tenant's database limit is still being set up; retry in a few seconds (request-id: req-1)",

@@ -63,7 +63,7 @@ the change is accepted.`,
 			if cmd.Flags().Changed("deletion-protection") {
 				patch.DeletionProtection = &opts.deletionProtection
 			}
-			if patch == (client.PatchDatabaseRequest{}) {
+			if patch.IsEmpty() {
 				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection")
 			}
 
@@ -82,11 +82,12 @@ the change is accepted.`,
 				return translateUpdateErr(err, name)
 			}
 			// Deletion protection is read from the spec when a delete comes
-			// in, so it is in effect once the PATCH lands; only a resize or an
-			// HA change rolls the instances. Waiting on a protection-only
-			// change would hold the "turn protection off, then delete" path
-			// on a database that is Degraded or was never provisioned.
-			if !opts.wait || (patch.Resources == nil && patch.HighAvailability == nil) {
+			// in, so it is in effect once the PATCH lands; every other change
+			// is applied by the platform first (NeedsWait). Waiting on a
+			// protection-only change would hold the "turn protection off,
+			// then delete" path on a database that is Degraded or was never
+			// provisioned.
+			if !opts.wait || !patch.NeedsWait() {
 				return printer.Database.One(f.IOStreams, format, updated)
 			}
 			// The PATCH response carries the generation the change produced.

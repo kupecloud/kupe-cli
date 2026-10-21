@@ -20,6 +20,8 @@ type createOpts struct {
 	storage              string
 	highAvailability     bool
 	noDeletionProtection bool
+	backupRetention      int32
+	backupSchedule       string
 	wait                 bool
 	waitTimeout          time.Duration
 	output               string
@@ -41,16 +43,28 @@ these resources. Storage can grow later but never shrink.
 
 Deletion protection is on by default; turn it off with
 "kupe database update NAME --deletion-protection=false" before deleting, or
-create the database with --no-deletion-protection.`,
+create the database with --no-deletion-protection.
+
+Backups are automatic. --backup-retention sets how far back they reach, in
+days, and --backup-schedule how many full backups are kept within that time;
+leave them out to take the defaults, 7 days and Daily. While the platform
+does not offer backups, either flag is refused.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Smallest database, wait for Running
   kupe database create orders-db --cpu 250m --memory 512Mi --storage 5Gi
 
   # Highly available, specific major version, fire-and-forget
-  kupe db create orders-db --version 17 --cpu 1 --memory 2Gi --storage 20Gi --ha --wait=false`,
+  kupe db create orders-db --version 17 --cpu 1 --memory 2Gi --storage 20Gi --ha --wait=false
+
+  # 14 days of backups: a full backup for each of the last 7 days, one a week before that
+  kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi --backup-retention 14 --backup-schedule DailyThenWeekly`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			if err := validateCreateOpts(opts); err != nil {
+				return err
+			}
+			backup, err := backupFromFlags(cmd.Flags(), opts.backupRetention, opts.backupSchedule)
+			if err != nil {
 				return err
 			}
 			format, err := printer.Resolve(f, opts.output)
@@ -68,6 +82,7 @@ create the database with --no-deletion-protection.`,
 				Version:          opts.version,
 				Resources:        &client.DatabaseResources{CPU: opts.cpu, Memory: opts.memory, Storage: opts.storage},
 				HighAvailability: opts.highAvailability,
+				Backup:           backup,
 			}
 			if opts.noDeletionProtection {
 				off := false
@@ -105,6 +120,8 @@ create the database with --no-deletion-protection.`,
 	cmd.Flags().StringVar(&opts.storage, "storage", "", "Storage per instance, with a unit (e.g. 10Gi); can grow later, never shrink (required)")
 	cmd.Flags().BoolVar(&opts.highAvailability, "ha", false, "Run two instances with a synchronous standby; resources are reserved and billed per instance")
 	cmd.Flags().BoolVar(&opts.noDeletionProtection, "no-deletion-protection", false, "Create without deletion protection (it is on by default)")
+	cmd.Flags().Int32Var(&opts.backupRetention, flagBackupRetention, 0, "How far back backups reach, in `days`; the platform sets the range (default 7)")
+	cmd.Flags().StringVar(&opts.backupSchedule, flagBackupSchedule, "", "Full backups kept within the retention: Daily (one for every day, the default) or DailyThenWeekly (one for each of the last 7 days, then one a week)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the database to reach Running before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)

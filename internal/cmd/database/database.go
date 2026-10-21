@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -84,6 +85,36 @@ var service = cmdutil.Service[client.Database, client.CreateDatabaseRequest, cli
 
 // degradedGrace bounds how long an update waits through a Degraded phase.
 const degradedGrace = 5 * time.Minute
+
+// Backup flags, shared by create and update.
+const (
+	flagBackupRetention = "backup-retention"
+	flagBackupSchedule  = "backup-schedule"
+)
+
+// backupFromFlags is the backup settings the user passed, nil when neither
+// backup flag was: only a flag that was passed is sent. The schedule must
+// be one of client.DatabaseBackupSchedules, exactly as the API spells it.
+// The retention range is the platform's, so the API checks it.
+func backupFromFlags(flags *pflag.FlagSet, retention int32, schedule string) (*client.DatabaseBackup, error) {
+	var b client.DatabaseBackup
+	if flags.Changed(flagBackupRetention) {
+		b.Retention = &retention
+	}
+	if flags.Changed(flagBackupSchedule) {
+		if !slices.Contains(client.DatabaseBackupSchedules, schedule) {
+			return nil, cli.MisuseError("invalid --backup-schedule " + schedule).WithHint(backupScheduleHint)
+		}
+		b.Schedule = schedule
+	}
+	if b == (client.DatabaseBackup{}) {
+		return nil, nil
+	}
+	return &b, nil
+}
+
+// backupScheduleHint names both schedules.
+const backupScheduleHint = "use --backup-schedule Daily or --backup-schedule DailyThenWeekly"
 
 // validateRole rejects anything but the database roles before a request is
 // made. Every invalid value gets the same message and hint.

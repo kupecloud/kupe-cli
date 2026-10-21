@@ -151,7 +151,8 @@ func flagParseError(_ *cobra.Command, err error) error {
 // count, or a value outside its valid set) and a required flag or flag group
 // left unsatisfied. Cobra returns these as plain errors (exit 1). It walks
 // the tree once, so call it after every command is added. Messages stay
-// cobra's own; an Args error that is already a *cli.Error keeps its code.
+// cobra's own; an Args error that cli.ExitCode already maps to a code other
+// than 1 (a *cli.Error, context.Canceled, an API error) keeps that code.
 //
 // Required flags and flag groups are checked in PreRunE because cobra runs
 // PreRunE immediately before its own ValidateRequiredFlags and
@@ -161,8 +162,7 @@ func markMisuse(c *cobra.Command) {
 	if args := c.Args; args != nil {
 		c.Args = func(cmd *cobra.Command, a []string) error {
 			err := args(cmd, a)
-			var typed *cli.Error
-			if err == nil || errors.As(err, &typed) {
+			if err == nil || cli.ExitCode(err) != cli.ExitGeneral {
 				return err
 			}
 			return cli.Wrap(cli.ExitMisuse, "", err)

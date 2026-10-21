@@ -151,6 +151,25 @@ type PatchDatabaseRequest struct {
 	Backup             *DatabaseBackup    `json:"backup,omitempty"`
 }
 
+// IsEmpty reports whether the patch changes nothing. It names every field:
+// TestPatchDatabaseRequest_IsEmptyCoversEveryField fails when a new one is
+// left out.
+func (p PatchDatabaseRequest) IsEmpty() bool {
+	return p.Version == nil && p.Resources == nil && p.HighAvailability == nil &&
+		p.DeletionProtection == nil && p.Backup == nil
+}
+
+// NeedsWait reports whether the patch changes something the platform has
+// to apply to the running database before it is in effect: the version,
+// resources, high availability or backup settings (the operator applies a
+// backup change to the database's backup objects). Deletion protection is
+// read from the spec when a delete comes in, so it is in effect once the
+// PATCH lands. TestPatchDatabaseRequest_NeedsWaitCoversEveryField fails
+// when a new field is in neither group.
+func (p PatchDatabaseRequest) NeedsWait() bool {
+	return p.Version != nil || p.Resources != nil || p.HighAvailability != nil || p.Backup != nil
+}
+
 // Error codes the database endpoints return. Compare via ErrorCode(err).
 const (
 	// DatabaseCodeUnavailable: 404 when managed databases are not enabled

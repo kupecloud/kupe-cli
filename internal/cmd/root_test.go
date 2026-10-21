@@ -126,3 +126,137 @@ func TestFlagParseMisuseOnlyForParseErrors(t *testing.T) {
 		t.Fatalf("RunE error: exit = %d; want %d (%v)", code, cli.ExitGeneral, err)
 	}
 }
+
+// Issue #6, review F1: cobra's own validation errors are misuse too. A
+// positional-argument count error (including a bool flag written as
+// `--ha true`, where pflag leaves `true` as an extra argument) and a required
+// flag left unset exit 2, with cobra's message unchanged.
+func TestValidationErrorsExitMisuse(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantMsg string
+	}{
+		{
+			name:    "required flag on apikey create",
+			args:    []string{"apikey", "create"},
+			wantMsg: `required flag(s) "name" not set`,
+		},
+		{
+			name:    "required flag on member update",
+			args:    []string{"member", "update", "alice"},
+			wantMsg: `required flag(s) "role" not set`,
+		},
+		{
+			name:    "missing arg on cluster create",
+			args:    []string{"cluster", "create"},
+			wantMsg: `accepts 1 arg(s), received 0`,
+		},
+		{
+			name:    "missing arg on database create",
+			args:    []string{"database", "create"},
+			wantMsg: `accepts 1 arg(s), received 0`,
+		},
+		{
+			name:    "bool flag value without equals",
+			args:    []string{"database", "create", "x", "--ha", "true"},
+			wantMsg: `accepts 1 arg(s), received 2`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr, err := runRoot(t, nil, tt.args...)
+			if code := cli.ExitCode(err); code != cli.ExitMisuse {
+				t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitMisuse, err)
+			}
+			if err.Error() != tt.wantMsg {
+				t.Fatalf("message changed:\n got %q\nwant %q", err.Error(), tt.wantMsg)
+			}
+			if want := "Error: " + tt.wantMsg + "\n"; !strings.Contains(stderr, want) {
+				t.Fatalf("stderr = %q; want it to contain %q", stderr, want)
+			}
+		})
+	}
+}
+
+// Controls: an unknown command stays a general error (exit 1), and a group
+// command run bare or with an unknown subcommand still prints help, exit 0.
+func TestMisuseLeavesUnknownCommandAndGroupHelp(t *testing.T) {
+	stderr, err := runRoot(t, nil, "bogus-cmd")
+	if code := cli.ExitCode(err); code != cli.ExitGeneral {
+		t.Fatalf("unknown command: exit = %d; want %d (%v)", code, cli.ExitGeneral, err)
+	}
+	if want := `Error: unknown command "bogus-cmd" for "kupe"` + "\n"; !strings.Contains(stderr, want) {
+		t.Fatalf("stderr = %q; want it to contain %q", stderr, want)
+	}
+	for _, args := range [][]string{{"database"}, {"database", "bogus-sub"}} {
+		if _, err := runRoot(t, nil, args...); err != nil {
+			t.Fatalf("%v: err = %v; want nil (help, exit 0)", args, err)
+		}
+	}
+}
+
+// markMisuse on shapes no shipped command has yet: flag groups, an existing
+// PreRunE or PreRun, and an Args validator that already returns a typed error.
+func TestMarkMisuseHooks(t *testing.T) {
+	run := func(t *testing.T, c *cobra.Command, args ...string) error {
+		t.Helper()
+		root := &cobra.Command{Use: "root", SilenceUsage: true, SilenceErrors: true}
+		root.AddCommand(c)
+		markMisuse(root)
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		root.SetArgs(args)
+		return root.Execute()
+	}
+	noop := func(*cobra.Command, []string) error { return nil }
+
+	t.Run("flag group", func(t *testing.T) {
+		c := &cobra.Command{Use: "group", RunE: noop}
+		c.Flags().String("a", "", "")
+		c.Flags().String("b", "", "")
+		c.MarkFlagsRequiredTogether("a", "b")
+		err := run(t, c, "group", "--a", "1")
+		if code := cli.ExitCode(err); code != cli.ExitMisuse {
+			t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitMisuse, err)
+		}
+		want := `if any flags in the group [a b] are set they must all be set; missing [b]`
+		if err.Error() != want {
+			t.Fatalf("message changed:\n got %q\nwant %q", err.Error(), want)
+		}
+	})
+
+	t.Run("existing PreRunE runs first and keeps its error", func(t *testing.T) {
+		c := &cobra.Command{
+			Use:     "pre",
+			PreRunE: func(*cobra.Command, []string) error { return cli.AuthError("not logged in") },
+			RunE:    noop,
+		}
+		c.Flags().String("name", "", "")
+		_ = c.MarkFlagRequired("name")
+		err := run(t, c, "pre")
+		if code := cli.ExitCode(err); code != cli.ExitAuth || err.Error() != "not logged in" {
+			t.Fatalf("err = %v (exit %d); want the PreRunE error, exit %d", err, code, cli.ExitAuth)
+		}
+	})
+
+	t.Run("existing PreRun still runs", func(t *testing.T) {
+		ran := false
+		c := &cobra.Command{Use: "pre", PreRun: func(*cobra.Command, []string) { ran = true }, RunE: noop}
+		if err := run(t, c, "pre"); err != nil || !ran {
+			t.Fatalf("err = %v, PreRun ran = %v; want nil, true", err, ran)
+		}
+	})
+
+	t.Run("typed Args error keeps its code", func(t *testing.T) {
+		c := &cobra.Command{
+			Use:  "typed",
+			Args: func(*cobra.Command, []string) error { return cli.NotFoundError("no such thing") },
+			RunE: noop,
+		}
+		err := run(t, c, "typed")
+		if code := cli.ExitCode(err); code != cli.ExitNotFound {
+			t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitNotFound, err)
+		}
+	})
+}

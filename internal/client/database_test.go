@@ -744,3 +744,89 @@ func TestDatabaseStatus_Ready(t *testing.T) {
 		t.Fatal("a missing status is not ready")
 	}
 }
+
+// patchFieldsNotWaitedOn are the PatchDatabaseRequest fields in effect as
+// soon as the PATCH lands, so NeedsWait is false for them alone. Every other
+// field must make NeedsWait true.
+var patchFieldsNotWaitedOn = map[string]bool{"DeletionProtection": true}
+
+// patchFieldsNotInIsEmpty are PatchDatabaseRequest fields IsEmpty may
+// ignore. None today: every field sent is a change.
+var patchFieldsNotInIsEmpty = map[string]bool{}
+
+// patchWithOnly returns a patch with only field i set to a non-zero value.
+// A field kind it does not know fails the test, so a new kind is handled
+// here rather than skipped.
+func patchWithOnly(t *testing.T, i int) PatchDatabaseRequest {
+	t.Helper()
+	var p PatchDatabaseRequest
+	v := reflect.ValueOf(&p).Elem().Field(i)
+	switch v.Kind() {
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
+	case reflect.Map:
+		v.Set(reflect.MakeMap(v.Type()))
+	case reflect.String:
+		v.SetString("x")
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		v.SetInt(1)
+	default:
+		t.Fatalf("field %s has kind %s: teach patchWithOnly to set it",
+			reflect.TypeFor[PatchDatabaseRequest]().Field(i).Name, v.Kind())
+	}
+	return p
+}
+
+// TestPatchDatabaseRequest_IsEmptyCoversEveryField is the guard on the
+// update command's "nothing to update" check: a field added to the PATCH
+// body but not to IsEmpty would make a patch carrying only that field look
+// empty and be refused.
+func TestPatchDatabaseRequest_IsEmptyCoversEveryField(t *testing.T) {
+	if !(PatchDatabaseRequest{}).IsEmpty() {
+		t.Fatal("the zero patch must be empty")
+	}
+	typ := reflect.TypeFor[PatchDatabaseRequest]()
+	for name := range patchFieldsNotInIsEmpty {
+		if _, ok := typ.FieldByName(name); !ok {
+			t.Errorf("patchFieldsNotInIsEmpty names %q, which PatchDatabaseRequest no longer has", name)
+		}
+	}
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if !field.IsExported() || patchFieldsNotInIsEmpty[field.Name] {
+			continue
+		}
+		if patchWithOnly(t, i).IsEmpty() {
+			t.Errorf("IsEmpty() is true for a patch that sets %s: add it to IsEmpty", field.Name)
+		}
+	}
+}
+
+// TestPatchDatabaseRequest_NeedsWaitCoversEveryField is the guard on the
+// update command's wait: a field the platform applies but NeedsWait leaves
+// out would return before the change is in effect.
+func TestPatchDatabaseRequest_NeedsWaitCoversEveryField(t *testing.T) {
+	if (PatchDatabaseRequest{}).NeedsWait() {
+		t.Fatal("the zero patch must not be waited on")
+	}
+	typ := reflect.TypeFor[PatchDatabaseRequest]()
+	for name := range patchFieldsNotWaitedOn {
+		if _, ok := typ.FieldByName(name); !ok {
+			t.Errorf("patchFieldsNotWaitedOn names %q, which PatchDatabaseRequest no longer has", name)
+		}
+	}
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		want := !patchFieldsNotWaitedOn[field.Name]
+		if got := patchWithOnly(t, i).NeedsWait(); got != want {
+			t.Errorf("NeedsWait() = %v for a patch that sets only %s; want %v", got, field.Name, want)
+		}
+	}
+}

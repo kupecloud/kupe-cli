@@ -31,6 +31,9 @@
 //	                     Default: kupe-test
 //	KUPE_LIVE_CLUSTER    Set to "1" to enable the cluster lifecycle test
 //	                     (5-8 minutes per run; off by default).
+//	KUPE_LIVE_REGISTRY_CLUSTER
+//	                     An existing cluster with no registry connection:
+//	                     enables the registry connect / disconnect test.
 //
 // Run with:
 //

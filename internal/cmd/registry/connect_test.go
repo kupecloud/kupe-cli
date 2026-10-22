@@ -97,6 +97,46 @@ func TestConnect_PrintsRestartNote(t *testing.T) {
 	})
 }
 
+// The platform connects only a cluster that exists: kupe-api answers a
+// missing one with the operator's denial as a 404, 'cluster "x" not found'.
+func TestConnect_MissingCluster(t *testing.T) {
+	api := func(status int, code, msg string) error {
+		return &client.APIError{StatusCode: status, Code: code, Message: msg}
+	}
+	tests := []struct {
+		name     string
+		err      error
+		wantExit int
+		wantText string
+		wantHint string
+	}{
+		{"missing cluster", api(404, "", `cluster "staging" not found`), cli.ExitNotFound, `cluster "staging" not found`, "kupe cluster list"},
+		{"registry gone meanwhile", api(404, "", `registry "registry" not found`), cli.ExitNotFound, `registry "registry" not found`, "kupe registry create"},
+		{"registries switched off", api(404, "registries_unavailable", "registries are not available on this platform"), cli.ExitNotFound, "registries are not available", "not an outage"},
+		{"cluster being deleted", api(409, "terminating", `cluster "staging" is being deleted; it cannot be connected`), cli.ExitConflict, "is being deleted", "kupe registry connection get staging"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := seeded()
+			fake.CreateRegistryBindingErr = tt.err
+			_, _, err := run(factoryWith(t, fake), "connect", "staging")
+			assertExit(t, err, tt.wantExit)
+			if !strings.Contains(err.Error(), tt.wantText) {
+				t.Fatalf("error = %q; want %q", err.Error(), tt.wantText)
+			}
+			if !strings.Contains(hint(err), tt.wantHint) {
+				t.Fatalf("hint = %q; want %q", hint(err), tt.wantHint)
+			}
+			if tt.wantHint != "kupe cluster list" && strings.Contains(hint(err), "kupe cluster list") {
+				t.Fatalf("hint = %q; only a missing cluster points at kupe cluster list", hint(err))
+			}
+			if !client.IsAPIError(err) {
+				t.Fatal("the API error must stay in the chain")
+			}
+		})
+	}
+}
+
 func TestConnectionPhase(t *testing.T) {
 	ready := readyConnection("p", "a")
 	withdrawing := readyConnection("p", "a")

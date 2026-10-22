@@ -1120,6 +1120,7 @@ The API's message is the error text; the hint is the next step.
 | Registries switched off on the platform (`registries_unavailable`, 404) | `4` | a platform setting, not an outage; an existing registry can still be listed, unprotected and deleted, and its connections removed |
 | Deletion protection on (`deletion_protected`, 409) | `5` | `kupe registry update --deletion-protection=false` |
 | Already has a registry (`REGISTRY_ALREADY_EXISTS`, 409) | `5` | `kupe registry get` |
+| Cluster to connect does not exist (404, `cluster "CLUSTER" not found`) | `4` | `kupe cluster list` |
 | Cluster already connected (`REGISTRY_BINDING_EXISTS`, 409) | `5` | `kupe registry connection get CLUSTER` |
 | More than 10 push namespaces in a connection (`REGISTRY_PUSH_NAMESPACES_LIMIT`, 400), storage limit above the plan's (`REGISTRY_STORAGE_LIMIT_ABOVE_PLAN`, 400), expiry out of range (`REGISTRY_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |
 | More than 20 push namespaces across the registry's connections (`REGISTRY_PUSH_NAMESPACES_SERVICE_LIMIT`, 400) | `5` | remove one from another connection (`kupe registry connection list`) |
@@ -1223,9 +1224,9 @@ Workloads in prod can now pull from registry.kupe.cloud/acme. Pods that were run
 Each push namespace has a Secret named kupe-registry-push that can pull from and push to every repository in your registry, including replacing existing tags.
 ```
 
-The second line appears only with push namespaces. The cluster need not exist
-yet: the connection is `Pending` until it does, and a wait that times out
-exits `8` with the connection's message. A connection is `Failed` when a push
+The second line appears only with push namespaces. The cluster must already
+exist in your tenant: a missing one exits `4` with the hint `kupe cluster
+list`. A wait that times out exits `8` with the connection's message. A connection is `Failed` when a push
 namespace already has a Secret of that name the platform did not create: exit
 `5` with what to change.
 

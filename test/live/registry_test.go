@@ -31,7 +31,8 @@ func waitForExit(t *testing.T, want int, timeout time.Duration, args ...string) 
 // API:
 //
 //	get (or create) → token create / list / revoke → login --no-store -o json →
-//	repo list → (KUPE_LIVE_CLUSTER=1) connect / connection get / disconnect →
+//	repo list → connect of a missing cluster refused →
+//	(KUPE_LIVE_REGISTRY_CLUSTER) connect / connection get / disconnect →
 //	delete refused while protected → update --deletion-protection=false → delete
 //
 // The registry is reused when the testing tenant already has one and
@@ -98,13 +99,22 @@ func TestRegistryLifecycle(t *testing.T) {
 		runCLIJSON(t, &repos, "registry", "repo", "list", "--all")
 	})
 
-	t.Run("cluster connection", func(t *testing.T) {
-		if os.Getenv("KUPE_LIVE_CLUSTER") != "1" {
-			t.Skip("set KUPE_LIVE_CLUSTER=1 to enable the cluster connection test")
+	t.Run("connect refuses a missing cluster", func(t *testing.T) {
+		// The platform connects only a cluster that exists.
+		missing := uniqueName("cli-live-none")
+		t.Cleanup(func() { _ = runCLI(t, "registry", "disconnect", missing, "--yes") })
+		r := runCLI(t, "registry", "connect", missing, "--wait=false")
+		if r.exitCode != 4 || !strings.Contains(r.stderr, "kupe cluster list") {
+			t.Fatalf("connect of a missing cluster exit = %d; want 4\nstderr:\n%s", r.exitCode, r.stderr)
 		}
-		cluster := uniqueName("cli-live-conn")
+	})
+
+	t.Run("cluster connection", func(t *testing.T) {
+		cluster := os.Getenv("KUPE_LIVE_REGISTRY_CLUSTER")
+		if cluster == "" {
+			t.Skip("set KUPE_LIVE_REGISTRY_CLUSTER=<existing cluster with no registry connection> to enable the cluster connection test")
+		}
 		t.Cleanup(func() { _ = runCLI(t, "registry", "disconnect", cluster, "--yes") })
-		// The cluster need not exist: the connection stays Pending.
 		var conn map[string]any
 		runCLIJSON(t, &conn, "registry", "connect", cluster, "--push-namespace", "ci", "--wait=false")
 		if conn["cluster"] != cluster {

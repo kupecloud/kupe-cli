@@ -123,6 +123,8 @@ export KUPE_API_URL=https://api.dev.int.kupe.cloud
 export KUPE_TEST_TENANT=kupe-test
 # Slow lifecycle test (5-8 min); off by default:
 export KUPE_LIVE_CLUSTER=1
+# Registry connect / disconnect; an existing cluster with no connection:
+export KUPE_LIVE_REGISTRY_CLUSTER=CLUSTER
 
 make test-live
 ```

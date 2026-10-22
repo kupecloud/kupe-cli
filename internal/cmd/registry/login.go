@@ -86,14 +86,23 @@ func runLogin(ctx context.Context, f *cli.Factory, opts *loginOpts) error {
 		return cli.MisuseError("-o json prints the password, so it needs --no-store")
 	}
 	// The Docker config is read, and its helper checked, before a session is
-	// asked for, so a session is never minted that could not be stored.
+	// asked for, so a session is never minted that could not be stored. The
+	// helper is the one for the registry's own host, read from the registry
+	// as logout does (CR-4e F-2).
 	var cfg *dockerconfig.File
 	if !opts.noStore {
 		var err error
 		if cfg, err = loadDockerConfig(opts.dockerConfig); err != nil {
 			return err
 		}
-		helper, err := cfg.HelperFor(client.DefaultRegistryHost)
+	}
+	api, err := f.Client()
+	if err != nil {
+		return err
+	}
+	if cfg != nil {
+		checkHost := registryHost(ctx, api)
+		helper, err := cfg.HelperFor(checkHost)
 		if err != nil {
 			return cli.Wrap(cli.ExitGeneral, "reading the Docker config", err)
 		}
@@ -102,10 +111,6 @@ func runLogin(ctx context.Context, f *cli.Factory, opts *loginOpts) error {
 				return helperErr(err)
 			}
 		}
-	}
-	api, err := f.Client()
-	if err != nil {
-		return err
 	}
 	session, err := api.CreateRegistrySession(ctx, client.RegistryName)
 	if err != nil {
@@ -220,10 +225,7 @@ func runLogout(ctx context.Context, f *cli.Factory, opts *logoutOpts) error {
 	if err != nil {
 		return err
 	}
-	host := client.DefaultRegistryHost
-	if reg, _, err := api.Registries().Get(ctx, client.RegistryName); err == nil && reg.Status.Host() != "" {
-		host = reg.Status.Host()
-	}
+	host := registryHost(ctx, api)
 	erased, err := cfg.Erase(ctx, host)
 	if err != nil {
 		return helperErr(err)
@@ -235,6 +237,15 @@ func runLogout(ctx context.Context, f *cli.Factory, opts *logoutOpts) error {
 	}
 	revokeOwnSessions(ctx, f, api)
 	return nil
+}
+
+// registryHost is the registry's host from its endpoint, or the default
+// host when the registry cannot be read or reports none yet.
+func registryHost(ctx context.Context, api client.Interface) string {
+	if reg, _, err := api.Registries().Get(ctx, client.RegistryName); err == nil && reg.Status.Host() != "" {
+		return reg.Status.Host()
+	}
+	return client.DefaultRegistryHost
 }
 
 // revokeOwnSessions revokes the caller's live login sessions; each failure

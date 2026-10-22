@@ -380,6 +380,26 @@ func TestLogin_HelperChecksComeFirst(t *testing.T) {
 		}
 		assertNoCall(t, fake, "CreateRegistrySession")
 	})
+	// F-2: the helper checked is the one for the registry's own host, not
+	// the default host's.
+	t.Run("the registry's host chooses the helper", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		for _, tt := range []struct {
+			helper string
+			exit   int
+		}{{"nothere", cli.ExitGeneral}, {"../evil", cli.ExitMisuse}} {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "config.json"), `{"credHelpers":{"cr.other.example":"`+tt.helper+`"}}`)
+			fake := seeded()
+			fake.RegistriesByName[client.RegistryName].Status.Endpoint = "cr.other.example/acme"
+			_, _, err := run(factoryWith(t, fake), "login", "--docker-config", dir)
+			assertExit(t, err, tt.exit)
+			if !strings.Contains(err.Error(), "credHelpers") {
+				t.Errorf("%s: err = %v; want the config key that chose it", tt.helper, err)
+			}
+			assertNoCall(t, fake, "CreateRegistrySession")
+		}
+	})
 }
 
 func TestLogout_ErasesAndRevokesOwnSessions(t *testing.T) {

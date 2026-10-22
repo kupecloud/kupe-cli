@@ -1227,8 +1227,9 @@ Each push namespace has a Secret named kupe-registry-push that can pull from and
 The second line appears only with push namespaces. The cluster must already
 exist in your tenant: a missing one exits `4` with the hint `kupe cluster
 list`. A wait that times out exits `8` with the connection's message. A connection is `Failed` when a push
-namespace already has a Secret of that name the platform did not create: exit
-`5` with what to change.
+namespace already has a Secret of that name the platform did not create (exit
+`5` with what to change), or when the registry has more than 20 push
+namespaces (exit `1` with the connection's message).
 
 ### `kupe registry connection`
 

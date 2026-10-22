@@ -120,7 +120,7 @@ func newTokenCmd(f *cli.Factory) *cobra.Command {
 		Long: `Create, list and revoke access tokens: registry credentials for CI and other
 automation, which pull or push (push includes pull) until they expire, 1 to 365
 days after creation. A token is revoked when the member who created it leaves
-the tenant. Only tenant admins can create push tokens.
+the tenant. Only tenant admins can create access tokens.
 
 The list also shows login sessions from "kupe registry login" (--kind
 session); revoke one to sign a machine out early.`,
@@ -216,7 +216,7 @@ command returns; if it is not issued within a minute it is revoked.`,
 		},
 	}
 	cmd.Flags().StringVar(&opts.name, "name", "", "A name to recognise the token by, 1 to 128 characters (required)")
-	cmd.Flags().StringVar(&opts.access, "access", "", "pull, or push (which includes pull; admins only) (required)")
+	cmd.Flags().StringVar(&opts.access, "access", "", "pull, or push (which includes pull) (required)")
 	cmd.Flags().IntVar(&opts.days, "expires-in-days", 90, "Days until the token stops working, 1 to 365")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until the platform has issued the token before printing it")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", issueTimeout, "Give up and revoke the token after this long")

@@ -44,7 +44,7 @@ var refusals = map[string]refusal{
 		"a registry gives push credentials to at most 20 namespaces across all its connections; " +
 			"remove one from another connection (kupe registry connection list)")},
 	client.RegistryCodeTokenPushAdminOnly: {cli.ExitAuth, "only tenant admins can create push access tokens", fixed(
-		"create a pull token instead:  --access pull")},
+		"ask a tenant admin to create it")},
 	client.RegistryCodeTokenLimitReached: {cli.ExitConflict, "the registry has as many access tokens as it can hold", fixed(
 		"revoke one first; to list them:  kupe registry token list --kind token")},
 	client.RegistryCodeImageInUse: {cli.ExitConflict, "the image is part of a multi-platform image", fixed(

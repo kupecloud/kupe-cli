@@ -1124,7 +1124,7 @@ The API's message is the error text; the hint is the next step.
 | Cluster already connected (`REGISTRY_BINDING_EXISTS`, 409) | `5` | `kupe registry connection get CLUSTER` |
 | More than 10 push namespaces in a connection (`REGISTRY_PUSH_NAMESPACES_LIMIT`, 400), storage limit above the plan's (`REGISTRY_STORAGE_LIMIT_ABOVE_PLAN`, 400), expiry out of range (`REGISTRY_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |
 | More than 20 push namespaces across the registry's connections (`REGISTRY_PUSH_NAMESPACES_SERVICE_LIMIT`, 400) | `5` | remove one from another connection (`kupe registry connection list`) |
-| Push token by a member who is not an admin (`REGISTRY_TOKEN_PUSH_ADMIN_ONLY`, 403) | `3` | `--access pull` |
+| Push token by a member who is not an admin (`REGISTRY_TOKEN_PUSH_ADMIN_ONLY`, 403) | `3` | ask a tenant admin to create it |
 | Access token limit (`REGISTRY_TOKEN_LIMIT_REACHED`, 409) | `5` | `kupe registry token list --kind token` |
 | Login session with an API key (`session_requires_user`, 403) | `3` | `kupe auth login`; for automation, `kupe registry token create` |
 | Platform image of a multi-platform image (`image_in_use`, 409) | `5` | delete the multi-platform image that contains it |
@@ -1284,7 +1284,7 @@ sha256:bbbbbbbbbbbb  untagged  45.7 MiB  linux/amd64               9d
 
 | Command | Description |
 | --- | --- |
-| `token create --name N --access pull\|push [--expires-in-days D]` | Creates an access token (push includes pull; admins only). `--expires-in-days` is 1 to 365 and sent only when given (the platform's default is 90); 0, 366 and other values outside the range exit `2`. Waits until the platform has issued the token (`--wait-timeout`, default `1m`), then prints its secret; a token not issued in time is revoked and the command exits `7`. |
+| `token create --name N --access pull\|push [--expires-in-days D]` | Creates an access token (admins only; push includes pull). `--expires-in-days` is 1 to 365 and sent only when given (the platform's default is 90); 0, 366 and other values outside the range exit `2`. Waits until the platform has issued the token (`--wait-timeout`, default `1m`), then prints its secret; a token not issued in time is revoked and the command exits `7`. |
 | `token list [--kind token\|session\|all]` | `ID`, `NAME`, `KIND`, `ACCESS`, `CREATED-BY`, `EXPIRES`, `LAST-USED`; wide adds `PHASE`, `USERNAME`, `AGE`. Never a secret. |
 | `token get ID` | One token or session. |
 | `token revoke ID` | Asks for `yes` (`--yes` skips). Stdout: `token/ID revoked`. |

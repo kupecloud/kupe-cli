@@ -237,9 +237,9 @@ func repositoryColumns(bool) Columns {
 		{Name: "REPOSITORY", Get: func(v any) string { return repository(v).Name }},
 		{Name: "IMAGES", Get: func(v any) string { return strconv.FormatInt(repository(v).ImageCount, 10) }},
 		{Name: "PULLS", Get: func(v any) string { return strconv.FormatInt(repository(v).PullCount, 10) }},
-		{Name: "UPDATED", Get: func(v any) string { return agesOrNever(repository(v).UpdatedAt) }},
+		{Name: "UPDATED", Get: func(v any) string { return ageFromRFC3339(repository(v).UpdatedAt) }},
 		{Name: "PULL-REFERENCE", Wide: true, Get: func(v any) string { return repository(v).PullReference }},
-		{Name: "CREATED", Wide: true, Get: func(v any) string { return agesOrNever(repository(v).CreatedAt) }},
+		{Name: "CREATED", Wide: true, Get: func(v any) string { return ageFromRFC3339(repository(v).CreatedAt) }},
 	}
 }
 
@@ -260,7 +260,7 @@ func imageColumns(bool) Columns {
 		{Name: "TAGS", Get: func(v any) string { return imageTags(image(v)) }},
 		{Name: "SIZE", Get: func(v any) string { return HumanBytes(image(v).Size) }},
 		{Name: "PLATFORMS", Get: func(v any) string { return imagePlatforms(image(v)) }},
-		{Name: "PUSHED", Get: func(v any) string { return agesOrNever(image(v).PushedAt) }},
+		{Name: "PUSHED", Get: func(v any) string { return ageFromRFC3339(image(v).PushedAt) }},
 		{Name: "TYPE", Wide: true, Get: func(v any) string { return image(v).Type }},
 		{Name: "LAST-PULLED", Wide: true, Get: func(v any) string { return agesOrNever(image(v).LastPulledAt) }},
 		{Name: "FULL-DIGEST", Wide: true, Get: func(v any) string { return image(v).Digest }},

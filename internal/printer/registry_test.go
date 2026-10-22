@@ -81,6 +81,9 @@ func TestImageColumns(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
+	if strings.Contains(got, "never") {
+		t.Errorf("an image with no push time reads as never pushed:\n%s", got)
+	}
 	if strings.Contains(got, "4f8c0d0e4b1f2b6e") {
 		t.Errorf("table shows the full digest:\n%s", got)
 	}

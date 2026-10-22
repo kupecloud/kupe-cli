@@ -1313,7 +1313,8 @@ command. `-o json` prints `id`, `name`, `access`, `username`, `registry`,
 3. Stores the credential as `docker login` would. The Docker config is
    `--docker-config DIR/config.json`, else `$DOCKER_CONFIG/config.json`, else
    `~/.docker/config.json`. The helper is `credHelpers[HOST]`, else
-   `credsStore`, else none. A helper (`docker-credential-NAME`, looked up on
+   `credsStore`, else none; HOST is the registry's host, read from the
+   registry first, as `logout` does. A helper (`docker-credential-NAME`, looked up on
    `PATH`, run without a shell, the secret on stdin) stores it, and the
    config's entry for the host is emptied; with no helper the config's `auths`
    entry holds it in base64, the file is written atomically at `0600` (never

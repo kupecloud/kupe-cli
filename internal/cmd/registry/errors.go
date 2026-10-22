@@ -1,6 +1,9 @@
 package registry
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
@@ -88,6 +91,20 @@ func translateErr(err error, cluster string) error {
 		return out
 	}
 	return cmdutil.TranslateCommon(noun, "", err)
+}
+
+// missingClusterHint is the next step when the cluster to connect does not
+// exist: the platform connects only a cluster that already exists.
+const missingClusterHint = "the cluster must already exist in your tenant; list your clusters with:  kupe cluster list"
+
+// translateConnectErr is translateErr for "kupe registry connect": a 404
+// naming the cluster (kupe-api's form of the operator's denial, 'cluster
+// "prod" not found') says the cluster must exist and how to list them.
+func translateConnectErr(err error, cluster string) error {
+	if client.IsNotFound(err) && strings.Contains(strings.ToLower(err.Error()), fmt.Sprintf("cluster %q not found", cluster)) {
+		return cli.WrapAPI(cli.ExitNotFound, fmt.Sprintf("cluster %q not found", cluster), err).WithHint(missingClusterHint)
+	}
+	return translateErr(err, cluster)
 }
 
 // translateRegistryErr is translateErr for a command on the registry

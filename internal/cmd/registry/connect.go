@@ -114,8 +114,8 @@ replacing existing tags. Its name is
 --secret-name (default kupe-registry-push) and cannot change later. A registry
 has at most 20 push namespaces across all its connections.
 
-By default the command waits until the connection is Ready. The cluster does
-not have to exist yet: the connection is Pending until it does.`,
+The cluster must already exist in your tenant (see kupe cluster list). By
+default the command waits until the connection is Ready.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Pull only
   kupe registry connect prod
@@ -149,7 +149,7 @@ not have to exist yet: the connection is Pending until it does.`,
 				Name: cluster, Cluster: cluster, PushNamespaces: opts.pushNamespaces, SecretName: opts.secretName,
 			})
 			if err != nil {
-				return translateErr(err, cluster)
+				return translateConnectErr(err, cluster)
 			}
 			if opts.wait {
 				final, werr := waitForConnection(cmd.Context(), f.IOStreams, api, cluster, opts.waitTimeout)

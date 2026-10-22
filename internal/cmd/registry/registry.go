@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -145,7 +146,8 @@ prints "registry/registry running" or "registry/registry deleted".`,
 		Example: `  kupe registry wait --for ready
   kupe registry wait --for deleted --timeout 20m`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if forPhase == "ready" {
+			// Case-insensitive, as every other --for value is (CR-4e F-3).
+			if strings.EqualFold(forPhase, "ready") {
 				forPhase = "running"
 			}
 			api, err := f.Client()

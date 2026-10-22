@@ -437,6 +437,40 @@ func TestLogout_ErasesAndRevokesOwnSessions(t *testing.T) {
 	}
 }
 
+// Row 59: with no registry host to read (the registry cannot be read, or
+// reports no endpoint yet), logout erases the default host's credential.
+func TestLogout_FallsBackToTheDefaultHost(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		setup func(*clienttest.Fake)
+	}{
+		{"the registry cannot be read", func(f *clienttest.Fake) {
+			f.GetRegistryErr = &client.APIError{StatusCode: 404, Message: `registry "registry" not found`}
+		}},
+		{"the registry reports no endpoint", func(f *clienttest.Fake) {
+			f.RegistriesByName[client.RegistryName].Status.Endpoint = ""
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := seeded()
+			tt.setup(fake)
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "config.json"), `{"auths":{"registry.kupe.cloud":{"auth":"eA=="},"ghcr.io":{"auth":"eQ=="}}}`)
+			_, errOut, err := run(factoryWith(t, fake), "logout", "--docker-config", dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, _ := os.ReadFile(filepath.Join(dir, "config.json")) // #nosec G304 -- the test's own file
+			if strings.Contains(string(data), "registry.kupe.cloud") || !strings.Contains(string(data), "ghcr.io") {
+				t.Fatalf("config = %s", data)
+			}
+			if !strings.Contains(errOut, "Removed the Docker credential for registry.kupe.cloud.") {
+				t.Fatalf("stderr = %q", errOut)
+			}
+		})
+	}
+}
+
 func TestLogout_RevokeFailureIsAWarning(t *testing.T) {
 	fake := seeded()
 	fake.RegistryTokens["rt-mine"] = &client.RegistryToken{ID: "rt-mine", Kind: "session", CreatedBy: testUser}

@@ -54,8 +54,13 @@ func factoryWithStreams(t *testing.T, fake *clienttest.Fake, io *cli.IOStreams) 
 // run executes the registry command tree with args and returns its error
 // with captured stdout and stderr.
 func run(f *cli.Factory, args ...string) (stdout, stderr string, err error) {
+	return runCtx(context.Background(), f, args...)
+}
+
+// runCtx is run with the command's context.
+func runCtx(ctx context.Context, f *cli.Factory, args ...string) (stdout, stderr string, err error) {
 	cmd := NewCmd(f)
-	cmd.SetContext(context.Background())
+	cmd.SetContext(ctx)
 	cmd.SetArgs(args)
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
@@ -235,6 +240,24 @@ func TestRegistryName_Fixed(t *testing.T) {
 			assertExit(t, err, cli.ExitNotFound)
 			if !strings.Contains(hint(err), "kupe registry create") {
 				t.Errorf("%v: hint = %q", args, hint(err))
+			}
+		}
+	})
+	// F-1 (SA): a switched-off platform answers registry reads with a 404
+	// that carries registries_unavailable; that is a platform setting, not
+	// a missing registry, so it keeps its own hint and never says create.
+	t.Run("registries_unavailable on a registry read keeps its hint", func(t *testing.T) {
+		off := &client.APIError{StatusCode: 404, Code: client.RegistryCodeUnavailable, Message: "registries are not available on this platform"}
+		for _, args := range [][]string{
+			{"get"}, {"update", "--deletion-protection"}, {"delete", "--yes"},
+			{"wait", "--for", "ready", "--timeout", "5s"}, {"connect", "prod"},
+		} {
+			fake := seeded()
+			fake.GetRegistryErr, fake.UpdateRegistryErr, fake.DeleteRegistryErr = off, off, off
+			_, _, err := run(factoryWith(t, fake), args...)
+			assertExit(t, err, cli.ExitNotFound)
+			if !strings.Contains(hint(err), "not an outage") || strings.Contains(hint(err), "kupe registry create") {
+				t.Errorf("%v: err = %v, hint = %q", args, err, hint(err))
 			}
 		}
 	})

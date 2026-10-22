@@ -349,11 +349,15 @@ func tokenMissing(id string) error {
 }
 
 // GetRegistryToken implements client.Interface. Honours
-// GetRegistryTokenSeq (a nil entry is a 404).
-func (f *Fake) GetRegistryToken(_ context.Context, registry, id string) (*client.RegistryToken, error) {
+// GetRegistryTokenSeq (a nil entry is a 404) and, as a real request does,
+// fails with the context's error once ctx is done.
+func (f *Fake) GetRegistryToken(ctx context.Context, registry, id string) (*client.RegistryToken, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recordRegistry("GetRegistryToken", registry, id)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.GetRegistryTokenErr != nil {
 		return nil, f.GetRegistryTokenErr
 	}
@@ -421,11 +425,16 @@ func (f *Fake) CreateRegistryToken(_ context.Context, registry string, req clien
 	return created, nil
 }
 
-// DeleteRegistryToken implements client.Interface.
-func (f *Fake) DeleteRegistryToken(_ context.Context, registry, id string) error {
+// DeleteRegistryToken implements client.Interface. As a real request
+// does, it fails with the context's error once ctx is done, so a revoke
+// sent on a cancelled context leaves the token in place.
+func (f *Fake) DeleteRegistryToken(ctx context.Context, registry, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recordRegistry("DeleteRegistryToken", registry, id)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if f.DeleteRegistryTokenErr != nil {
 		return f.DeleteRegistryTokenErr
 	}

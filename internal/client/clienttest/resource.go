@@ -2,6 +2,7 @@ package clienttest
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -31,9 +32,15 @@ type store[T, C, P any] struct {
 	// refuseDelete, when set, refuses deleting a stored resource (a
 	// database's deletion protection).
 	refuseDelete func(*T) error
+	// noun, when set, is the resource as kupe-api's 404 names it
+	// (`registry "registry" not found`); otherwise "<kind> not found".
+	noun string
 }
 
-func (s *store[T, C, P]) notFound() error {
+func (s *store[T, C, P]) notFound(name string) error {
+	if s.noun != "" {
+		return &client.APIError{StatusCode: 404, Message: fmt.Sprintf("%s %q not found", s.noun, name)}
+	}
 	return &client.APIError{StatusCode: 404, Message: strings.ToLower(s.kind) + " not found"}
 }
 
@@ -70,7 +77,7 @@ func (s *store[T, C, P]) Get(_ context.Context, name string) (*T, string, error)
 		item = (*s.items)[name]
 	}
 	if item == nil {
-		return nil, "", s.notFound()
+		return nil, "", s.notFound(name)
 	}
 	return item, "etag-fake", nil
 }
@@ -100,7 +107,7 @@ func (s *store[T, C, P]) Update(_ context.Context, name, _ string, req P) (*T, s
 	}
 	item, ok := (*s.items)[name]
 	if !ok {
-		return nil, "", s.notFound()
+		return nil, "", s.notFound(name)
 	}
 	s.apply(item, req)
 	return item, "etag-fake", nil
@@ -130,7 +137,7 @@ func (s *store[T, C, P]) Delete(_ context.Context, name string) error {
 	}
 	item, ok := (*s.items)[name]
 	if !ok {
-		return s.notFound()
+		return s.notFound(name)
 	}
 	if s.refuseDelete != nil {
 		if err := s.refuseDelete(item); err != nil {

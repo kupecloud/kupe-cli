@@ -107,6 +107,69 @@ type Fake struct {
 	// per binding name, with the same semantics as GetClusterSeq.
 	GetDatabaseBindingSeq map[string][]*client.DatabaseBinding
 
+	// Registries keyed by name (a tenant has at most one, "registry").
+	// Create stores the request with the API's defaults applied (deletion
+	// protection on); UpdateRMW applies patches in place. RegistryCreates
+	// and RegistryPatches record every body sent.
+	RegistriesByName  map[string]*client.Registry
+	GetRegistrySeq    map[string][]*client.Registry
+	ListRegistriesErr error
+	GetRegistryErr    error
+	CreateRegistryErr error
+	UpdateRegistryErr error
+	DeleteRegistryErr error
+	RegistryCreates   []client.CreateRegistryRequest
+	RegistryPatches   []client.PatchRegistryRequest
+
+	// RegistryBindings (cluster connections) keyed by name, which is the
+	// cluster's. RegistryBindingCreates and RegistryBindingPatches record
+	// every body sent.
+	RegistryBindingsByName   map[string]*client.RegistryBinding
+	GetRegistryBindingSeq    map[string][]*client.RegistryBinding
+	ListRegistryBindingsErr  error
+	GetRegistryBindingErr    error
+	CreateRegistryBindingErr error
+	UpdateRegistryBindingErr error
+	DeleteRegistryBindingErr error
+	RotateRegistryBindingErr error
+	RegistryBindingCreates   []client.CreateRegistryBindingRequest
+	RegistryBindingPatches   []client.PatchRegistryBindingRequest
+	// NextRotation is the requestedAt the next RotateRegistryBinding
+	// returns; empty → "2026-10-22T12:00:00Z".
+	NextRotation string
+
+	// Repositories in list order; Images keyed by repository name.
+	Repositories          []client.Repository
+	Images                map[string][]client.Image
+	ListRepositoriesErr   error
+	GetRepositoryErr      error
+	DeleteRepositoryErr   error
+	ListImagesErr         error
+	GetImageErr           error
+	DeleteImageErr        error
+	DeleteTagErr          error
+	ListRepositoriesCalls []client.ListRepositoriesOptions
+	ListImagesCalls       []client.ListImagesOptions
+
+	// RegistryTokens (access tokens and login sessions) keyed by ID.
+	// GetRegistryTokenSeq scripts successive GetRegistryToken results per
+	// ID, with the same semantics as GetClusterSeq. A created token or
+	// session is stored Ready with its username unless
+	// CreatedRegistryTokenPhase says otherwise. RegistryTokenCreates records
+	// every access token body sent.
+	RegistryTokens            map[string]*client.RegistryToken
+	GetRegistryTokenSeq       map[string][]*client.RegistryToken
+	ListRegistryTokensErr     error
+	GetRegistryTokenErr       error
+	CreateRegistryTokenErr    error
+	CreateRegistrySessionErr  error
+	DeleteRegistryTokenErr    error
+	RegistryTokenCreates      []client.CreateRegistryTokenRequest
+	NextRegistryTokenID       string
+	CreatedRegistryTokenPhase string
+	// SessionCreator is the createdBy of a session; empty → tester@acme.com.
+	SessionCreator string
+
 	// Members keyed by email.
 	Members         map[string]*client.Member
 	ListMembersErr  error
@@ -149,8 +212,16 @@ func New() *Fake {
 		GetDatabaseSeq:   map[string][]*client.Database{},
 		DatabaseBindings: map[string]*client.DatabaseBinding{},
 		Members:          map[string]*client.Member{},
-		Invoices:         map[string]*client.Invoice{},
-		Plans:            map[string]*client.Plan{},
+
+		RegistriesByName:       map[string]*client.Registry{},
+		GetRegistrySeq:         map[string][]*client.Registry{},
+		RegistryBindingsByName: map[string]*client.RegistryBinding{},
+		GetRegistryBindingSeq:  map[string][]*client.RegistryBinding{},
+		Images:                 map[string][]client.Image{},
+		RegistryTokens:         map[string]*client.RegistryToken{},
+		GetRegistryTokenSeq:    map[string][]*client.RegistryToken{},
+		Invoices:               map[string]*client.Invoice{},
+		Plans:                  map[string]*client.Plan{},
 
 		GetDatabaseBindingSeq: map[string][]*client.DatabaseBinding{},
 	}

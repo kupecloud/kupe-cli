@@ -49,7 +49,7 @@ func TestConnect_PrintsRestartNote(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(errOut, "Each push namespace has a Secret named kupe-registry-push that can push to and delete from every repository in your registry.") {
+		if !strings.Contains(errOut, "Each push namespace has a Secret named kupe-registry-push that can pull from and push to every repository in your registry, including replacing existing tags.") {
 			t.Fatalf("stderr missing the push note:\n%s", errOut)
 		}
 	})

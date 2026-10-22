@@ -56,18 +56,31 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Check reports whether the helper can be run: a valid name, and its
+// program on PATH. Store and Erase check again; this lets a command refuse
+// before it asks kupe-api for a credential it could not store.
+func (h Helper) Check() error {
+	if !helperName.MatchString(h.Name) {
+		return fmt.Errorf("%w %q (from %s): it may contain only letters, digits, '.', '_' and '-'", ErrInvalidHelper, h.Name, h.Key)
+	}
+	if _, err := exec.LookPath(h.Program()); err != nil {
+		return fmt.Errorf("%w: %s is not on PATH (chosen by %s in the Docker config); install it or change %s", ErrHelperNotFound, h.Program(), h.Key, h.Key)
+	}
+	return nil
+}
+
 // runHelper runs the helper's action with stdin and returns its stdout. The
 // program is looked up on PATH by its fixed prefix and a checked name, and
 // run without a shell; the secret only ever travels on stdin, never in
 // arguments. A failure's message carries the helper's own output with every
 // occurrence of secret replaced by ***.
 func runHelper(ctx context.Context, h Helper, action string, stdin []byte, secret string) ([]byte, error) {
-	if !helperName.MatchString(h.Name) {
-		return nil, fmt.Errorf("%w %q (from %s): it may contain only letters, digits, '.', '_' and '-'", ErrInvalidHelper, h.Name, h.Key)
+	if err := h.Check(); err != nil {
+		return nil, err
 	}
 	path, err := exec.LookPath(h.Program())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s is not on PATH (chosen by %s in the Docker config); install it or change %s", ErrHelperNotFound, h.Program(), h.Key, h.Key)
+		return nil, fmt.Errorf("%w: %s: %w", ErrHelperNotFound, h.Program(), err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, helperTimeout)
 	defer cancel()

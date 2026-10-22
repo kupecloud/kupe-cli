@@ -1124,6 +1124,7 @@ The API's message is the error text; the hint is the next step.
 | Cluster already connected (`REGISTRY_BINDING_EXISTS`, 409) | `5` | `kupe registry connection get CLUSTER` |
 | More than 10 push namespaces in a connection (`REGISTRY_PUSH_NAMESPACES_LIMIT`, 400), storage limit above the plan's (`REGISTRY_STORAGE_LIMIT_ABOVE_PLAN`, 400), expiry out of range (`REGISTRY_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |
 | More than 20 push namespaces across the registry's connections (`REGISTRY_PUSH_NAMESPACES_SERVICE_LIMIT`, 400) | `5` | remove one from another connection (`kupe registry connection list`) |
+| Creating, updating or deleting the registry, a connection, a repository, an image or a tag, or creating an access token, by a member who is not an admin (403, `admin access required`) | `3` | — |
 | Push token by a member who is not an admin (`REGISTRY_TOKEN_PUSH_ADMIN_ONLY`, 403) | `3` | ask a tenant admin to create it |
 | Access token limit (`REGISTRY_TOKEN_LIMIT_REACHED`, 409) | `5` | `kupe registry token list --kind token` |
 | Login session with an API key (`session_requires_user`, 403) | `3` | `kupe auth login`; for automation, `kupe registry token create` |

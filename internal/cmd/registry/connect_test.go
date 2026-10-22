@@ -95,6 +95,22 @@ func TestConnect_PrintsRestartNote(t *testing.T) {
 			t.Fatalf("err = %v, hint %q", err, hint(err))
 		}
 	})
+	// F4: a connection held back by the registry's 20 push namespace cap is
+	// Failed with no Secret clash: exit 1 with the connection's message.
+	t.Run("a failed connection over the registry's cap exits 1", func(t *testing.T) {
+		fake := seeded()
+		failed := readyConnection("build", "ci")
+		failed.Status.Phase = client.PhaseFailed
+		failed.Status.Message = "the registry's cluster connections list 21 push namespaces, more than the 20 a registry can have; remove some to deliver this one"
+		failed.Status.Namespaces[0].Phase = client.PhaseFailed
+		failed.Status.Conditions = []client.Condition{{Type: "Conflict", Status: "False"}}
+		fake.GetRegistryBindingSeq["build"] = []*client.RegistryBinding{failed}
+		_, _, err := run(factoryWith(t, fake), "connect", "build", "--push-namespace", "ci")
+		assertExit(t, err, cli.ExitGeneral)
+		if !strings.Contains(err.Error(), "more than the 20 a registry can have") || !strings.Contains(hint(err), "kupe registry connection get build") {
+			t.Fatalf("err = %v, hint %q", err, hint(err))
+		}
+	})
 }
 
 // The platform connects only a cluster that exists: kupe-api answers a

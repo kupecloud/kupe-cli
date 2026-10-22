@@ -206,7 +206,7 @@ It edits these shared files:
 | --- | --- |
 | `internal/client/interface.go`, `internal/client/resource.go` | One accessor (`Caches()`), built on the generic `newResource`. |
 | `internal/client/clienttest/fake.go`, `internal/client/clienttest/resource.go` | The fake's per-kind fields and maps, and its store. `var _ client.Interface = (*Fake)(nil)` fails to compile until the accessor exists. |
-| `internal/cmd/cmdutil/translate.go` | A refusal row for the service's switched-off code. The `databases_unavailable` row is database-only; every other row is shared. |
+| `internal/cmd/cmdutil/translate.go` | A refusal row for the service's switched-off code. The `databases_unavailable` and `registries_unavailable` rows each belong to one service; every other row is shared. |
 | `internal/cmd/root.go` | `root.AddCommand(...)` for the new noun. |
 | `internal/cmd/cmdutil/wait.go`, `internal/cmd/cmdutil/service.go` | Only if the service has a phase the shared set lacks. |
 | `internal/client/tenant.go`, `internal/cmd/tenant/delete.go` | Only if kupe-api refuses tenant deletion while the service has instances. |
@@ -214,6 +214,23 @@ It edits these shared files:
 
 The CLI reads no platform config: it learns that a service is switched off or paused from kupe-api's
 error codes.
+
+`kupe registry` (`internal/cmd/registry/`) shows three variations on this:
+
+- **One resource per tenant.** A tenant's registry is always named `registry`, so its `cmdutil.Service`
+  sets `Singleton: client.RegistryName`: the built `get` and `delete` take no NAME, and progress labels
+  and hints leave the name out (`kupe registry get`). `wait` is written by hand so `--for ready` reads
+  as phase `Running`.
+- **Sub-resources off `ResourceAPI`.** Cluster connections are a `ResourceAPI` of their own
+  (`RegistryBindings(registry)`), but repositories, images, tags, access tokens and login sessions
+  are plain `Interface` methods (`ListRepositories`, `GetImage`, `CreateRegistrySession`, ...): they are
+  paged, read from the registry rather than the cluster, or have no update. Every path goes through
+  `tenantPath`, so a repository name is one escaped segment (`team-a%2Fapi`).
+- **A credential writer.** `kupe registry login` stores its credential the way `docker login` does,
+  through `internal/dockerconfig`: the Docker credential helper the config names (credHelpers, then
+  credsStore), run as `docker-credential-NAME` from `PATH` with the secret on stdin, or base64 in the
+  config's `auths` with a warning. The config is written atomically at `0600` and every key the CLI
+  does not own is kept. The CLI does not depend on the Docker CLI's modules.
 
 ## Async Operations
 

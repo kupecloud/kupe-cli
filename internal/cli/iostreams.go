@@ -71,6 +71,15 @@ func Test() (*IOStreams, *bytes.Buffer, *bytes.Buffer) {
 	}, out, errOut
 }
 
+// TestTTY is Test with stdin, stdout and stderr reported as terminals, for
+// tests of what a command prints only to a person. Colour, spinners and
+// prompts stay off.
+func TestTTY() (*IOStreams, *bytes.Buffer, *bytes.Buffer) {
+	s, out, errOut := Test()
+	s.stdinIsTTY, s.stdoutIsTTY, s.stderrIsTTY = true, true, true
+	return s, out, errOut
+}
+
 // IsStdinTTY reports whether stdin is connected to a terminal (before any
 // flag overrides).
 func (s *IOStreams) IsStdinTTY() bool { return s.stdinIsTTY }

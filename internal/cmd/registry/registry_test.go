@@ -416,6 +416,7 @@ func TestRegistryErrors(t *testing.T) {
 		{"expiry invalid", api(400, "REGISTRY_TOKEN_EXPIRY_INVALID", "x"), "", cli.ExitMisuse, ""},
 		{"push namespaces over 20", api(400, "REGISTRY_PUSH_NAMESPACES_SERVICE_LIMIT", "x"), "", cli.ExitConflict, "at most 20 namespaces across all its connections"},
 		{"push token admin only", api(403, "REGISTRY_TOKEN_PUSH_ADMIN_ONLY", ""), "", cli.ExitAuth, "ask a tenant admin to create it"},
+		{"not an admin (no code)", api(403, "", "admin access required"), "", cli.ExitAuth, ""},
 		{"token limit", api(409, "REGISTRY_TOKEN_LIMIT_REACHED", "x"), "", cli.ExitConflict, "kupe registry token list"},
 		{"image in use", api(409, "image_in_use", "x"), "", cli.ExitConflict, "delete the multi-platform image that contains it"},
 		{"image protected", api(409, "image_protected", "x"), "", cli.ExitConflict, ""},

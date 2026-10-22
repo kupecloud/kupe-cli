@@ -1,18 +1,21 @@
 package registry
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/client/clienttest"
 )
 
 const fakeSecret = "kupecr_fake0123456789abcdef"
@@ -280,6 +283,79 @@ func TestLogin_TimeoutRevokes(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatal("a credential was stored")
+	}
+}
+
+// cancelOnPoll is the fake with Ctrl+C pressed during the wait: the first
+// poll of the token cancels the command's context.
+type cancelOnPoll struct {
+	*clienttest.Fake
+	cancel context.CancelFunc
+}
+
+func (c cancelOnPoll) GetRegistryToken(ctx context.Context, registry, id string) (*client.RegistryToken, error) {
+	c.cancel()
+	return c.Fake.GetRegistryToken(ctx, registry, id)
+}
+
+// F-1 (RB): Ctrl+C during the wait still revokes the token or session,
+// because the revoke runs on a context the cancellation does not reach.
+func TestCtrlCStillRevokes(t *testing.T) {
+	for _, tt := range []struct {
+		what string
+		args []string
+	}{
+		{"login session", []string{"login", "--docker-config", ""}},
+		{"access token", []string{"token", "create", "--name", "ci", "--access", "pull"}},
+	} {
+		t.Run(tt.what, func(t *testing.T) {
+			fake := seeded()
+			fake.CreatedRegistryTokenPhase = client.PhasePending
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			f := factoryWith(t, fake)
+			f.Client = func() (client.Interface, error) { return cancelOnPoll{Fake: fake, cancel: cancel}, nil }
+			args := slices.Clone(tt.args)
+			if args[0] == "login" {
+				args[2] = t.TempDir()
+			}
+			out, _, err := runCtx(ctx, f, args...)
+			assertExit(t, err, cli.ExitInterrupted)
+			if want := "stopped waiting for the " + tt.what + "; it was revoked"; !strings.Contains(err.Error(), want) {
+				t.Fatalf("err = %v; want %q", err, want)
+			}
+			if _, ok := fake.RegistryTokens["rt-0123456789abcdef"]; ok {
+				t.Fatal("the cancelled " + tt.what + " was not revoked")
+			}
+			if out != "" {
+				t.Fatalf("stdout = %q", out)
+			}
+		})
+	}
+}
+
+// F-1 (RG): a credential that cannot be stored revokes the session it was
+// for.
+func TestLogin_StoreFailureRevokes(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the test cannot write to")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil { // #nosec G302 -- read-only on purpose, so the store fails
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) // #nosec G302 -- restored so the temp dir can be removed
+	fake := seeded()
+	_, errOut, err := run(factoryWith(t, fake), "login", "--docker-config", dir)
+	assertExit(t, err, cli.ExitGeneral)
+	if !hasCall(fake, "DeleteRegistryToken:registry:rt-0123456789abcdef") {
+		t.Fatalf("calls = %v", fake.Calls)
+	}
+	if _, ok := fake.RegistryTokens["rt-0123456789abcdef"]; ok {
+		t.Fatal("the session whose credential was not stored is still live")
+	}
+	if strings.Contains(errOut, "could not be revoked") || strings.Contains(errOut, "Logged in") {
+		t.Fatalf("stderr = %q", errOut)
 	}
 }
 

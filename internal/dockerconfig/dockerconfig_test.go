@@ -387,6 +387,22 @@ func TestErase(t *testing.T) {
 			t.Fatalf("erased = %+v, %v", erased, err)
 		}
 	})
+	// F-1 (RQ): only the helpers' not-found sentence means nothing was
+	// stored; any other failure (a locked keychain) is an error, so logout
+	// never reports a credential gone that is still there.
+	t.Run("a failing helper is an error", func(t *testing.T) {
+		installHelper(t, "kupetest")
+		t.Setenv("FAKE_HELPER_FAIL", "1")
+		path := writeConfig(t, `{"credsStore":"kupetest","auths":{"registry.kupe.cloud":{}}}`, 0o600)
+		f, _ := Load(path)
+		erased, err := f.Erase(context.Background(), "registry.kupe.cloud")
+		if err == nil || !strings.Contains(err.Error(), "docker-credential-kupetest erase failed") {
+			t.Fatalf("erased = %+v, err = %v; want the helper's failure", erased, err)
+		}
+		if _, ok := readJSON(t, path)["auths"].(map[string]any)["registry.kupe.cloud"]; !ok {
+			t.Fatal("auths entry removed although the helper still holds the credential")
+		}
+	})
 }
 
 func storeAt(t *testing.T, path string) {

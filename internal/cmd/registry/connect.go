@@ -109,7 +109,8 @@ from the registry.
 
 --push-namespace (repeatable, up to 10) also gives a namespace a Secret that
 can push to the registry, for CI that builds inside the cluster. That Secret
-can push to and delete from every repository in your registry. Its name is
+can pull from and push to every repository in your registry, including
+replacing existing tags. Its name is
 --secret-name (default kupe-registry-push) and cannot change later. A registry
 has at most 20 push namespaces across all its connections.
 
@@ -197,7 +198,7 @@ func printConnectNotes(io *cli.IOStreams, b *client.RegistryBinding, endpoint st
 		if secret == "" {
 			secret = defaultPushSecretName
 		}
-		fmt.Fprintf(io.ErrOut, "Each push namespace has a Secret named %s that can push to and delete from every repository in your registry.\n", secret)
+		fmt.Fprintf(io.ErrOut, "Each push namespace has a Secret named %s that can pull from and push to every repository in your registry, including replacing existing tags.\n", secret)
 	}
 }
 

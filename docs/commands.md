@@ -1210,8 +1210,8 @@ Connects a cluster: every pod in it can pull from the registry with no
 `imagePullSecret` of its own; the pull credential never enters the cluster.
 `--push-namespace NS` (repeatable, up to 10) also gives the namespace a
 Secret, named `--secret-name` (default `kupe-registry-push`, never
-`kupe-registry-pull`, fixed once connected), that can push to and delete from
-every repository in the registry. Cluster and namespace names are checked
+`kupe-registry-pull`, fixed once connected), that can pull from and push to
+every repository in the registry, including replacing existing tags. Cluster and namespace names are checked
 first (DNS labels; no `kube-*` or `argocd`; no repeats; at most 10), exit `2`;
 kupe-api decides.
 
@@ -1220,7 +1220,7 @@ By default the command waits until the connection is `Ready`
 
 ```
 Workloads in prod can now pull from registry.kupe.cloud/acme. Pods that were running before this connection was made keep their old settings: restart them to pull from the registry, for example "kubectl rollout restart deployment -n NAMESPACE NAME".
-Each push namespace has a Secret named kupe-registry-push that can push to and delete from every repository in your registry.
+Each push namespace has a Secret named kupe-registry-push that can pull from and push to every repository in your registry, including replacing existing tags.
 ```
 
 The second line appears only with push namespaces. The cluster need not exist

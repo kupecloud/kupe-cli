@@ -41,6 +41,15 @@ var refusals = []refusal{
 		},
 	},
 	{
+		code: client.RegistryCodeUnavailable, phrase: "registries are not enabled on this platform", exit: cli.ExitNotFound,
+		fallback: func(string, string) string { return "registries are not available on this platform" },
+		hint: func(string, string) string {
+			return "this is a platform setting, not an outage, so retrying will not help; " +
+				"an existing registry can still be listed, unprotected (--deletion-protection=false) and deleted, " +
+				"and its cluster connections removed (kupe registry disconnect)"
+		},
+	},
+	{
 		code: client.CodeTerminating, phrase: "is being deleted; it cannot be bound", exit: cli.ExitConflict,
 		fallback: func(noun, name string) string { return fmt.Sprintf("%s %q is being deleted", noun, name) },
 		hint: func(noun, name string) string {
@@ -53,19 +62,19 @@ var refusals = []refusal{
 	{
 		code: client.CodeTenantTerminating, phrase: "is being deleted; cannot ", exit: cli.ExitConflict,
 		fallback: func(noun, _ string) string {
-			return "your tenant is being deleted; it cannot take new or larger " + noun + "s"
+			return "your tenant is being deleted; it cannot take new or larger " + plural(noun)
 		},
 	},
 	{
 		code: client.CodeTenantSuspended, phrase: "is suspended; contact support", exit: cli.ExitConflict,
 		fallback: func(noun, _ string) string {
-			return "your tenant is suspended; it cannot take new or larger " + noun + "s"
+			return "your tenant is suspended; it cannot take new or larger " + plural(noun)
 		},
 		hint: func(string, string) string { return "contact support to lift the suspension" },
 	},
 	{
 		code: client.CodePaymentSetupRequired, phrase: "is awaiting payment setup; ", exit: cli.ExitConflict,
-		fallback: func(noun, _ string) string { return "add a payment method before creating or growing " + noun + "s" },
+		fallback: func(noun, _ string) string { return "add a payment method before creating or growing " + plural(noun) },
 		hint: func(string, string) string {
 			return "add a payment method on the Billing page of the Kupe console, then retry"
 		},
@@ -130,4 +139,13 @@ func matchRefusal(err error) (refusal, bool) {
 		}
 	}
 	return refusal{}, false
+}
+
+// plural is noun's plural for the fallback sentences: "registries",
+// "databases".
+func plural(noun string) string {
+	if strings.HasSuffix(noun, "y") {
+		return strings.TrimSuffix(noun, "y") + "ies"
+	}
+	return noun + "s"
 }

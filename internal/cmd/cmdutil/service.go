@@ -34,6 +34,43 @@ type Service[T, C, P any] struct {
 	// Translate maps the service's refusals onto CLI errors; name is the
 	// resource acted on, "" when none. Nil means TranslateCommon alone.
 	Translate func(err error, name string) error
+	// Singleton, when set, is the one name the service's resource always
+	// has (a tenant's registry is always "registry"). The built get, wait
+	// and delete then take no NAME and act on it, and progress labels and
+	// hints leave the name out ("kupe registry get").
+	Singleton string
+}
+
+// subject is what the service's waits and hints are about.
+func (s Service[T, C, P]) subject(name string) subject {
+	return subject{noun: s.Noun, name: name, singleton: s.Singleton != ""}
+}
+
+// target is the name a built command acts on: the singleton's, else the
+// NAME argument.
+func (s Service[T, C, P]) target(args []string) string {
+	if s.Singleton != "" {
+		return s.Singleton
+	}
+	return args[0]
+}
+
+// use is a built command's usage line: "get NAME", or "get" for a
+// singleton.
+func (s Service[T, C, P]) use(verb string) string {
+	if s.Singleton != "" {
+		return verb
+	}
+	return verb + " NAME"
+}
+
+// args is a built command's positional-argument rule: NAME, or none for a
+// singleton.
+func (s Service[T, C, P]) args() cobra.PositionalArgs {
+	if s.Singleton != "" {
+		return cobra.NoArgs
+	}
+	return cobra.ExactArgs(1)
 }
 
 // Help is a built command's text. Each service writes its own.
@@ -55,7 +92,7 @@ func (s Service[T, C, P]) translate(err error, name string) error {
 func (s Service[T, C, P]) TranslateDelete(err error, name string) error {
 	if client.IsConflict(err) && client.ErrorCode(err) == "" {
 		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("%s %q changed while it was being deleted", s.Noun, name), err).
-			WithHint(fmt.Sprintf("retry:  kupe %s delete %s", s.Noun, name))
+			WithHint("retry:  " + s.subject(name).command("delete"))
 	}
 	return s.translate(err, name)
 }
@@ -73,13 +110,30 @@ func (s Service[T, C, P]) Getter(api client.Interface, name string) PhaseGetter[
 
 // WaitForPhase waits for name to reach target (see the package function).
 func (s Service[T, C, P]) WaitForPhase(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, target string, timeout time.Duration) (*T, error) {
-	return WaitForPhase(ctx, streams, s.Noun, name, target, s.Getter(api, name), timeout)
+	return waitForPhase(ctx, streams, s.subject(name), target, s.Getter(api, name), timeout)
+}
+
+// WaitForGone waits until name is gone (see the package function).
+func (s Service[T, C, P]) WaitForGone(ctx context.Context, streams *cli.IOStreams, api client.Interface, name string, timeout time.Duration) error {
+	return waitForGone(ctx, streams, s.subject(name), s.Getter(api, name), timeout)
+}
+
+// RunWait is the body of the service's wait command (see the package
+// function).
+func (s Service[T, C, P]) RunWait(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, forPhase string, timeout time.Duration) error {
+	return runWait(ctx, streams, s.subject(name), forPhase, s.Getter(api, name), timeout)
+}
+
+// MapWaitErr translates a wait's error with the service's hints (see the
+// package function).
+func (s Service[T, C, P]) MapWaitErr(err error, name, verb string) error {
+	return mapWaitErr(err, s.subject(name), verb)
 }
 
 // WaitForConverged waits for the change at generation to take effect on
 // name, by the service's Converge (see the package function).
 func (s Service[T, C, P]) WaitForConverged(ctx context.Context, streams *cli.IOStreams, api client.Interface, name string, generation int64, timeout time.Duration) (*T, error) {
-	return WaitForConverged(ctx, streams, s.Noun, name, s.Getter(api, name), s.Converge, generation, timeout)
+	return waitForConverged(ctx, streams, s.subject(name), s.Getter(api, name), s.Converge, generation, timeout)
 }
 
 // ListCmd builds `list`: every resource of the service, -o and a
@@ -128,7 +182,7 @@ func (s Service[T, C, P]) ListCmd(f *cli.Factory, help Help) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpList)
-	cmd.Flags().StringVar(&phase, "phase", "", fmt.Sprintf("Filter to %ss in this phase (client-side)", s.Noun))
+	cmd.Flags().StringVar(&phase, "phase", "", fmt.Sprintf("Filter to %s in this phase (client-side)", plural(s.Noun)))
 	return cmd
 }
 
@@ -136,12 +190,13 @@ func (s Service[T, C, P]) ListCmd(f *cli.Factory, help Help) *cobra.Command {
 func (s Service[T, C, P]) GetCmd(f *cli.Factory, help Help) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
-		Use:     "get NAME",
+		Use:     s.use("get"),
 		Short:   help.Short,
 		Long:    help.Long,
 		Example: help.Example,
-		Args:    cobra.ExactArgs(1),
+		Args:    s.args(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name := s.target(args)
 			format, err := printer.Resolve(f, output)
 			if err != nil {
 				return err
@@ -150,9 +205,9 @@ func (s Service[T, C, P]) GetCmd(f *cli.Factory, help Help) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			item, _, err := s.API(api).Get(cmd.Context(), args[0])
+			item, _, err := s.API(api).Get(cmd.Context(), name)
 			if err != nil {
-				return s.translate(err, args[0])
+				return s.translate(err, name)
 			}
 			return s.Printer.One(f.IOStreams, format, item)
 		},
@@ -166,17 +221,17 @@ func (s Service[T, C, P]) WaitCmd(f *cli.Factory, help Help) *cobra.Command {
 	var forPhase string
 	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use:     "wait NAME",
+		Use:     s.use("wait"),
 		Short:   help.Short,
 		Long:    help.Long,
 		Example: help.Example,
-		Args:    cobra.ExactArgs(1),
+		Args:    s.args(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			api, err := f.Client()
 			if err != nil {
 				return err
 			}
-			return RunWait(cmd.Context(), f.IOStreams, s.Noun, args[0], forPhase, s.Getter(api, args[0]), timeout)
+			return s.RunWait(cmd.Context(), f.IOStreams, api, s.target(args), forPhase, timeout)
 		},
 	}
 	cmd.Flags().StringVar(&forPhase, "for", "running", "Target phase to wait for: running | pending | provisioning | upgrading | degraded | terminating | deleted")
@@ -213,13 +268,13 @@ func (s Service[T, C, P]) DeleteCmd(f *cli.Factory, opts Delete) *cobra.Command 
 		translate = s.TranslateDelete
 	}
 	cmd := &cobra.Command{
-		Use:     "delete NAME",
+		Use:     s.use("delete"),
 		Short:   opts.Short,
 		Long:    opts.Long,
 		Example: opts.Example,
-		Args:    cobra.ExactArgs(1),
+		Args:    s.args(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
+			name := s.target(args)
 			io := f.IOStreams
 			api, err := f.Client()
 			if err != nil {
@@ -242,8 +297,8 @@ func (s Service[T, C, P]) DeleteCmd(f *cli.Factory, opts Delete) *cobra.Command 
 				fmt.Fprintf(io.Out, "%s/%s delete requested\n", s.Noun, name)
 				return nil
 			}
-			if err := WaitForGone(cmd.Context(), io, s.Noun, name, s.Getter(api, name), waitTimeout); err != nil {
-				return MapWaitErr(err, s.Noun, name, "delete")
+			if err := s.WaitForGone(cmd.Context(), io, api, name, waitTimeout); err != nil {
+				return s.MapWaitErr(err, name, "delete")
 			}
 			return nil
 		},

@@ -52,6 +52,10 @@ func TestTranslateCommon(t *testing.T) {
 			cli.ExitUnavailable, "", "status.kupe.cloud"},
 		{"databases switched off", 404, client.DatabaseCodeUnavailable, "databases are not available on this platform",
 			cli.ExitNotFound, "", "a platform setting, not an outage"},
+		{"registries switched off", 404, client.RegistryCodeUnavailable, "registries are not available on this platform",
+			cli.ExitNotFound, "", "an existing registry can still be listed, unprotected (--deletion-protection=false) and deleted"},
+		{"older server: registries switched off without a code", 404, "", "registries are not enabled on this platform",
+			cli.ExitNotFound, "", "a platform setting, not an outage"},
 		{"terminating", 409, client.CodeTerminating, `database "orders-db" is being deleted`,
 			cli.ExitConflict, "", "kupe database wait orders-db --for deleted"},
 		{"tenant being deleted", 409, client.CodeTenantTerminating, "tenant acme is being deleted; cannot create new databases",
@@ -122,5 +126,15 @@ func TestTranslateCommon_TerminatingWithoutANameHasNoHint(t *testing.T) {
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint != "" {
 		t.Fatalf("err = %#v; want no hint without a name", err)
+	}
+}
+
+func TestTranslateCommon_FallbackPluralOfRegistry(t *testing.T) {
+	err := TranslateCommon("registry", "", &client.APIError{StatusCode: 409, Code: client.CodeTenantSuspended})
+	if got := err.Error(); !strings.HasPrefix(got, "your tenant is suspended; it cannot take new or larger registries") {
+		t.Fatalf("text = %q", got)
+	}
+	if got := plural("database"); got != "databases" {
+		t.Fatalf("plural(database) = %q", got)
 	}
 }

@@ -30,6 +30,43 @@ func (e *TerminalPhaseError) Error() string {
 	return fmt.Sprintf("%s %q entered %s state", e.Noun, e.Name, e.Phase)
 }
 
+// subject is what a wait or a hint is about: one named resource of a
+// service, or a service's only resource (Service.Singleton), whose commands
+// take no name.
+type subject struct {
+	noun, name string
+	singleton  bool
+}
+
+// named is the subject for the resource name of the service noun.
+func named(noun, name string) subject { return subject{noun: noun, name: name} }
+
+// label is the progress label: "database orders-db", or "registry".
+func (s subject) label() string {
+	if s.singleton {
+		return s.noun
+	}
+	return s.noun + " " + s.name
+}
+
+// command is the command a hint gives: "kupe database get orders-db", or
+// "kupe registry get" for a singleton.
+func (s subject) command(verb string) string {
+	if s.singleton {
+		return "kupe " + s.noun + " " + verb
+	}
+	return "kupe " + s.noun + " " + verb + " " + s.name
+}
+
+// phrase names the subject in a sentence: database "orders-db", or "the
+// registry".
+func (s subject) phrase() string {
+	if s.singleton {
+		return "the " + s.noun
+	}
+	return fmt.Sprintf("%s %q", s.noun, s.name)
+}
+
 // PhaseGetter fetches a resource and reports its lifecycle phase. Clusters
 // and databases share the phase vocabulary in the client.Phase* constants.
 type PhaseGetter[T any] func(ctx context.Context) (resource T, phase string, err error)
@@ -66,6 +103,10 @@ func PollPhase[T any](get PhaseGetter[T], decide func(resource T, phase string) 
 // the target. Returns the last observed resource (the zero value if none was
 // seen).
 func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name, target string, get PhaseGetter[T], timeout time.Duration) (T, error) {
+	return waitForPhase(ctx, streams, named(noun, name), target, get, timeout)
+}
+
+func waitForPhase[T any](ctx context.Context, streams *cli.IOStreams, subj subject, target string, get PhaseGetter[T], timeout time.Duration) (T, error) {
 	var latest T
 	poll := PollPhase(get, func(resource T, phase string) (bool, error) {
 		latest = resource
@@ -73,12 +114,12 @@ func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name
 			return true, nil
 		}
 		if phase == client.PhaseDegraded || phase == client.PhaseFailed {
-			return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
+			return false, &TerminalPhaseError{Noun: subj.noun, Name: subj.name, Phase: phase}
 		}
 		return false, nil
 	})
 	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:   noun + " " + name,
+		Label:   subj.label(),
 		Poll:    poll,
 		Timeout: timeout,
 	})
@@ -116,6 +157,10 @@ type Converge[T any] struct {
 // wait with a *TerminalPhaseError. Returns the last
 // resource seen (the zero value if none was).
 func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, name string, get PhaseGetter[T], converge Converge[T], generation int64, timeout time.Duration) (T, error) {
+	return waitForConverged(ctx, streams, named(noun, name), get, converge, generation, timeout)
+}
+
+func waitForConverged[T any](ctx context.Context, streams *cli.IOStreams, subj subject, get PhaseGetter[T], converge Converge[T], generation int64, timeout time.Duration) (T, error) {
 	var latest T
 	var degradedSince time.Time
 	poll := PollPhase(get, func(resource T, phase string) (bool, error) {
@@ -139,10 +184,10 @@ func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, 
 				degradedSince = time.Now()
 			}
 			if time.Since(degradedSince) >= converge.DegradedGrace {
-				return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
+				return false, &TerminalPhaseError{Noun: subj.noun, Name: subj.name, Phase: phase}
 			}
 		case client.PhaseTerminating:
-			return false, &TerminalPhaseError{Noun: noun, Name: name, Phase: phase}
+			return false, &TerminalPhaseError{Noun: subj.noun, Name: subj.name, Phase: phase}
 		case client.PhaseRunning:
 			if !applied {
 				return false, nil
@@ -152,7 +197,7 @@ func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, 
 		return false, nil
 	})
 	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:         noun + " " + name,
+		Label:         subj.label(),
 		PhaseOverride: "Updating",
 		Poll:          poll,
 		Timeout:       timeout,
@@ -165,6 +210,10 @@ func WaitForConverged[T any](ctx context.Context, streams *cli.IOStreams, noun, 
 // an error code is a refusal (e.g. a feature switched off on the platform),
 // not proof the resource is gone, so it ends the wait as an error.
 func WaitForGone[T any](ctx context.Context, streams *cli.IOStreams, noun, name string, get PhaseGetter[T], timeout time.Duration) error {
+	return waitForGone(ctx, streams, named(noun, name), get, timeout)
+}
+
+func waitForGone[T any](ctx context.Context, streams *cli.IOStreams, subj subject, get PhaseGetter[T], timeout time.Duration) error {
 	poll := func(ctx context.Context) (string, bool, error) {
 		if _, _, err := get(ctx); err != nil {
 			if client.IsNotFound(err) && client.ErrorCode(err) == "" {
@@ -175,7 +224,7 @@ func WaitForGone[T any](ctx context.Context, streams *cli.IOStreams, noun, name 
 		return "Deleting", false, nil
 	}
 	return ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:    noun + " " + name,
+		Label:    subj.label(),
 		DoneVerb: "deleted",
 		Poll:     TolerateTransient(poll),
 		Timeout:  timeout,
@@ -185,20 +234,24 @@ func WaitForGone[T any](ctx context.Context, streams *cli.IOStreams, noun, name 
 // RunWait is the body of a `kupe <noun> wait NAME --for PHASE` command. On
 // success it prints "<noun>/<name> <phase>" to stdout.
 func RunWait[T any](ctx context.Context, streams *cli.IOStreams, noun, name, forPhase string, get PhaseGetter[T], timeout time.Duration) error {
+	return runWait(ctx, streams, named(noun, name), forPhase, get, timeout)
+}
+
+func runWait[T any](ctx context.Context, streams *cli.IOStreams, subj subject, forPhase string, get PhaseGetter[T], timeout time.Duration) error {
 	target := NormalizePhase(forPhase)
 	switch target {
 	case "":
 		return cli.MisuseError(fmt.Sprintf("unsupported --for value %q", forPhase))
 	case PhaseDeleted:
-		if err := WaitForGone(ctx, streams, noun, name, get, timeout); err != nil {
-			return MapWaitErr(err, noun, name, "delete")
+		if err := waitForGone(ctx, streams, subj, get, timeout); err != nil {
+			return mapWaitErr(err, subj, "delete")
 		}
 	default:
-		if _, err := WaitForPhase(ctx, streams, noun, name, target, get, timeout); err != nil {
-			return MapWaitErr(err, noun, name, "wait")
+		if _, err := waitForPhase(ctx, streams, subj, target, get, timeout); err != nil {
+			return mapWaitErr(err, subj, "wait")
 		}
 	}
-	fmt.Fprintf(streams.Out, "%s/%s %s\n", noun, name, strings.ToLower(target))
+	fmt.Fprintf(streams.Out, "%s/%s %s\n", subj.noun, subj.name, strings.ToLower(target))
 	return nil
 }
 
@@ -311,11 +364,15 @@ func TolerateTransient(poll ux.PollFunc) ux.PollFunc {
 // noun is the command noun ("cluster", "database"); verb is "create",
 // "update", "delete" or "wait" and drives the wording.
 func MapWaitErr(err error, noun, name, verb string) error {
+	return mapWaitErr(err, named(noun, name), verb)
+}
+
+func mapWaitErr(err error, subj subject, verb string) error {
 	if err == nil {
 		return nil
 	}
-	check := fmt.Sprintf("check status:  kupe %s get %s", noun, name)
-	resume := fmt.Sprintf("resume wait:   kupe %s wait %s", noun, name)
+	check := "check status:  " + subj.command("get")
+	resume := "resume wait:   " + subj.command("wait")
 	if verb == "delete" {
 		resume += " --for=Deleted"
 	}
@@ -326,19 +383,19 @@ func MapWaitErr(err error, noun, name, verb string) error {
 		switch verb {
 		case "delete", "update":
 			return cli.New(cli.ExitInterrupted,
-				fmt.Sprintf("stopped waiting; %s %q is still being %sd on Kupe Cloud", noun, name, verb)).
+				fmt.Sprintf("stopped waiting; %s is still being %sd on Kupe Cloud", subj.phrase(), verb)).
 				WithHint(check + "\n" + resume)
 		case "wait":
 			return cli.New(cli.ExitInterrupted,
-				fmt.Sprintf("stopped waiting; %s %q may still be transitioning on Kupe Cloud", noun, name)).
+				fmt.Sprintf("stopped waiting; %s may still be transitioning on Kupe Cloud", subj.phrase())).
 				WithHint(check)
 		default:
 			return cli.New(cli.ExitInterrupted,
-				fmt.Sprintf("stopped waiting; %s %q is still being created on Kupe Cloud", noun, name)).
+				fmt.Sprintf("stopped waiting; %s is still being created on Kupe Cloud", subj.phrase())).
 				WithHint(strings.Join([]string{
 					check,
 					resume,
-					fmt.Sprintf("abandon:       kupe %s delete %s", noun, name),
+					"abandon:       " + subj.command("delete"),
 				}, "\n"))
 		}
 	}

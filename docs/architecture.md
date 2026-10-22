@@ -210,7 +210,7 @@ It edits these shared files:
 | `internal/cmd/root.go` | `root.AddCommand(...)` for the new noun. |
 | `internal/cmd/cmdutil/wait.go`, `internal/cmd/cmdutil/service.go` | Only if the service has a phase the shared set lacks. |
 | `internal/client/tenant.go`, `internal/cmd/tenant/delete.go` | Only if kupe-api refuses tenant deletion while the service has instances. |
-| `internal/client/plan.go`, `internal/printer/plan.go` | Only if the plan gains a limit to show: a `Plan` field, a `MAX-…` column for `kupe plan list` and a `Max …` row for `kupe plan get`, as `MaxDatabases` has. The registry added none. |
+| `internal/client/plan.go`, `internal/printer/plan.go` | Only if the plan gains a limit to show: a `Plan` field, a `MAX-…` column for `kupe plan list` and a `Max …` row for `kupe plan get`, as `MaxDatabases` has. The registry added one: `Registry.MaxStorage`, shown as `MAX-REGISTRY-STORAGE` and `Max Registry Storage`. |
 | `docs/commands.md`, `docs/output.md`, `README.md` | The command section and coverage rows, the columns, and the command overview. |
 
 The CLI reads no platform config: it learns that a service is switched off or paused from kupe-api's

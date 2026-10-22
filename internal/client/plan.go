@@ -20,6 +20,15 @@ type Plan struct {
 	// MaxDatabases is the plan's database limit, 0 meaning unlimited; nil
 	// from a kupe-api that predates it or for a plan that does not set one.
 	MaxDatabases *int64 `json:"maxDatabases,omitempty" yaml:"maxDatabases,omitempty"`
+	// Registry is the plan's container registry allowance; nil from a
+	// kupe-api that predates it or for a plan that includes no registry.
+	Registry *PlanRegistry `json:"registry,omitempty" yaml:"registry,omitempty"`
+}
+
+// PlanRegistry is a plan's container registry allowance. It carries the
+// storage cap only, as a quantity ("5Gi"; "0" meaning unlimited).
+type PlanRegistry struct {
+	MaxStorage string `json:"maxStorage,omitempty" yaml:"maxStorage,omitempty"`
 }
 
 // PlanObservabilityPool is the metrics/logs allowance for a plan.

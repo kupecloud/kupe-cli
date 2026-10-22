@@ -16,6 +16,7 @@ func PlanColumns() Columns {
 		{Name: "FEE", Get: func(v any) string { return plan(v).PlatformFee }},
 		{Name: "MAX-CLUSTERS", Get: func(v any) string { return fmtInt(plan(v).MaxClusters) }},
 		{Name: "MAX-DATABASES", Get: func(v any) string { return fmtLimit(plan(v).MaxDatabases) }},
+		{Name: "MAX-REGISTRY-STORAGE", Get: func(v any) string { return fmtRegistryLimit(plan(v).Registry) }},
 		{Name: "POOL", Get: func(v any) string { return formatPool(plan(v).ResourcePool) }},
 		{Name: "METRICS-SERIES", Wide: true, Get: func(v any) string {
 			if o := plan(v).ObservabilityPool; o != nil {
@@ -46,6 +47,7 @@ func PlanDetailColumns() Columns {
 		{Name: "Platform Fee", Get: func(v any) string { return plan(v).PlatformFee }},
 		{Name: "Max Clusters", Get: func(v any) string { return fmtInt(plan(v).MaxClusters) }},
 		{Name: "Max Databases", Get: func(v any) string { return fmtLimit(plan(v).MaxDatabases) }},
+		{Name: "Max Registry Storage", Get: func(v any) string { return fmtRegistryLimit(plan(v).Registry) }},
 		{Name: "Resource Pool", Get: func(v any) string { return formatPool(plan(v).ResourcePool) }},
 		{Name: "Active Series", Get: func(v any) string {
 			if o := plan(v).ObservabilityPool; o != nil {
@@ -83,4 +85,14 @@ func fmtLimit(n *int64) string {
 		return "-"
 	}
 	return fmtInt(*n)
+}
+
+// fmtRegistryLimit renders the registry storage cap as the server sends
+// it ("0" is unlimited, as for the count limits), and "-" when the server
+// reports no registry allowance.
+func fmtRegistryLimit(r *client.PlanRegistry) string {
+	if r == nil || r.MaxStorage == "" {
+		return "-"
+	}
+	return r.MaxStorage
 }

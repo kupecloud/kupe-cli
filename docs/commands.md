@@ -1598,35 +1598,41 @@ for the request itself.
 
 ```
 $ kupe plan list
-NAME     DISPLAY  FEE    MAX-CLUSTERS  MAX-DATABASES  POOL
-starter  Starter  0.00   2             1              -
-pro      Pro      49.00  5             5              CPU=8 MEM=32 STORAGE=200
+NAME     DISPLAY  FEE    MAX-CLUSTERS  MAX-DATABASES  MAX-REGISTRY-STORAGE  POOL
+starter  Starter  0.00   2             1              -                     -
+pro      Pro      49.00  5             5              5Gi                   CPU=8 MEM=32 STORAGE=200
 ```
 
 `-o wide` adds `METRICS-SERIES` and `LOG-GB` from the observability pool.
 
-`0` under `MAX-CLUSTERS` or `MAX-DATABASES` means the plan sets no limit.
-`-` under `MAX-DATABASES` means the server did not report a database limit
-for the plan; json and yaml output leave the field out in that case.
+`0` under `MAX-CLUSTERS`, `MAX-DATABASES` or `MAX-REGISTRY-STORAGE` means
+the plan sets no limit. `-` under `MAX-DATABASES` means the server did not
+report a database limit for the plan; json and yaml output leave the field
+out in that case. `MAX-REGISTRY-STORAGE` is the most a tenant's registry may
+store, in binary units (`5Gi`); `-` there means the server reported no
+registry allowance (the plan includes no registry), and json and yaml output
+leave `registry` out.
 
 ### `kupe plan get NAME`
 
 ```
 $ kupe plan get pro
-Name:              pro
-Display Name:      Pro
-Platform Fee:      49.00
-Max Clusters:      5
-Max Databases:     5
-Resource Pool:     CPU=8 MEM=32 STORAGE=200
-Active Series:     50000
-Log Ingest (GB):   50
-Retention (days):  90
-Max Receivers:     10
+Name:                  pro
+Display Name:          Pro
+Platform Fee:          49.00
+Max Clusters:          5
+Max Databases:         5
+Max Registry Storage:  5Gi
+Resource Pool:         CPU=8 MEM=32 STORAGE=200
+Active Series:         50000
+Log Ingest (GB):       50
+Retention (days):      90
+Max Receivers:         10
 ```
 
-With `-o json`, the full plan object including any future fields the server
-adds. Exits `4` on an unknown plan name.
+With `-o json` or `-o yaml`, the fields shown above under the API's names
+(the registry cap is `registry.maxStorage`); a field the CLI does not read is
+left out. Exits `4` on an unknown plan name.
 
 Useful in onboarding scripts (`kupe plan list -o name`) and CI smoke tests
 (verify a plan exists before referencing it in a cluster-create call).

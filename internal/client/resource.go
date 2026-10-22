@@ -104,3 +104,16 @@ func (c *Client) Clusters() ResourceAPI[Cluster, CreateClusterRequest, PatchClus
 func (c *Client) Databases() ResourceAPI[Database, CreateDatabaseRequest, PatchDatabaseRequest] {
 	return newResource[Database, CreateDatabaseRequest, PatchDatabaseRequest](c, "databases")
 }
+
+// Registries is the tenant's registry collection: at most one registry,
+// always named RegistryName. A registry with deletion protection on refuses
+// Delete with 409 RegistryCodeDeletionProtected.
+func (c *Client) Registries() ResourceAPI[Registry, CreateRegistryRequest, PatchRegistryRequest] {
+	return newResource[Registry, CreateRegistryRequest, PatchRegistryRequest](c, "registries")
+}
+
+// RegistryBindings is the cluster connection collection of a registry; a
+// connection is named after its cluster.
+func (c *Client) RegistryBindings(registry string) ResourceAPI[RegistryBinding, CreateRegistryBindingRequest, PatchRegistryBindingRequest] {
+	return newResource[RegistryBinding, CreateRegistryBindingRequest, PatchRegistryBindingRequest](c, "registries", registry, "bindings")
+}

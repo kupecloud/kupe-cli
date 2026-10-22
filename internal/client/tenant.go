@@ -92,8 +92,9 @@ func (c *Client) GetTenant(ctx context.Context) (*Tenant, string, error) {
 // must equal the tenant name (typed-name confirmation, enforced server-side
 // as a 400). Cascade asks kupe-api to delete the tenant's clusters first;
 // without it a tenant that still has non-Terminating clusters is refused
-// with 409 clusters_exist. Cascade never deletes databases: a tenant that
-// has any is refused with 409 databases_exist either way.
+// with 409 clusters_exist. Cascade never deletes databases or the registry:
+// a tenant that has any is refused with 409 databases_exist or
+// registries_exist either way.
 type DeleteTenantRequest struct {
 	Confirm string `json:"confirm"`
 	Cascade bool   `json:"cascade,omitempty"`
@@ -111,6 +112,10 @@ const (
 	// TenantDeleteCodeDatabasesExist: 409 — the tenant still has databases.
 	// Cascade never deletes them, so this is returned with or without it.
 	TenantDeleteCodeDatabasesExist = "databases_exist"
+	// TenantDeleteCodeRegistriesExist: 409 — the tenant still has a
+	// registry. Cascade never deletes it, so this is returned with or
+	// without it.
+	TenantDeleteCodeRegistriesExist = "registries_exist"
 	// TenantDeleteCodeAlreadyTerminating: 409 — deletionTimestamp already set.
 	TenantDeleteCodeAlreadyTerminating = "already_terminating"
 )
@@ -119,7 +124,8 @@ const (
 // tenant carries status.phase=Terminating; GetTenant keeps reporting that
 // phase until the CR is gone, then 404s. Errors: 400 bad confirm (IsValidation),
 // 403 owner_required (IsForbidden), 404 (IsNotFound), 409 clusters_exist /
-// databases_exist / already_terminating (IsConflict + ErrorCode), 429 (IsRateLimited).
+// databases_exist / registries_exist / already_terminating (IsConflict +
+// ErrorCode), 429 (IsRateLimited).
 func (c *Client) DeleteTenant(ctx context.Context, req DeleteTenantRequest) (*Tenant, error) {
 	var t Tenant
 	if _, err := c.request(ctx, http.MethodDelete, c.tenantPath(), req, &t); err != nil {

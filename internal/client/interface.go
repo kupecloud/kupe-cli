@@ -83,6 +83,58 @@ type Interface interface {
 	// DeleteDatabaseBinding removes a binding.
 	DeleteDatabaseBinding(ctx context.Context, database, name string) error
 
+	// Registries is the tenant's registry collection: at most one, always
+	// named RegistryName (Delete is refused with 409
+	// RegistryCodeDeletionProtected while deletion protection is on).
+	Registries() ResourceAPI[Registry, CreateRegistryRequest, PatchRegistryRequest]
+
+	// RegistryBindings is the cluster connection collection of a registry.
+	RegistryBindings(registry string) ResourceAPI[RegistryBinding, CreateRegistryBindingRequest, PatchRegistryBindingRequest]
+
+	// RotateRegistryBinding requests new pull and push credentials for a
+	// cluster connection.
+	RotateRegistryBinding(ctx context.Context, registry, binding string) (*RegistryBindingRotation, error)
+
+	// ListRepositories returns one page of the registry's repositories.
+	ListRepositories(ctx context.Context, registry string, opts ListRepositoriesOptions) (*Page[Repository], error)
+
+	// GetRepository returns one repository.
+	GetRepository(ctx context.Context, registry, repository string) (*Repository, error)
+
+	// DeleteRepository deletes a repository with every image and tag in it.
+	DeleteRepository(ctx context.Context, registry, repository string) error
+
+	// ListImages returns one page of a repository's images.
+	ListImages(ctx context.Context, registry, repository string, opts ListImagesOptions) (*Page[Image], error)
+
+	// GetImage returns one image by digest or tag.
+	GetImage(ctx context.Context, registry, repository, reference string) (*Image, error)
+
+	// DeleteImage deletes one image by digest.
+	DeleteImage(ctx context.Context, registry, repository, digest string) error
+
+	// DeleteTag removes one tag; the image stays.
+	DeleteTag(ctx context.Context, registry, repository, tag string) error
+
+	// ListRegistryTokens lists access tokens and login sessions; kind
+	// narrows it ("" lists both).
+	ListRegistryTokens(ctx context.Context, registry, kind string) ([]RegistryToken, error)
+
+	// GetRegistryToken returns one access token or login session.
+	GetRegistryToken(ctx context.Context, registry, id string) (*RegistryToken, error)
+
+	// CreateRegistryToken creates an access token; the response carries
+	// its secret, this once. Admin-only for push.
+	CreateRegistryToken(ctx context.Context, registry string, req CreateRegistryTokenRequest) (*CreatedRegistryToken, error)
+
+	// DeleteRegistryToken revokes an access token or login session.
+	DeleteRegistryToken(ctx context.Context, registry, id string) error
+
+	// CreateRegistrySession creates a 12-hour login session for the
+	// signed-in member (OIDC only); the response carries its secret, this
+	// once.
+	CreateRegistrySession(ctx context.Context, registry string) (*CreatedRegistryToken, error)
+
 	// ListMembers lists every tenant member.
 	ListMembers(ctx context.Context) ([]Member, error)
 

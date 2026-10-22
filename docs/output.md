@@ -129,6 +129,7 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 | FEE | `.platformFee` | |
 | MAX-CLUSTERS | `.maxClusters` | |
 | MAX-DATABASES | `.maxDatabases`, or `-` when the server does not report it | |
+| MAX-REGISTRY-STORAGE | `.registry.maxStorage`, or `-` when the server reports no registry allowance | |
 | POOL | `.resourcePool` formatted as CPU/MEM/STORAGE | |
 | METRICS-SERIES | `.observabilityPool.maxActiveSeries` | ✓ |
 | LOG-GB | `.observabilityPool.logIngestGB` | ✓ |

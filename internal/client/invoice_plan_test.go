@@ -109,3 +109,38 @@ func TestGetPlan_DecodesDatabaseLimit(t *testing.T) {
 		})
 	}
 }
+
+// TestGetPlan_DecodesRegistryAllowance reads the registry storage cap from
+// the plan's registry block, and leaves Registry nil when the server sends
+// none.
+func TestGetPlan_DecodesRegistryAllowance(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		want       string
+		noRegistry bool
+	}{
+		{name: "limited", body: `{"name":"pro","maxClusters":5,"registry":{"maxStorage":"5Gi","includedStorage":"1Gi"}}`, want: "5Gi"},
+		{name: "unlimited", body: `{"name":"enterprise","maxClusters":0,"registry":{"maxStorage":"0","includedStorage":"0"}}`, want: "0"},
+		{name: "no registry", body: `{"name":"starter","maxClusters":2}`, noRegistry: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintln(w, tt.body)
+			})
+			p, err := c.GetPlan(context.Background(), "pro")
+			if err != nil {
+				t.Fatalf("GetPlan: %v", err)
+			}
+			switch {
+			case tt.noRegistry && p.Registry != nil:
+				t.Errorf("Registry = %+v, want nil", *p.Registry)
+			case !tt.noRegistry && p.Registry == nil:
+				t.Errorf("Registry = nil, want maxStorage %q", tt.want)
+			case !tt.noRegistry && p.Registry.MaxStorage != tt.want:
+				t.Errorf("MaxStorage = %q, want %q", p.Registry.MaxStorage, tt.want)
+			}
+		})
+	}
+}

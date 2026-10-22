@@ -134,6 +134,48 @@ func TestPlanGet_DatabaseLimitInStructuredOutput(t *testing.T) {
 	}
 }
 
+// TestPlan_RegistryLimitInOutput shows the registry storage cap in the
+// table and detail views, keeps it under registry.maxStorage in json and
+// yaml, and leaves the registry block out when the server sent none.
+func TestPlan_RegistryLimitInOutput(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		registry   *client.PlanRegistry
+		want       []string
+		wantAbsent string
+	}{
+		{name: "list table", args: []string{"list"}, registry: &client.PlanRegistry{MaxStorage: "5Gi"}, want: []string{"MAX-REGISTRY-STORAGE", "5Gi"}},
+		{name: "list table no registry", args: []string{"list"}, want: []string{"MAX-REGISTRY-STORAGE"}, wantAbsent: "Gi"},
+		{name: "get detail", args: []string{"get", "pro"}, registry: &client.PlanRegistry{MaxStorage: "5Gi"}, want: []string{"Max Registry Storage:", "5Gi"}},
+		{name: "get json", args: []string{"get", "pro", "-o", "json"}, registry: &client.PlanRegistry{MaxStorage: "5Gi"}, want: []string{`"registry": {`, `"maxStorage": "5Gi"`}},
+		{name: "get json unlimited", args: []string{"get", "pro", "-o", "json"}, registry: &client.PlanRegistry{MaxStorage: "0"}, want: []string{`"maxStorage": "0"`}},
+		{name: "get json no registry", args: []string{"get", "pro", "-o", "json"}, wantAbsent: "registry"},
+		{name: "list json", args: []string{"list", "-o", "json"}, registry: &client.PlanRegistry{MaxStorage: "5Gi"}, want: []string{`"maxStorage": "5Gi"`}},
+		{name: "get yaml", args: []string{"get", "pro", "-o", "yaml"}, registry: &client.PlanRegistry{MaxStorage: "5Gi"}, want: []string{"registry:", "maxStorage: 5Gi"}},
+		{name: "get yaml no registry", args: []string{"get", "pro", "-o", "yaml"}, wantAbsent: "registry"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.Plans["pro"] = &client.Plan{Name: "pro", MaxClusters: 5, Registry: tt.registry}
+			f := factoryWith(t, fake)
+			if err := run(NewCmd(f), tt.args...); err != nil {
+				t.Fatal(err)
+			}
+			out := f.IOStreams.Out.(interface{ String() string }).String()
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("output missing %q:\n%s", want, out)
+				}
+			}
+			if tt.wantAbsent != "" && strings.Contains(out, tt.wantAbsent) {
+				t.Errorf("output has %q:\n%s", tt.wantAbsent, out)
+			}
+		})
+	}
+}
+
 // TestPlanListWorksWithoutCredentials asserts plan browsing doesn't require
 // a logged-in context. The endpoint is public and the CLI now routes through
 // Factory.PublicClient, which never asks for a tenant or token.

@@ -136,6 +136,10 @@ The CLI auto-detects non-TTY environments and switches off colors, spinners, and
 | `kupe database create NAME` | Create a PostgreSQL database |
 | `kupe database binding add DATABASE` | Grant a database role to namespaces of a cluster |
 | `kupe database binding update DATABASE BINDING` | Add or remove namespaces of a binding |
+| `kupe registry create` | Turn on the tenant's container registry |
+| `kupe registry login` | Sign Docker in to the registry for 12 hours |
+| `kupe registry connect CLUSTER` | Let a cluster's pods pull from the registry |
+| `kupe registry token create` | Create a registry access token for CI |
 | `kupe apikey create` | Mint a new API token |
 | `kupe config use-context NAME` | Switch between environments / tenants |
 

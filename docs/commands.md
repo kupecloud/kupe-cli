@@ -47,6 +47,29 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding get` (also `binding update`, before its `PATCH`) | v1 |
 | `PATCH /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries` | `kupe registry list` | v1 |
+| `POST /api/v1/tenants/{tenant}/registries` | `kupe registry create` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}` | `kupe registry get` (also `wait`, `delete`, `connect` and `logout`, which read it) | v1 |
+| `PATCH /api/v1/tenants/{tenant}/registries/{name}` | `kupe registry update` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/registries/{name}` | `kupe registry delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/bindings` | `kupe registry connection list` | v1 |
+| `POST /api/v1/tenants/{tenant}/registries/{name}/bindings` | `kupe registry connect` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/bindings/{binding}` | `kupe registry connection get` (also `connection update` before its `PATCH`, and the waits) | v1 |
+| `PATCH /api/v1/tenants/{tenant}/registries/{name}/bindings/{binding}` | `kupe registry connection update` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/registries/{name}/bindings/{binding}` | `kupe registry disconnect` | v1 |
+| `POST /api/v1/tenants/{tenant}/registries/{name}/bindings/{binding}/rotate` | `kupe registry connection rotate` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/repositories` | `kupe registry repo list` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/repositories/{repository}` | `kupe registry repo get` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/registries/{name}/repositories/{repository}` | `kupe registry repo delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/repositories/{repository}/images` | `kupe registry image list` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/repositories/{repository}/images/{reference}` | `kupe registry image get` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/registries/{name}/repositories/{repository}/images/{reference}` | `kupe registry image delete` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/registries/{name}/repositories/{repository}/tags/{tag}` | `kupe registry tag delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/tokens` | `kupe registry token list` (also `logout`, for your sessions) | v1 |
+| `POST /api/v1/tenants/{tenant}/registries/{name}/tokens` | `kupe registry token create` | v1 |
+| `GET /api/v1/tenants/{tenant}/registries/{name}/tokens/{id}` | `kupe registry token get` (also `token create` and `login`, until it is issued) | v1 |
+| `DELETE /api/v1/tenants/{tenant}/registries/{name}/tokens/{id}` | `kupe registry token revoke` (also `logout`) | v1 |
+| `POST /api/v1/tenants/{tenant}/registries/{name}/sessions` | `kupe registry login` | v1 |
 | `GET /api/v1/tenants/{tenant}/invoices` | `kupe invoice list` | v1 |
 | `GET /api/v1/tenants/{tenant}/invoices/{name}` | `kupe invoice get` | v1 |
 | `GET /api/v1/plans` | `kupe plan list` | v1 |
@@ -1064,6 +1087,260 @@ database is being deleted (`409 terminating`), the binding kept changing
 
 ---
 
+## `kupe registry` — Container registry
+
+The tenant's private container registry. A tenant has at most one registry
+and it is always named `registry`, so no command takes a registry name or a
+`--registry` flag. Images live at `registry.kupe.cloud/TENANT/REPOSITORY:TAG`.
+
+| Command | What it does |
+| --- | --- |
+| `kupe registry create [--storage-limit 5Gi] [--no-deletion-protection]` | Turn the registry on and wait until it is `Running`. |
+| `kupe registry get`, `kupe registry list` | Show it; `list` is a table of at most one row. |
+| `kupe registry update [--storage-limit Q \| --clear-storage-limit] [--deletion-protection=true\|false]` | Change the storage limit or deletion protection. |
+| `kupe registry delete [--yes]` | Delete it and every image in it. |
+| `kupe registry wait --for ready\|deleted` | Wait for it to be `Running` or gone. |
+| `kupe registry connect CLUSTER [--push-namespace NS]... [--secret-name NAME]` | Let every pod of a cluster pull; optionally give namespaces a push Secret. |
+| `kupe registry connection list \| get CLUSTER \| update CLUSTER \| rotate CLUSTER` | Inspect connections, change push namespaces, rotate credentials. |
+| `kupe registry disconnect CLUSTER [--yes]` | Remove a cluster's connection. |
+| `kupe registry repo list \| get REPO \| delete REPO` | Browse and delete repositories (alias `repos`). |
+| `kupe registry image list REPO \| get REF \| delete REPO@sha256:…` | Browse and delete images. |
+| `kupe registry tag delete REPO:TAG` | Remove a tag; the image stays. |
+| `kupe registry token create \| list \| get ID \| revoke ID` | Access tokens for automation; the list also shows login sessions. |
+| `kupe registry login [--docker-config DIR] [--no-store -o json]` | Sign Docker in for 12 hours. |
+| `kupe registry logout [--docker-config DIR]` | Remove the Docker credential and revoke your login sessions. |
+
+### Refusals
+
+The API's message is the error text; the hint is the next step.
+
+| Refusal (`code`, HTTP status) | Exit | Hint |
+| --- | --- | --- |
+| No registry (404, `registry "registry" not found`; any 404 from `get`, `update`, `delete`, `wait`) | `4` | `kupe registry create` |
+| Registries switched off on the platform (`registries_unavailable`, 404) | `4` | a platform setting, not an outage; an existing registry can still be listed, unprotected and deleted, and its connections removed |
+| Deletion protection on (`deletion_protected`, 409) | `5` | `kupe registry update --deletion-protection=false` |
+| Already has a registry (`REGISTRY_ALREADY_EXISTS`, 409) | `5` | `kupe registry get` |
+| Cluster already connected (`REGISTRY_BINDING_EXISTS`, 409) | `5` | `kupe registry connection get CLUSTER` |
+| More than 10 push namespaces in a connection (`REGISTRY_PUSH_NAMESPACES_LIMIT`, 400), storage limit above the plan's (`REGISTRY_STORAGE_LIMIT_ABOVE_PLAN`, 400), expiry out of range (`REGISTRY_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |
+| More than 20 push namespaces across the registry's connections (`REGISTRY_PUSH_NAMESPACES_SERVICE_LIMIT`, 400) | `5` | remove one from another connection (`kupe registry connection list`) |
+| Push token by a member who is not an admin (`REGISTRY_TOKEN_PUSH_ADMIN_ONLY`, 403) | `3` | `--access pull` |
+| Access token limit (`REGISTRY_TOKEN_LIMIT_REACHED`, 409) | `5` | `kupe registry token list --kind token` |
+| Login session with an API key (`session_requires_user`, 403) | `3` | `kupe auth login`; for automation, `kupe registry token create` |
+| Platform image of a multi-platform image (`image_in_use`, 409) | `5` | delete the multi-platform image that contains it |
+| Image or tag the registry refuses to delete (`image_protected`, 409) | `5` | — |
+| Registry not provisioned yet (`registry_not_ready`, 409) | `5` | `kupe registry wait --for ready` |
+| The registry or the connection is being deleted (`terminating`, 409) | `5` | `kupe registry get` or `kupe registry connection get CLUSTER` |
+| The plan includes no registry (`plan_limit_reached`, 400) | `5` | upgrade the plan |
+| A repository, image, tag, connection or token that does not exist (404) | `4` | — (the message names it) |
+
+The tenant refusals, creation paused and a 503 are the
+[shared refusals](#refusals-shared-by-clusters-and-databases). Against a
+kupe-api without registry routes every command gets the API's 404 and exits
+`4`.
+
+When the platform switches registries off, `list`, `get`, `wait`, `delete`,
+`update --deletion-protection=false`, `connection list/get`, `disconnect`,
+a `connection update` that only removes push namespaces, and every
+repository, image and tag command keep working, so an existing registry can
+be cleaned up. Repository, image and tag commands exit `4`
+(`registries_unavailable`) only while kupe-api has no connection to the
+registry at all.
+
+### `kupe registry create`
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--storage-limit Q` | the plan's cap | Most the registry may store: a number with `Mi`, `Gi` or `Ti`, more than zero, at most 20 characters. Anything else exits `2` before a request. |
+| `--no-deletion-protection` | off | Create without deletion protection. Without the flag no `deletionProtection` is sent and the platform's default, on, applies. |
+| `--wait` | `true` | Wait for phase `Running`. |
+| `--wait-timeout` | `15m` | Exits `8` after this long. |
+| `-o, --output` | table | Single-resource formats. |
+
+After the registry, stderr names its endpoint and the next steps
+(`kupe registry login`, `kupe registry connect CLUSTER`).
+
+### `kupe registry get` and `kupe registry list`
+
+```
+$ kupe registry get
+Name:                 registry
+Phase:                Running
+Endpoint:             registry.kupe.cloud/acme
+Storage:              1.2 GiB of 5.0 GiB
+Storage Limit:        plan
+Repositories:         2
+Deletion Protection:  on
+Created:              2026-10-21T10:00:00Z (21h ago)
+```
+
+`Storage` is what the registry stores, of the cap in force (`unlimited` on a
+plan without one; usage alone until a cap is applied). `Storage Limit` is the
+tenant's own limit, or `plan`. `list` shows `NAME`, `PHASE`, `ENDPOINT`,
+`STORAGE`, `REPOSITORIES` and `AGE`; `-o wide` adds `PROTECTED` and `LIMIT`.
+
+### `kupe registry update`
+
+Only the flags passed are sent (`PATCH` with `If-Match`; a `412` is retried
+once, then exits `5`). `--storage-limit` and `--clear-storage-limit` together,
+or no flag at all, exit `2`: `nothing to update: pass at least one of
+--storage-limit, --clear-storage-limit, --deletion-protection`.
+`--deletion-protection` is sent only when given. The command does not wait:
+the change is in effect when it returns.
+
+### `kupe registry delete`
+
+Prints "Deleting a registry deletes every image in it. They cannot be
+restored." on stderr, then asks for the name to be typed (`registry`);
+`--yes` skips both and is required in non-interactive mode. Deletion
+protection is on by default and the command never turns it off: a protected
+registry exits `5` with the hint
+`kupe registry update --deletion-protection=false`. By default the command
+waits until the registry is gone (`--wait-timeout`, default `15m`);
+`--wait=false` prints `registry/registry delete requested`.
+
+### `kupe registry wait`
+
+`--for ready` (default; phase `Running`), `deleted`, `pending`,
+`provisioning`, `degraded` or `terminating`; `--timeout` (default `30m`, exit
+`8`). Prints `registry/registry running` or `registry/registry deleted`.
+
+### `kupe registry connect CLUSTER`
+
+Connects a cluster: every pod in it can pull from the registry with no
+`imagePullSecret` of its own; the pull credential never enters the cluster.
+`--push-namespace NS` (repeatable, up to 10) also gives the namespace a
+Secret, named `--secret-name` (default `kupe-registry-push`, never
+`kupe-registry-pull`, fixed once connected), that can push to and delete from
+every repository in the registry. Cluster and namespace names are checked
+first (DNS labels; no `kube-*` or `argocd`; no repeats; at most 10), exit `2`;
+kupe-api decides.
+
+By default the command waits until the connection is `Ready`
+(`--wait-timeout`, default `5m`), then prints on stderr:
+
+```
+Workloads in prod can now pull from registry.kupe.cloud/acme. Pods that were running before this connection was made keep their old settings: restart them to pull from the registry, for example "kubectl rollout restart deployment -n NAMESPACE NAME".
+Each push namespace has a Secret named kupe-registry-push that can push to and delete from every repository in your registry.
+```
+
+The second line appears only with push namespaces. The cluster need not exist
+yet: the connection is `Pending` until it does, and a wait that times out
+exits `8` with the connection's message. A connection is `Failed` when a push
+namespace already has a Secret of that name the platform did not create: exit
+`5` with what to change.
+
+### `kupe registry connection`
+
+| Command | Description |
+| --- | --- |
+| `connection list` | `CLUSTER`, `PHASE`, `PUSH-NAMESPACES`, `PULL-USERNAME`, `ROTATION` (`pending` while a rotation is applied), `AGE`; `-o wide` adds `PUSH-SECRET`, `PUSH-USERNAME`, `MESSAGE`. |
+| `connection get CLUSTER` | The fields, then a table of push namespaces with each one's phase; a namespace being withdrawn shows `Removing`. |
+| `connection update CLUSTER` | `--push-namespace NS`... replaces the list; `--add-push-namespace` / `--remove-push-namespace` edit it; `--clear-push-namespaces` sends `[]` (pull only). The modes do not mix (exit `2`). Read, edit and `PATCH` with `If-Match`, one retry on `412`. A change that would list more than 10, or a reserved namespace, exits `2` before the `PATCH`; no change sends nothing and says so on stderr. Waits until every listed namespace is `Ready` and every removed one withdrawn. |
+| `connection rotate CLUSTER` | Prompts (type `yes`; `--yes` in non-interactive mode), requests new pull and push credentials and waits (`--wait-timeout`, default `10m`) until `status.rotation.appliedAt` equals the `requestedAt` returned. A newer rotation requested meanwhile replaces it, and the wait follows that one. Stdout: `connection/CLUSTER credentials rotated`, or `... rotation requested` with `--wait=false`; `-o json` prints `cluster`, `requestedAt`, `appliedAt`, `pending`. |
+
+```
+$ kupe registry connection list
+CLUSTER  PHASE    PUSH-NAMESPACES  PULL-USERNAME           ROTATION  AGE
+prod     Ready    ci               kupe+acme+pull-prod     none      3d
+staging  Pending  none             kupe+acme+pull-staging  none      2m
+```
+
+### `kupe registry disconnect CLUSTER`
+
+Prints "Pods in CLUSTER that restart after this cannot pull images from your
+registry." and asks for `yes` (`--yes` skips both). Asynchronous: stdout is
+`connection/CLUSTER delete requested`.
+
+### `kupe registry repo`, `image` and `tag`
+
+`REPO` is a repository name (`team-a/api`); an image `REF` is
+`REPO:TAG`, `REPO@sha256:DIGEST` or both. The reference you push to,
+`registry.kupe.cloud/TENANT/REPO:TAG`, is accepted too: a first segment with a
+`.` or `:` followed by at least two more is taken as the host, and the tenant
+after it must be the context's (another tenant's exits `2`). Upper-case
+repository names, a bare `REPO` where an image is needed, and malformed
+digests or tags exit `2` before a request. A repository is sent as one path
+segment (`team-a%2Fapi`).
+
+| Command | Description |
+| --- | --- |
+| `repo list [--search S] [--page N] [--page-size N] [--all]` | `REPOSITORY`, `IMAGES`, `PULLS`, `UPDATED`; wide adds `PULL-REFERENCE`, `CREATED`. 25 a page (at most 100); `--all` follows every page at 100. A table showing part of the list says on stderr how to see the rest. `IMAGES` counts each platform image of a multi-platform image as well as the multi-platform image. |
+| `repo get REPO` | The repository and its pull reference. |
+| `repo delete REPO` | Prints "Deleting a repository deletes every image and tag in it.", asks for the repository name to be typed (`--yes` skips). Stdout: `repository/REPO deleted`. |
+| `image list REPO [--tagged \| --untagged] [--page N] [--page-size N] [--all]` | `DIGEST` (`sha256:` and 12 hex), `TAGS` (`untagged` when none), `SIZE` (binary units), `PLATFORMS`, `PUSHED`; wide adds `TYPE`, `LAST-PULLED`, `FULL-DIGEST`. `-o json` carries full digests. |
+| `image get REF` | Digest, type, tags, size, platforms, and the references to pull by digest and by tag. |
+| `image delete REPO@sha256:DIGEST` | By digest only: a tag exits `2` with `delete an image by digest; to remove a tag use "kupe registry tag delete REPO:TAG"`. Asks for `yes` (`--yes` skips). Stdout: `image/REPO@DIGEST deleted`. |
+| `tag delete REPO:TAG` | Removes the tag; the image and its other tags stay. Asks for `yes`. Stdout: `tag/REPO:TAG deleted`. |
+
+```
+$ kupe registry image list team-a/api
+DIGEST               TAGS      SIZE      PLATFORMS                 PUSHED
+sha256:4f8c0d0e4b1f  v1        46.0 MiB  linux/amd64, linux/arm64  2h
+sha256:bbbbbbbbbbbb  untagged  45.7 MiB  linux/amd64               9d
+```
+
+### `kupe registry token`
+
+| Command | Description |
+| --- | --- |
+| `token create --name N --access pull\|push [--expires-in-days D]` | Creates an access token (push includes pull; admins only). `--expires-in-days` is 1 to 365 and sent only when given (the platform's default is 90); 0, 366 and other values outside the range exit `2`. Waits until the platform has issued the token (`--wait-timeout`, default `1m`), then prints its secret; a token not issued in time is revoked and the command exits `7`. |
+| `token list [--kind token\|session\|all]` | `ID`, `NAME`, `KIND`, `ACCESS`, `CREATED-BY`, `EXPIRES`, `LAST-USED`; wide adds `PHASE`, `USERNAME`, `AGE`. Never a secret. |
+| `token get ID` | One token or session. |
+| `token revoke ID` | Asks for `yes` (`--yes` skips). Stdout: `token/ID revoked`. |
+
+`token create` writes the secret (`kupecr_…`) alone to stdout, so
+`TOKEN=$(kupe registry token create --name ci --access pull)` works. On a TTY,
+stderr adds the ID, username, access, expiry and the command that signs
+Docker in with it:
+
+```
+printf '%s' "$TOKEN" | docker login registry.kupe.cloud --username 'kupe+acme+tok-0123456789abcdef' --password-stdin
+```
+
+The username is always single-quoted and the secret is never part of the
+command. `-o json` prints `id`, `name`, `access`, `username`, `registry`,
+`secret`, `createdBy`, `createdAt`, `expiresAt` and `phase`.
+
+### `kupe registry login`
+
+1. Asks kupe-api for a login session: 12 hours, push for admins and pull for
+   read-only members. A context signed in with an API key gets
+   `session_requires_user` and exits `3` (hint: `kupe auth login`, or an access
+   token for automation).
+2. Waits until the platform has issued it (up to a minute) and uses the
+   username it was issued under. Not issued in time: the session is revoked
+   and the command exits `7`.
+3. Stores the credential as `docker login` would. The Docker config is
+   `--docker-config DIR/config.json`, else `$DOCKER_CONFIG/config.json`, else
+   `~/.docker/config.json`. The helper is `credHelpers[HOST]`, else
+   `credsStore`, else none. A helper (`docker-credential-NAME`, looked up on
+   `PATH`, run without a shell, the secret on stdin) stores it, and the
+   config's entry for the host is emptied; with no helper the config's `auths`
+   entry holds it in base64, the file is written atomically at `0600` (never
+   wider than it was), and stderr warns that it is unencrypted. Every other key
+   of the config is kept. A helper name that is not letters, digits, `.`, `_`
+   and `-` exits `2`; a helper not on `PATH` exits `1` naming it and the config
+   key that chose it; both are checked before the session is requested. A
+   helper's error output is shown with the secret replaced by `***`.
+4. Prints on stderr: `Logged in to registry.kupe.cloud as 'USERNAME' until
+   2026-10-22 22:00 BST (12 hours). Admins can push and pull; read-only members
+   can pull. Run "kupe registry login" again after it expires: Docker reports
+   "unauthorized" once it has.`
+
+`--no-store -o json` prints `{"server", "username", "password", "expiresAt"}`
+on stdout and stores nothing, for Podman, Buildah or a CI wrapper. `--no-store`
+without `-o json`, or `-o json` without `--no-store`, exits `2`.
+
+### `kupe registry logout`
+
+Removes the credential for the registry host as `docker logout` would (the
+helper's `erase`, and the config's `auths` entry), then revokes your own live
+login sessions, on every machine. Access tokens are not touched. A session
+that cannot be revoked is a warning on stderr; it still expires on its own.
+A context with no signed-in user (an API key) revokes none and says so.
+
+---
+
 ## `kupe member` — Tenant member management
 
 Tenant members are email-identified users with a role (`admin` or `readonly`).
@@ -1151,7 +1428,7 @@ tenant name (mismatch or missing → exit `2`, no request made).
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
-| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. `--cascade` never deletes databases. |
+| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. `--cascade` never deletes databases or the registry. |
 | `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
 | `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
@@ -1172,6 +1449,9 @@ tenant/acme terminating
 A tenant that still has databases is refused with or without `--cascade`
 (`409 databases_exist`). Delete each database first: `kupe db list`, then
 `kupe db update NAME --deletion-protection=false` and `kupe db delete NAME`.
+A tenant that still has a registry is refused the same way
+(`409 registries_exist`): `kupe registry update --deletion-protection=false`,
+then `kupe registry delete`.
 
 The warning block goes to stderr; `tenant/<name> terminating` is the only
 stdout line. Deletion is asynchronous — the API answers `202` and
@@ -1182,7 +1462,8 @@ exits `4`). A tenant that was ever billed is held for its final invoice, up to
 **Exit codes:** `0` accepted (with `--wait`: gone), `2` missing/mismatched
 `--confirm` (or `400` from the API), `3` API-key context or `403 owner_required`,
 `4` tenant not found, `5` on `409 clusters_exist` (hint: `--cascade`),
-`409 databases_exist` (hint: delete each database first) or
+`409 databases_exist` (hint: delete each database first),
+`409 registries_exist` (hint: delete the registry first) or
 `409 already_terminating`, `6` on `429` (one request per minute), `8` `--wait`
 timeout, `130` Ctrl+C while waiting (deletion continues server-side).
 

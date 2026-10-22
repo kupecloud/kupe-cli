@@ -27,8 +27,9 @@ The file-based variants kubectl supports (`go-template-file=PATH`,
 `jsonpath-file=PATH`) are not yet wired to the `-o` flag. Pass the template
 inline for now.
 
-Toggle commands such as `kupe version`, `kupe auth whoami`, and
-`kupe apikey create` accept only `text` (default) and `json`.
+Toggle commands such as `kupe version`, `kupe auth whoami`, `kupe apikey create`
+and `kupe registry token create` accept only `text` (default) and `json`.
+`kupe registry login` accepts only `json`, and only with `--no-store`.
 
 ### Format stability guarantee
 
@@ -132,6 +133,72 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 | METRICS-SERIES | `.observabilityPool.maxActiveSeries` | ✓ |
 | LOG-GB | `.observabilityPool.logIngestGB` | ✓ |
 
+**Registry** (`kupe registry list`):
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| NAME | `.name` (always `registry`) | |
+| PHASE | `.status.phase` | |
+| ENDPOINT | `.status.endpoint` | |
+| STORAGE | `.status.storageUsedBytes` in binary units, `of` `.status.storageLimitBytes` (`unlimited` for `-1`, left out while absent) | |
+| REPOSITORIES | `.status.repositoryCount` | |
+| AGE | `.createdAt` → relative | |
+| PROTECTED | `.deletionProtection` → `on` / `off` | ✓ |
+| LIMIT | `.storageLimit`, or `plan` when empty | ✓ |
+
+**Cluster connection** (`kupe registry connection list`):
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| CLUSTER | `.cluster` | |
+| PHASE | `.status.phase` | |
+| PUSH-NAMESPACES | `.pushNamespaces` comma-joined, or `none` | |
+| PULL-USERNAME | `.status.pullUsername` | |
+| ROTATION | `pending` while `.status.rotation.pending`, else `none` | |
+| AGE | `.createdAt` → relative | |
+| PUSH-SECRET | `.secretName` | ✓ |
+| PUSH-USERNAME | `.status.pushUsername` | ✓ |
+| MESSAGE | `.status.message` | ✓ |
+
+**Repository** (`kupe registry repo list`):
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| REPOSITORY | `.name` | |
+| IMAGES | `.imageCount` | |
+| PULLS | `.pullCount` | |
+| UPDATED | `.updatedAt` → relative | |
+| PULL-REFERENCE | `.pullReference` | ✓ |
+| CREATED | `.createdAt` → relative | ✓ |
+
+**Image** (`kupe registry image list`; `-o name` prints `REPOSITORY@DIGEST`):
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| DIGEST | `.digest`, `sha256:` and the first 12 hex characters | |
+| TAGS | `.tags[].name` comma-joined, or `untagged` | |
+| SIZE | `.size` in binary units (`46.0 MiB`) | |
+| PLATFORMS | `.platforms[]` as `os/architecture[/variant]` | |
+| PUSHED | `.pushedAt` → relative | |
+| TYPE | `.type` | ✓ |
+| LAST-PULLED | `.lastPulledAt` → relative or `never` | ✓ |
+| FULL-DIGEST | `.digest` | ✓ |
+
+**Registry token** (`kupe registry token list`; never a secret):
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| ID | `.id` | |
+| NAME | `.displayName` | |
+| KIND | `.kind` (`token` or `session`) | |
+| ACCESS | `.access` | |
+| CREATED-BY | `.createdBy` | |
+| EXPIRES | `.expiresAt` → relative | |
+| LAST-USED | `.lastUsedAt` → relative or `never` | |
+| PHASE | `.status.phase` | ✓ |
+| USERNAME | `.username` | ✓ |
+| AGE | `.createdAt` → relative | ✓ |
+
 Column rendering uses `text/tabwriter` with 2-space padding. No unicode box characters in plain mode (breaks `awk`).
 
 ### Color in tables
@@ -186,6 +253,8 @@ Detection happens once. The `IOStreams` is threaded through the factory into eve
 | kubeconfig YAML (`kupe cluster kubeconfig`) | Prompts (`? Tenant:`) |
 | `ExecCredential` JSON (`kupe auth get-token`) | Spinners and progress |
 | API key secret (one-time) | Warnings, errors, deprecations |
+| Registry access token secret (`kupe registry token create`, one-time) | The token's details and `docker login` line (TTY only) |
+| Registry login credential (`kupe registry login --no-store -o json` only) | `kupe registry login`'s "Logged in" line and the unencrypted-storage warning |
 | `kupe completion <shell>` | `-v` debug traces |
 
 A user doing `kupe cluster list > /tmp/clusters.txt 2>/dev/null` should get exactly the table (or JSON, etc.). Progress, spinners, and "✓ …" checkmarks go to `/dev/null`.

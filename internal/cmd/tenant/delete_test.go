@@ -157,6 +157,8 @@ func TestDeleteErrorMapping(t *testing.T) {
 		{"409 clusters_exist", &client.APIError{StatusCode: 409, Code: "clusters_exist", Message: "2 active clusters"}, cli.ExitConflict, "still has clusters", "--cascade"},
 		{"409 databases_exist", &client.APIError{StatusCode: 409, Code: "databases_exist", Message: "1 active database"}, cli.ExitConflict,
 			"--cascade never deletes them", "kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME"},
+		{"409 registries_exist", &client.APIError{StatusCode: 409, Code: "registries_exist", Message: "tenant has a registry; delete it first"}, cli.ExitConflict,
+			"--cascade never deletes it", "kupe registry update --deletion-protection=false\n  kupe registry delete"},
 		{"409 already_terminating", &client.APIError{StatusCode: 409, Code: "ALREADY_TERMINATING", Message: "deleting"}, cli.ExitConflict, "already being deleted", "kupe tenant get"},
 		{"409 unknown code", &client.APIError{StatusCode: 409, Message: "something else"}, cli.ExitConflict, "cannot delete tenant", ""},
 		{"429", &client.APIError{StatusCode: 429, Message: "slow down"}, cli.ExitRateLimited, "rate limited", "retry"},

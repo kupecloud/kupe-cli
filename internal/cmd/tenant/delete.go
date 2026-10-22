@@ -38,7 +38,9 @@ A tenant that still has clusters is refused unless --cascade is passed, in
 which case every cluster is deleted with it. --cascade never deletes
 databases: a tenant that still has any is refused until each one is deleted
 ("kupe db list", then "kupe db update NAME --deletion-protection=false" and
-"kupe db delete NAME").
+"kupe db delete NAME"). Nor does it delete the registry: a tenant that has one
+is refused until it is deleted ("kupe registry update
+--deletion-protection=false", then "kupe registry delete").
 
 Deletion is asynchronous: the API answers 202 and "kupe tenant get" reports
 Phase Terminating until the tenant is gone (then exits 4). A tenant that was
@@ -54,7 +56,7 @@ Pass --wait to block until it disappears.`,
 	}
 
 	cmd.Flags().StringVar(&opts.confirm, "confirm", "", "Tenant name, typed out to confirm (required; must equal the current context's tenant)")
-	cmd.Flags().BoolVar(&opts.cascade, "cascade", false, "Also delete every cluster in the tenant (never databases: delete those first)")
+	cmd.Flags().BoolVar(&opts.cascade, "cascade", false, "Also delete every cluster in the tenant (never databases or the registry: delete those first)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", false, "Wait until the tenant is gone before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long (exit 8)")
 	return cmd
@@ -139,6 +141,7 @@ func printDeleteTenantWarning(io *cli.IOStreams, name string, cascade bool, clus
 			}
 		}
 		fmt.Fprintln(io.ErrOut, "  - Not delete databases: --cascade never does, and the tenant is refused while it has any.")
+		fmt.Fprintln(io.ErrOut, "  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.")
 	}
 	fmt.Fprintln(io.ErrOut)
 }
@@ -158,6 +161,9 @@ func mapDeleteErr(err error, name string) error {
 	case client.IsConflict(err) && code == client.TenantDeleteCodeDatabasesExist:
 		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q still has databases; --cascade never deletes them", name), err).
 			WithHint("delete each database first:\n  kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME")
+	case client.IsConflict(err) && code == client.TenantDeleteCodeRegistriesExist:
+		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q still has a registry; --cascade never deletes it", name), err).
+			WithHint("delete the registry first:\n  kupe registry update --deletion-protection=false\n  kupe registry delete")
 	case client.IsConflict(err) && code == client.TenantDeleteCodeAlreadyTerminating:
 		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q is already being deleted", name), err).
 			WithHint("\"kupe tenant get\" shows Phase Terminating until it is gone, then exits 4")

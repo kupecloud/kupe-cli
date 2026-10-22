@@ -384,11 +384,14 @@ func TestRegistryDelete_WarningAndConfirmByName(t *testing.T) {
 }
 
 func TestWait_ReadyMeansRunning(t *testing.T) {
-	fake := seeded()
-	f := factoryWith(t, fake)
-	out, _, err := run(f, "wait", "--for", "ready", "--timeout", "5s")
-	if err != nil || out != "registry/registry running\n" {
-		t.Fatalf("out = %q, err = %v", out, err)
+	// F-3: ready is case-insensitive, like Running and Deleted.
+	for _, phase := range []string{"ready", "Ready", "READY", "Running"} {
+		fake := seeded()
+		f := factoryWith(t, fake)
+		out, _, err := run(f, "wait", "--for", phase, "--timeout", "5s")
+		if err != nil || out != "registry/registry running\n" {
+			t.Fatalf("--for %s: out = %q, err = %v", phase, out, err)
+		}
 	}
 }
 

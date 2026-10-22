@@ -147,6 +147,13 @@ func TestTokenRevoke(t *testing.T) {
 	}
 	_, _, err = run(factoryWith(t, seeded()), "token", "revoke", "rt-00000000000000aa")
 	assertExit(t, err, cli.ExitMisuse)
+	// F-5: the prompt names both kinds, since an id may be either.
+	f := factoryWith(t, seeded())
+	interactive(f, "yes\n")
+	_, errOut, err := run(f, "token", "revoke", "rt-00000000000000aa")
+	if err != nil || !strings.Contains(errOut, `This will revoke access token or login session "rt-00000000000000aa". Type yes to confirm: `) {
+		t.Fatalf("err = %v, stderr %q", err, errOut)
+	}
 }
 
 func TestShellQuote(t *testing.T) {

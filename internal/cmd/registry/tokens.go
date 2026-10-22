@@ -356,7 +356,7 @@ environments).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := args[0]
 			io := f.IOStreams
-			if err := cli.ConfirmAction(io, yes, "revoke", fmt.Sprintf("This will revoke access token %q.", id)); err != nil {
+			if err := cli.ConfirmAction(io, yes, "revoke", fmt.Sprintf("This will revoke access token or login session %q.", id)); err != nil {
 				return err
 			}
 			api, err := f.Client()

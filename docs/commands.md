@@ -1590,7 +1590,7 @@ get` exits `4` if the name has no invoice.
 
 ## `kupe plan` — Plan catalog
 
-Plans are the public pricing tiers. The endpoint is unauthenticated on the
+Plans are the platform tiers. The endpoint is unauthenticated on the
 server (`/api/v1/plans`, not under `/tenants`), but the CLI still routes
 through the current context for URL/TLS consistency — no token is required
 for the request itself.
@@ -1599,9 +1599,9 @@ for the request itself.
 
 ```
 $ kupe plan list
-NAME     DISPLAY  FEE    MAX-CLUSTERS  MAX-DATABASES  MAX-REGISTRY-STORAGE  POOL
-starter  Starter  0.00   2             1              -                     -
-pro      Pro      49.00  5             5              5Gi                   CPU=8 MEM=32 STORAGE=200
+NAME     DISPLAY  MAX-CLUSTERS  MAX-DATABASES  MAX-REGISTRY-STORAGE  POOL
+starter  Starter  2             1              -                     -
+pro      Pro      5             5              5Gi                   CPU=8 MEM=32 STORAGE=200
 ```
 
 `-o wide` adds `METRICS-SERIES` and `LOG-GB` from the observability pool.
@@ -1620,7 +1620,6 @@ leave `registry` out.
 $ kupe plan get pro
 Name:                  pro
 Display Name:          Pro
-Platform Fee:          49.00
 Max Clusters:          5
 Max Databases:         5
 Max Registry Storage:  5Gi
@@ -1633,7 +1632,8 @@ Max Receivers:         10
 
 With `-o json` or `-o yaml`, the fields shown above under the API's names
 (the registry cap is `registry.maxStorage`); a field the CLI does not read is
-left out. Exits `4` on an unknown plan name.
+left out. No output format shows a plan fee or any other amount. Exits `4`
+on an unknown plan name.
 
 Useful in onboarding scripts (`kupe plan list -o name`) and CI smoke tests
 (verify a plan exists before referencing it in a cluster-create call).

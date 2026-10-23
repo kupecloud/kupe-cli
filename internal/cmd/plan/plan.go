@@ -19,7 +19,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Use:   "plan",
 		Short: "Browse the platform plan catalog",
 		Long: `Read-only access to the platform plans available to tenants: resource
-pool, observability pool, platform fee, and per-plan limits.
+pool, observability pool, and per-plan limits.
 
 The server endpoint is public, so plan list / plan get work without a
 logged-in context. When a context is configured the CLI still honours

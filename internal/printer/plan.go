@@ -13,7 +13,6 @@ func PlanColumns() Columns {
 			}
 			return p.DisplayName
 		}},
-		{Name: "FEE", Get: func(v any) string { return plan(v).PlatformFee }},
 		{Name: "MAX-CLUSTERS", Get: func(v any) string { return fmtInt(plan(v).MaxClusters) }},
 		{Name: "MAX-DATABASES", Get: func(v any) string { return fmtLimit(plan(v).MaxDatabases) }},
 		{Name: "MAX-REGISTRY-STORAGE", Get: func(v any) string { return fmtRegistryLimit(plan(v).Registry) }},
@@ -44,7 +43,6 @@ func PlanDetailColumns() Columns {
 			}
 			return p.DisplayName
 		}},
-		{Name: "Platform Fee", Get: func(v any) string { return plan(v).PlatformFee }},
 		{Name: "Max Clusters", Get: func(v any) string { return fmtInt(plan(v).MaxClusters) }},
 		{Name: "Max Databases", Get: func(v any) string { return fmtLimit(plan(v).MaxDatabases) }},
 		{Name: "Max Registry Storage", Get: func(v any) string { return fmtRegistryLimit(plan(v).Registry) }},

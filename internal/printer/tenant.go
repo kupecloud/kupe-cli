@@ -30,13 +30,6 @@ func TenantDetailColumns(colorEnabled bool) Columns {
 		{Name: "Pool", Get: func(v any) string { return formatPool(tenantStatus(v).PoolResources) }},
 		{Name: "Allocated", Get: func(v any) string { return formatPool(tenantStatus(v).AllocatedResources) }},
 		{Name: "Period", Get: func(v any) string { return periodRange(tenantUsage(v)) }},
-		{Name: "Estimated Total", Get: func(v any) string {
-			u := tenantUsage(v)
-			if u == nil || u.EstimatedTotal == "" {
-				return ""
-			}
-			return u.EstimatedTotal + " " + u.Currency
-		}},
 		{Name: "Members", Get: func(v any) string {
 			return fmt.Sprintf("%d", len(tenant(v).Members))
 		}},

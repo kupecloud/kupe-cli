@@ -19,16 +19,16 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Use:   "invoice",
 		Short: "List and inspect tenant invoices",
 		Long: `Read-only access to the tenant's billing history. Invoices are billed in
-arrears: usage charges and the plan fee for a period land on the same
-invoice once the period closes. Names are server-controlled: usually
+arrears: a period's usage lands on one invoice once the period closes.
+Names are server-controlled: usually
 "{tenant}-{YYYYMMDD}" (period start date, e.g. "acme-20260301"), but
 variants exist — a final invoice issued on cancellation or deletion
 carries a "-final" suffix, and a timestamp-suffixed form is used when
 two periods start on the same date. Always list invoices rather than
-constructing names. -o json surfaces the full line-item breakdown for
-downstream scripts or spreadsheets.
+constructing names. -o json surfaces the line items (what was used, and
+how much) for downstream scripts or spreadsheets.
 
-All amounts are pre-tax; VAT/sales tax is added by Paddle at payment.`,
+No output format shows an amount: no totals, tax, credits or prices.`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newGetCmd(f))

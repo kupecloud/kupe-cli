@@ -24,8 +24,8 @@ func TestListInvoices(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("want 2 invoices, got %d", len(list))
 	}
-	if list[0].Status.Total != "100.00" {
-		t.Fatalf("totals not decoded: %+v", list[0])
+	if list[0].Status.Phase != "Paid" {
+		t.Fatalf("status not decoded: %+v", list[0])
 	}
 }
 

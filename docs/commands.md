@@ -1404,14 +1404,14 @@ Cluster Count:    3
 Pool:             CPU=8 MEM=32 STORAGE=200
 Allocated:        CPU=4 MEM=16 STORAGE=100
 Period:           2026-04-01 → 2026-05-01
-Estimated Total:  156.15 GBP
 Members:          2
 Created:          2026-03-01T10:00:00Z (50d ago)
 ```
 
-With `-o json` or `-o yaml`, the full tenant object is emitted including nested
-`status.billing.currentUsage.compute` and `status.billing.currentUsage.observability`
-blocks — use `jq .status.billing.currentUsage` to extract just the billing-relevant fields.
+With `-o json` or `-o yaml`, the tenant object is emitted including the nested
+`status.currentUsage.compute` and `status.currentUsage.observability` usage
+quantities — use `jq .status.currentUsage` to extract just the usage. No output
+format shows an amount.
 
 Backed by `GET /api/v1/tenants/{tenant}`. Exits `4` if the tenant (i.e. the
 current context's tenant) no longer exists on the server, `3` on invalid
@@ -1536,8 +1536,8 @@ Backed by the signup service's `DELETE /users/me` with body
 
 ## `kupe invoice` — Billing history
 
-Read-only access to invoices. Billing is in arrears: usage charges and the
-plan fee for a period land on the same invoice once the period closes.
+Read-only access to invoices. Billing is in arrears: a period's usage lands
+on one invoice once the period closes.
 Invoice names are server-controlled, usually `<tenant>-<YYYYMMDD>` for the
 period start, but variants exist: final invoices issued on
 cancellation/deletion carry a `-final` suffix, and a timestamp-suffixed
@@ -1545,42 +1545,38 @@ form (`<tenant>-<YYYYMMDD-HHMMSS>`) is used when two periods start on the
 same date. Always list invoices rather than constructing names — run
 `kupe invoice list` before `kupe invoice get`.
 
-All amounts are pre-tax; VAT/sales tax is added by Paddle at payment.
+No output format shows an amount: no totals, tax, credits or prices.
 
 ### `kupe invoice list`
 
 ```
 $ kupe invoice list
-NAME            PHASE  ISSUED                SUBTOTAL  CREDITS  TOTAL (EXCL. VAT)  CURRENCY
-acme-20260301   Paid   2026-04-01T00:00:00Z  120.00    20.00    100.00             GBP
-acme-20260201   Paid   2026-03-01T00:00:00Z  90.00     0.00     90.00              GBP
+NAME            PHASE  ISSUED
+acme-20260301   Paid   2026-04-01T00:00:00Z
+acme-20260201   Paid   2026-03-01T00:00:00Z
 ```
 
-`-o wide` adds `TAX`, `START`, and `END` billing-period dates.
+`-o wide` adds the `START` and `END` billing-period dates.
 
 ### `kupe invoice get NAME`
 
 ```
 $ kupe invoice get acme-20260301
-Name:               acme-20260301
-Phase:              Paid
-Issued:             2026-04-01T00:00:00Z
-Period Start:       2026-03-01T00:00:00Z
-Period End:         2026-04-01T00:00:00Z
-Billed Until:       2026-04-01T00:00:00Z
-Subtotal:           120.00
-Credits Applied:    20.00
-Tax:                0.00
-Total (excl. VAT):  100.00 GBP
-Line Items:         12 (use -o json for details)
+Name:          acme-20260301
+Phase:         Paid
+Issued:        2026-04-01T00:00:00Z
+Period Start:  2026-03-01T00:00:00Z
+Period End:    2026-04-01T00:00:00Z
+Billed Until:  2026-04-01T00:00:00Z
+Line Items:    12 (use -o json for details)
 ```
 
-Line items (per-resource usage rows with `kind` / `cost` / `quantity`) are
-only meaningfully rendered as structured output — `-o json` or `-o yaml`
-preserves every field the server emits.
+Line items (per-resource usage rows with `description`, `cluster`,
+`resourceType` and `quantity`) are only meaningfully rendered as structured
+output — `-o json` or `-o yaml`. They carry no price or amount.
 
 ```bash
-kupe invoice get acme-20260301 -o json | jq '.status.lineItems[] | {kind, cost}'
+kupe invoice get acme-20260301 -o json | jq '.status.lineItems[] | {resourceType, quantity}'
 ```
 
 Backed by `GET /api/v1/tenants/{tenant}/invoices[/{name}]`. `kupe invoice

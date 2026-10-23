@@ -11,8 +11,8 @@ import (
 // and a "{tenant}-{YYYYMMDD-HHMMSS}" form when two periods start on the same
 // date. Not a guessable format; users should always look up the actual name
 // via ListInvoices.
-// Status carries the totals + line items for consumption by the CLI's
-// invoice printer and by downstream scripts via -o json.
+// Status carries the phase, dates and line items for the CLI's invoice
+// printer and for downstream scripts via -o json. It carries no amount.
 type Invoice struct {
 	Name            string         `json:"name" yaml:"name"`
 	BillingPeriod   *BillingPeriod `json:"billingPeriod,omitempty" yaml:"billingPeriod,omitempty"`
@@ -27,22 +27,31 @@ type BillingPeriod struct {
 	End   string `json:"end" yaml:"end"`
 }
 
-// InvoiceStatus holds the totals and the line-item breakdown. Phase
+// InvoiceStatus holds the phase, dates and line-item breakdown. Phase
 // values mirror the operator: Draft, Billed, Paid, PastDue.
+//
+// kupe-api's subtotal, creditsApplied, tax, total and currency, and each
+// line item's unitPrice and amount, are not decoded, so no output format
+// prints an amount (no prices in alpha, D-40; kupecloud/kupe-api#42). Do
+// not add a price, cost, total, credit, tax or currency field here.
 //
 // Operator-internal status fields (chargeState, chargeSubmittedAt,
 // creditsDeducted, lastWebhookEventID, isFinal) are intentionally NOT
 // exposed by kupe-api so they don't appear here either.
 type InvoiceStatus struct {
-	Phase          string           `json:"phase,omitempty" yaml:"phase,omitempty"`
-	IssuedAt       string           `json:"issuedAt,omitempty" yaml:"issuedAt,omitempty"`
-	BilledUntil    string           `json:"billedUntil,omitempty" yaml:"billedUntil,omitempty"`
-	LineItems      []map[string]any `json:"lineItems,omitempty" yaml:"lineItems,omitempty"`
-	Subtotal       string           `json:"subtotal,omitempty" yaml:"subtotal,omitempty"`
-	CreditsApplied string           `json:"creditsApplied,omitempty" yaml:"creditsApplied,omitempty"`
-	Tax            string           `json:"tax,omitempty" yaml:"tax,omitempty"`
-	Total          string           `json:"total,omitempty" yaml:"total,omitempty"`
-	Currency       string           `json:"currency,omitempty" yaml:"currency,omitempty"`
+	Phase       string            `json:"phase,omitempty" yaml:"phase,omitempty"`
+	IssuedAt    string            `json:"issuedAt,omitempty" yaml:"issuedAt,omitempty"`
+	BilledUntil string            `json:"billedUntil,omitempty" yaml:"billedUntil,omitempty"`
+	LineItems   []InvoiceLineItem `json:"lineItems,omitempty" yaml:"lineItems,omitempty"`
+}
+
+// InvoiceLineItem is one usage row of an invoice: what was used and how
+// much, never its price.
+type InvoiceLineItem struct {
+	Description  string `json:"description,omitempty" yaml:"description,omitempty"`
+	Cluster      string `json:"cluster,omitempty" yaml:"cluster,omitempty"`
+	ResourceType string `json:"resourceType,omitempty" yaml:"resourceType,omitempty"`
+	Quantity     string `json:"quantity,omitempty" yaml:"quantity,omitempty"`
 }
 
 // ListInvoices returns every invoice for the tenant, ordered by billing

@@ -41,20 +41,19 @@ type ResourcePool struct {
 	Storage string `json:"storage,omitempty" yaml:"storage,omitempty"`
 }
 
-// TenantCurrentUsage is the ongoing-period billing snapshot.
+// TenantCurrentUsage is the ongoing-period usage snapshot: periods, states
+// and quantities. It carries no amount, so no output format prints one (no
+// prices in alpha, D-40; kupecloud/kupe-api#42); kupe-api does not serve
+// them either. Do not add a price, cost, total, credit or currency field.
 type TenantCurrentUsage struct {
-	PeriodStart             string                           `json:"periodStart,omitempty" yaml:"periodStart,omitempty"`
-	PeriodEnd               string                           `json:"periodEnd,omitempty" yaml:"periodEnd,omitempty"`
-	UpdatedAt               string                           `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
-	PlanChangedInPeriod     bool                             `json:"planChangedInPeriod,omitempty" yaml:"planChangedInPeriod,omitempty"`
-	Currency                string                           `json:"currency,omitempty" yaml:"currency,omitempty"`
-	Stale                   bool                             `json:"stale,omitempty" yaml:"stale,omitempty"`
-	Error                   string                           `json:"error,omitempty" yaml:"error,omitempty"`
-	Compute                 *TenantCurrentUsageCompute       `json:"compute,omitempty" yaml:"compute,omitempty"`
-	Observability           *TenantCurrentUsageObservability `json:"observability,omitempty" yaml:"observability,omitempty"`
-	EstimatedSubtotal       string                           `json:"estimatedSubtotal,omitempty" yaml:"estimatedSubtotal,omitempty"`
-	EstimatedCreditsApplied string                           `json:"estimatedCreditsApplied,omitempty" yaml:"estimatedCreditsApplied,omitempty"`
-	EstimatedTotal          string                           `json:"estimatedTotal,omitempty" yaml:"estimatedTotal,omitempty"`
+	PeriodStart         string                           `json:"periodStart,omitempty" yaml:"periodStart,omitempty"`
+	PeriodEnd           string                           `json:"periodEnd,omitempty" yaml:"periodEnd,omitempty"`
+	UpdatedAt           string                           `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
+	PlanChangedInPeriod bool                             `json:"planChangedInPeriod,omitempty" yaml:"planChangedInPeriod,omitempty"`
+	Stale               bool                             `json:"stale,omitempty" yaml:"stale,omitempty"`
+	Error               string                           `json:"error,omitempty" yaml:"error,omitempty"`
+	Compute             *TenantCurrentUsageCompute       `json:"compute,omitempty" yaml:"compute,omitempty"`
+	Observability       *TenantCurrentUsageObservability `json:"observability,omitempty" yaml:"observability,omitempty"`
 }
 
 // TenantCurrentUsageCompute is the compute portion of current-period usage.
@@ -62,19 +61,14 @@ type TenantCurrentUsageCompute struct {
 	CPUCoreHours    string `json:"cpuCoreHours,omitempty" yaml:"cpuCoreHours,omitempty"`
 	MemoryGiBHours  string `json:"memoryGiBHours,omitempty" yaml:"memoryGiBHours,omitempty"`
 	StorageGiBHours string `json:"storageGiBHours,omitempty" yaml:"storageGiBHours,omitempty"`
-	CPUCost         string `json:"cpuCost,omitempty" yaml:"cpuCost,omitempty"`
-	MemoryCost      string `json:"memoryCost,omitempty" yaml:"memoryCost,omitempty"`
-	StorageCost     string `json:"storageCost,omitempty" yaml:"storageCost,omitempty"`
 }
 
 // TenantCurrentUsageObservability is metrics + logs usage.
 type TenantCurrentUsageObservability struct {
 	CurrentActiveSeries     int64  `json:"currentActiveSeries,omitempty" yaml:"currentActiveSeries,omitempty"`
 	BillableActiveSeriesP95 int64  `json:"billableActiveSeriesP95,omitempty" yaml:"billableActiveSeriesP95,omitempty"`
-	MetricsOverageCost      string `json:"metricsOverageCost,omitempty" yaml:"metricsOverageCost,omitempty"`
 	LogIngestBytes          int64  `json:"logIngestBytes,omitempty" yaml:"logIngestBytes,omitempty"`
 	LogIngestGB             string `json:"logIngestGB,omitempty" yaml:"logIngestGB,omitempty"`
-	LogOverageCost          string `json:"logOverageCost,omitempty" yaml:"logOverageCost,omitempty"`
 }
 
 // GetTenant returns the tenant this client is scoped to. Also serves as the

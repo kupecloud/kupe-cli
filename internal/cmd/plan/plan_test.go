@@ -2,6 +2,9 @@ package plan
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,9 +48,9 @@ func run(cmd *cobra.Command, args ...string) error {
 
 func TestPlanList(t *testing.T) {
 	fake := clienttest.New()
-	fake.Plans["starter"] = &client.Plan{Name: "starter", DisplayName: "Starter", MaxClusters: 2, PlatformFee: "0.00"}
+	fake.Plans["starter"] = &client.Plan{Name: "starter", DisplayName: "Starter", MaxClusters: 2}
 	fake.Plans["pro"] = &client.Plan{
-		Name: "pro", DisplayName: "Pro", MaxClusters: 5, PlatformFee: "49.00",
+		Name: "pro", DisplayName: "Pro", MaxClusters: 5,
 		ResourcePool:      &client.ResourcePool{CPU: "8", Memory: "32", Storage: "200"},
 		ObservabilityPool: &client.PlanObservabilityPool{MaxActiveSeries: 50000, LogIngestGB: 50, RetentionDays: 90, MaxReceivers: 10},
 	}
@@ -56,7 +59,7 @@ func TestPlanList(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.IOStreams.Out.(interface{ String() string }).String()
-	for _, want := range []string{"starter", "pro", "49.00", "CPU=8 MEM=32 STORAGE=200"} {
+	for _, want := range []string{"starter", "pro", "CPU=8 MEM=32 STORAGE=200"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list missing %q:\n%s", want, out)
 		}
@@ -80,7 +83,7 @@ func TestPlanListNameMode(t *testing.T) {
 func TestPlanGetDetailView(t *testing.T) {
 	fake := clienttest.New()
 	fake.Plans["pro"] = &client.Plan{
-		Name: "pro", DisplayName: "Pro", PlatformFee: "49.00", MaxClusters: 5,
+		Name: "pro", DisplayName: "Pro", MaxClusters: 5,
 		ObservabilityPool: &client.PlanObservabilityPool{MaxActiveSeries: 50000, RetentionDays: 90},
 	}
 	f := factoryWith(t, fake)
@@ -88,7 +91,7 @@ func TestPlanGetDetailView(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.IOStreams.Out.(interface{ String() string }).String()
-	for _, want := range []string{"Name:", "Platform Fee:", "49.00", "Active Series:", "50000", "Retention (days):", "90"} {
+	for _, want := range []string{"Name:", "Active Series:", "50000", "Retention (days):", "90"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detail missing %q:\n%s", want, out)
 		}
@@ -215,5 +218,54 @@ func TestPlanGetNotFoundMapsToExit4(t *testing.T) {
 	}
 	if code := cli.ExitCode(err); code != cli.ExitNotFound {
 		t.Fatalf("exit = %d; want %d", code, cli.ExitNotFound)
+	}
+}
+
+// TestPlan_NoAmountInAnyFormat serves plans from a kupe-api that still
+// sends platformFee and checks no output format prints it: no prices in
+// alpha (D-40, kupecloud/kupe-api#42). It goes through the real HTTP
+// client, so a Plan field that decodes the fee again fails here.
+func TestPlan_NoAmountInAnyFormat(t *testing.T) {
+	const planJSON = `{"name":"pro","displayName":"Pro","platformFee":"49.00","maxClusters":5,` +
+		`"resourcePool":{"cpu":"8","memory":"32","storage":"200"},` +
+		`"observabilityPool":{"maxActiveSeries":50000,"logIngestGB":50,"retentionDays":90,"maxReceivers":10},` +
+		`"registry":{"maxStorage":"5Gi"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/plans":
+			fmt.Fprint(w, `{"items":[`+planJSON+`]}`)
+		case "/api/v1/plans/pro":
+			fmt.Fprint(w, planJSON)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	// Any of these in the output is an amount or its label.
+	banned := []string{"49.00", "49", "platformFee", "fee", "Fee", "FEE", "price", "cost", "currency", "GBP", "£"}
+	for _, args := range [][]string{
+		{"list"}, {"list", "-o", "wide"}, {"list", "-o", "json"}, {"list", "-o", "yaml"},
+		{"get", "pro"}, {"get", "pro", "-o", "wide"}, {"get", "pro", "-o", "json"}, {"get", "pro", "-o", "yaml"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			f := factoryWith(t, clienttest.New())
+			f.PublicClient = func() (client.Interface, error) {
+				return client.New(srv.URL, "", "", "kupe-cli-test/0.0.0"), nil
+			}
+			if err := run(NewCmd(f), args...); err != nil {
+				t.Fatal(err)
+			}
+			out := f.IOStreams.Out.(interface{ String() string }).String()
+			if !strings.Contains(out, "pro") {
+				t.Fatalf("plan not printed:\n%s", out)
+			}
+			for _, b := range banned {
+				if strings.Contains(out, b) {
+					t.Errorf("output carries %q:\n%s", b, out)
+				}
+			}
+		})
 	}
 }

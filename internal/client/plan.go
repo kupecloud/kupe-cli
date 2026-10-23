@@ -10,10 +10,13 @@ import (
 // unauthenticated server-side, but the CLI still sends the Authorization
 // header it would for any other call — the server ignores auth on public
 // endpoints.
+//
+// Plan carries no amount: kupe-api's platformFee is not decoded, so no
+// output format prints it (no prices in alpha, D-40; kupecloud/kupe-api#42).
+// Do not add a price, fee, cost or currency field here.
 type Plan struct {
 	Name              string                 `json:"name" yaml:"name"`
 	DisplayName       string                 `json:"displayName" yaml:"displayName"`
-	PlatformFee       string                 `json:"platformFee,omitempty" yaml:"platformFee,omitempty"`
 	ResourcePool      *ResourcePool          `json:"resourcePool,omitempty" yaml:"resourcePool,omitempty"`
 	ObservabilityPool *PlanObservabilityPool `json:"observabilityPool,omitempty" yaml:"observabilityPool,omitempty"`
 	MaxClusters       int64                  `json:"maxClusters,omitempty" yaml:"maxClusters,omitempty"`

@@ -99,7 +99,8 @@ func registryLimitSetting(r *client.Registry) string {
 }
 
 // HumanBytes renders a byte count in binary units with one decimal: "512 B",
-// "1.2 GiB".
+// "1.2 GiB". A size that rounds to 1024.0 of a unit is shown as 1.0 of the
+// next one, up to PiB.
 func HumanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
@@ -110,7 +111,11 @@ func HumanBytes(n int64) string {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTP"[exp])
+	s := fmt.Sprintf("%.1f", float64(n)/float64(div))
+	if s == "1024.0" && exp < 4 {
+		s, exp = "1.0", exp+1
+	}
+	return s + " " + string("KMGTP"[exp]) + "iB"
 }
 
 // ShortDigest is "sha256:" and the digest's first 12 hex characters.

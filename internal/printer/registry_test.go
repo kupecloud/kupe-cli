@@ -1,6 +1,7 @@
 package printer
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -11,6 +12,11 @@ import (
 func TestHumanBytes(t *testing.T) {
 	for in, want := range map[int64]string{
 		0: "0 B", 512: "512 B", 1024: "1.0 KiB", 1288490188: "1.2 GiB", 5 << 30: "5.0 GiB", 3 << 40: "3.0 TiB",
+		// Unit boundaries: a size that rounds to 1024.0 rolls into the next unit.
+		1023: "1023 B", 1048473: "1023.9 KiB", 1048575: "1.0 MiB", 1048576: "1.0 MiB",
+		1<<30 - 1: "1.0 GiB", 1 << 30: "1.0 GiB", 3435973837: "3.2 GiB",
+		// PiB is the largest unit, so nothing rolls past it.
+		1<<60 - 1: "1024.0 PiB", math.MaxInt64: "8192.0 PiB",
 	} {
 		if got := HumanBytes(in); got != want {
 			t.Errorf("HumanBytes(%d) = %q; want %q", in, got, want)

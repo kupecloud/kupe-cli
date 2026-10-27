@@ -287,7 +287,7 @@ func recoveryWindow(db *client.Database) string {
 // the platform has measured it (0).
 func backupSize(db *client.Database) string {
 	if n := databaseStatus(db).BackupSizeBytes; n > 0 {
-		return humanBytes(n)
+		return HumanBytes(n)
 	}
 	return ""
 }

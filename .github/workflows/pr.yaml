@@ -12,6 +12,8 @@ on:
       - ".golangci.yaml"
       - ".goreleaser.yaml"
       - "Makefile"
+      - ".releaserc.json"
+      - "scripts/check-public-ci.py"
 
 permissions:
   contents: read

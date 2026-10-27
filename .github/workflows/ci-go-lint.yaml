@@ -1,0 +1,175 @@
+name: Go Lint
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label (ubuntu-latest by default).
+        required: false
+        default: "ubuntu-latest"
+        type: string
+      go-version-file:
+        description: Path to the Go version file
+        required: false
+        default: "go.mod"
+        type: string
+      vendor:
+        description: Run go mod vendor before linting
+        required: false
+        default: false
+        type: boolean
+      golangci-args:
+        description: Arguments passed to golangci-lint
+        required: false
+        default: "--timeout=10m"
+        type: string
+      golangci-version:
+        description: golangci-lint version to install
+        required: false
+        default: v2.12.2
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: true
+
+      - name: Ensure vendor directory
+        if: inputs.vendor
+        run: go mod vendor
+
+      - name: Require repository .golangci.yaml
+        run: test -s .golangci.yaml
+
+      - name: Install golangci-lint
+        shell: bash
+        env:
+          GOLANGCI_VERSION: ${{ inputs.golangci-version }}
+        run: |
+          set -euo pipefail
+          VERSION="$GOLANGCI_VERSION"
+          if [[ "$VERSION" == v2.* ]]; then
+            MODULE="github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
+          else
+            MODULE="github.com/golangci/golangci-lint/cmd/golangci-lint"
+          fi
+          GOBIN="$RUNNER_TEMP/bin" go install "${MODULE}@${VERSION}"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run golangci-lint
+        id: golangci
+        shell: bash
+        env:
+          GOLANGCI_ARGS: ${{ inputs.golangci-args }}
+        run: |
+          set -euo pipefail
+          eval "args=($GOLANGCI_ARGS)"
+          golangci-lint run "${args[@]}"
+
+      - name: golangci-lint summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.golangci.outcome }}" = "success" ]; then
+            {
+              echo "Go linting passed."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "Go linting failed."
+              echo ""
+              echo "- Review the job logs for full details."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  go-version-drift:
+    name: go version drift
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Dockerfile builder >= go.mod
+        run: |
+          set -euo pipefail
+          if [ ! -f Dockerfile ] || [ ! -f go.mod ]; then
+            echo "No Dockerfile or go.mod — nothing to check."
+            exit 0
+          fi
+
+          gomod=$(grep -oE '^go [0-9]+(\.[0-9]+)*' go.mod | head -1 | awk '{print $2}' || true)
+          builder=$(grep -oE 'golang:[0-9]+(\.[0-9]+)*' Dockerfile | head -1 | cut -d: -f2 || true)
+
+          if [ -z "$gomod" ] || [ -z "$builder" ]; then
+            echo "Could not parse versions (go.mod='$gomod' builder='$builder') — skipping."
+            exit 0
+          fi
+
+          lower=$(printf '%s\n%s\n' "$gomod" "$builder" | sort -V | head -1)
+          if [ "$lower" != "$gomod" ]; then
+            echo "::error file=Dockerfile::Builder image golang:$builder is OLDER than the go.mod directive (go $gomod). Because the builder sets GOTOOLCHAIN=local, the image build will fail with 'go.mod requires go >= $gomod'. Bump the Dockerfile FROM tag (and its digest, if pinned) to >= $gomod."
+            exit 1
+          fi
+
+          echo "OK: builder golang:$builder >= go.mod go $gomod"
+
+  go-fmt:
+    name: gofmt
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+          cache: true
+
+      - name: Check formatting
+        id: gofmt
+        run: |
+          set -euo pipefail
+          find . -path ./vendor -prune -o -name '*.go' -exec gofmt -l {} + > gofmt-files.txt
+          if [ -s gofmt-files.txt ]; then
+            echo "The following files are not formatted correctly:"
+            cat gofmt-files.txt
+            echo ""
+            echo "Please run 'pre-commit run gofmt --all-files' to fix formatting."
+            exit 1
+          fi
+
+      - name: gofmt summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.gofmt.outcome }}" = "success" ]; then
+            {
+              echo "Go formatting passed."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "Go formatting failed."
+              echo ""
+              echo "\`\`\`"
+              if [ -s gofmt-files.txt ]; then
+                cat gofmt-files.txt
+              else
+                echo "No files captured."
+              fi
+              echo "\`\`\`"
+              echo "Please run \`pre-commit run gofmt --all-files\` to fix formatting."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

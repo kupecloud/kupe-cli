@@ -1,0 +1,83 @@
+name: Semantic Release
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label (ubuntu-latest by default).
+        required: false
+        default: "ubuntu-latest"
+        type: string
+      image-digest:
+        description: >-
+          Digest (sha256:...) of an image already built and signed for this
+          release. Exported to semantic-release as $IMAGE_DIGEST so a repo's
+          @semantic-release/exec prepareCmd can stamp tag@digest into the
+          release commit. Use with semantic-release-preview.yaml ->
+          publish-image.yaml (digest output) -> this workflow. Empty = unset.
+        required: false
+        default: ""
+        type: string
+      image-version:
+        description: >-
+          Version (no leading v) the image-digest was built for, exported as
+          $IMAGE_VERSION. prepareCmd should fail unless it equals
+          ${nextRelease.version}, so a digest can never be stamped onto a
+          different release than the one it was built for.
+        required: false
+        default: ""
+        type: string
+    outputs:
+      new_release_published:
+        description: Whether a new release was published
+        value: ${{ jobs.release.outputs.new_release_published }}
+      new_release_version:
+        description: New release version
+        value: ${{ jobs.release.outputs.new_release_version }}
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v6.0.0
+        with:
+          node-version: "22"
+
+      - name: Require repository .releaserc.json
+        run: test -s .releaserc.json
+
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
+        with:
+          semantic_version: 24
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@10.3.0
+            @semantic-release/exec
+            @semantic-release/git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_DIGEST: ${{ inputs.image-digest }}
+          IMAGE_VERSION: ${{ inputs.image-version }}
+
+      - name: Release info
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: |
+          set -euo pipefail
+          echo "New release published: v${{ steps.semantic.outputs.new_release_version }}"

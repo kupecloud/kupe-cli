@@ -1,0 +1,74 @@
+name: Action Lint
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label (ubuntu-latest by default). To
+          register custom self-hosted runner labels with actionlint, commit
+          a .github/actionlint.yaml file in the calling repo — see
+          https://github.com/rhysd/actionlint/blob/main/docs/config.md.
+        required: false
+        default: "ubuntu-latest"
+        type: string
+      go-version:
+        description: Go version used to install actionlint
+        required: false
+        default: "1.25.0"
+        type: string
+      actionlint-version:
+        description: actionlint version to install
+        required: false
+        default: "v1.7.12"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  action-lint:
+    name: actionlint
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          cache: false
+          go-version: ${{ inputs.go-version }}
+
+      - name: Install actionlint
+        shell: bash
+        env:
+          ACTIONLINT_VERSION: ${{ inputs.actionlint-version }}
+        run: |
+          set -euo pipefail
+          GOBIN="$RUNNER_TEMP/bin" go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Verify public CI independence
+        run: python3 scripts/check-public-ci.py
+
+      - name: Run actionlint
+        id: actionlint
+        run: actionlint
+
+      - name: actionlint summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.actionlint.outcome }}" = "success" ]; then
+            {
+              echo "### actionlint"
+              echo "actionlint passed."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### actionlint"
+              echo "actionlint failed."
+              echo ""
+              echo "- Review the job logs for details."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

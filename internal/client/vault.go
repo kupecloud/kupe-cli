@@ -47,7 +47,7 @@ func (c *Client) GetVaultEntry(ctx context.Context, path string) (*VaultEntry, e
 // and 5xx responses are never replayed by the shared request layer.
 func (c *Client) PutVaultValues(ctx context.Context, path string, values map[string]string, expectedVersion int64) (*VaultWriteResult, error) {
 	etag := ""
-	opts := requestOptions{}
+	opts := requestOptions{noRedirect: true}
 	if expectedVersion < 0 {
 		return nil, fmt.Errorf("expected version must not be negative")
 	}
@@ -74,6 +74,6 @@ func (c *Client) PurgeVaultEntry(ctx context.Context, path string, version int64
 	}
 	_, err := c.requestWithOptions(ctx, http.MethodDelete, c.vaultPath(path), fmt.Sprintf(`"%d"`, version), struct {
 		Confirm string `json:"confirm"`
-	}{path}, nil, requestOptions{noReplay: true})
+	}{path}, nil, requestOptions{noReplay: true, noRedirect: true})
 	return err
 }

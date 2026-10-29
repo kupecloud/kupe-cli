@@ -86,6 +86,14 @@ type Fake struct {
 	// KeepDeletedSecret leaves the record in place to test asynchronous withdrawal.
 	KeepDeletedSecret bool
 
+	// Vault metadata and acknowledgements. Values are not retained.
+	VaultEntries       map[string]*client.VaultEntry
+	GetVaultEntryErr   error
+	PutVaultValuesErr  error
+	PurgeVaultEntryErr error
+	VaultWriteResult   *client.VaultWriteResult
+	VaultVersions      []int64
+
 	// Databases keyed by name. CreateDatabase stores the request with the
 	// API's defaults applied; UpdateRMW applies patches in place.
 	DatabasesByName  map[string]*client.Database

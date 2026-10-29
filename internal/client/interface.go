@@ -63,6 +63,13 @@ type Interface interface {
 	// DeleteSecret revokes a managed secret.
 	DeleteSecret(ctx context.Context, name string) error
 
+	// GetVaultEntry reads metadata only; values are never requested.
+	GetVaultEntry(ctx context.Context, path string) (*VaultEntry, error)
+	// PutVaultValues replaces values with an explicit version precondition.
+	PutVaultValues(ctx context.Context, path string, values map[string]string, expectedVersion int64) (*VaultWriteResult, error)
+	// PurgeVaultEntry permanently removes all versions, without replaying an uncertain write.
+	PurgeVaultEntry(ctx context.Context, path string, version int64) error
+
 	// Databases is the database collection (Delete is refused with 409
 	// DatabaseDeleteCodeProtected while deletion protection is on).
 	Databases() ResourceAPI[Database, CreateDatabaseRequest, PatchDatabaseRequest]

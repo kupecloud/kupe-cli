@@ -3,6 +3,9 @@
 package live
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -132,4 +135,54 @@ func TestSecretSelectedKeysAndRefreshWait(t *testing.T) {
 	runCLIExpectOK(t, "secret", "wait", name, "--for", "delivered", "--timeout", "5m")
 	runCLIExpectOK(t, "secret", "delete", name, "--yes", "--wait=true")
 	runCLIExpectOK(t, "secret", "wait", name, "--for", "deleted", "--timeout", "5m")
+}
+
+// TestSecretValuesLifecycle uses synthetic file input only. The builder compiles
+// this fixture; the engineer runs it against the released API.
+func TestSecretValuesLifecycle(t *testing.T) {
+	name := uniqueName("cli-values")
+	path := "cli-live/" + name
+	input := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(input, []byte(`{"FIELD_A":"synthetic-live-value"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runCLIExpectOK(t, "secret", "create", name, "--path", path)
+	t.Cleanup(func() {
+		_ = runCLI(t, "secret", "delete", name, "--yes")
+		_ = runCLI(t, "secret", "purge", "--path", path, "--yes")
+	})
+	var created struct {
+		Version int64 `json:"version"`
+	}
+	runCLIJSON(t, &created, "secret", "values", "set", name, "--expected-version", "0", "--file", input)
+	if created.Version <= 0 {
+		t.Fatal("missing created version")
+	}
+	var updated struct {
+		Version int64 `json:"version"`
+	}
+	runCLIJSON(t, &updated, "secret", "values", "set", name, "--expected-version", strconv.FormatInt(created.Version, 10), "--file", input)
+	if updated.Version <= created.Version {
+		t.Fatal("version did not advance")
+	}
+	stale := runCLI(t, "secret", "values", "set", name, "--expected-version", strconv.FormatInt(created.Version, 10), "--file", input)
+	if stale.exitCode != 5 {
+		t.Fatalf("stale version exit=%d", stale.exitCode)
+	}
+	var metadata map[string]any
+	runCLIJSON(t, &metadata, "secret", "values", "get", name)
+	if _, ok := metadata["values"]; ok {
+		t.Fatal("metadata includes values")
+	}
+	if metadata["version"] != float64(updated.Version) {
+		t.Fatal("metadata version differs")
+	}
+	runCLIExpectOK(t, "secret", "delete", name, "--yes")
+	result := runCLI(t, "secret", "purge", "--path", path, "--yes")
+	if result.exitCode != 0 {
+		t.Fatalf("purge exit=%d stderr=%s", result.exitCode, result.stderr)
+	}
+	if strings.Contains(result.stdout+result.stderr, "synthetic-live-value") {
+		t.Fatal("value leaked")
+	}
 }

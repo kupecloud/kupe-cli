@@ -98,6 +98,12 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 | PATH | `.secretPath` | ✓ |
 | CLUSTERS | deduped cluster names from `.sync[].cluster`, comma-joined | ✓ |
 
+**Vault entry metadata** (`kupe secret values get`): Path, Version, Updated,
+Deleted and References. JSON and YAML include the metadata fields only, never
+values. `values set -o json|yaml` contains `path`, `version` and
+`refreshRequested`; its refresh hint goes to stderr. Purge warnings and typed
+confirmation also go to stderr, leaving the success line on stdout.
+
 **Member**:
 
 | Column | Source | Wide only? |

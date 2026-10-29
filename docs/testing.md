@@ -101,7 +101,7 @@ Coverage targets:
 
 - Resource methods for clusters, kubeconfig, API keys, secrets, members, tenant, invoices, and plans.
 - Every typed error helper (`IsUnauthorized`, `IsForbidden`, `IsNotFound`, `IsValidation`, `IsConflict`, `IsPreconditionFailed`, `IsRateLimited`, `IsUnavailable`).
-- Retry policy: transient 503 retries, persistent 503 fails after N attempts, POST/PATCH never retry.
+- Retry policy: transient 503 retries, persistent 503 fails after N attempts, POST/PATCH/PUT never retry. Vault purge also refuses replay after an uncertain outcome.
 - `Retry-After` parsing: integer, HTTP-date, missing, malformed.
 - ETag RMW: happy path, 412 retry, 412 twice fails.
 - Request-ID propagation into errors.
@@ -138,7 +138,7 @@ What runs:
 | `tenant_delete_test.go` | `tenant delete` local refusals; full deletion of a throwaway tenant gated on `KUPE_LIVE_DELETE_TENANT=<name>` + an owner OIDC token |
 | `plan_test.go` | `plan list/get` (unauthenticated) |
 | `apikey_test.go` | `apikey create/list/delete` round-trip |
-| `secret_test.go` | `secret create/list/get/update/delete` round-trip |
+| `secret_test.go` | `secret create/list/get/update/delete` and versioned values set/get/purge round-trips |
 | `member_test.go` | `member list` (no mutation — shared org state) |
 | `invoice_test.go` | `invoice list/get` |
 | `cluster_test.go` | full lifecycle gated on `KUPE_LIVE_CLUSTER=1` |
@@ -264,3 +264,17 @@ Not blocking, informational:
 - Layer 4 (live): cover happy paths for every command that can run safely against the shared testing tenant
 
 Coverage is available through `make test-coverage`; it is not currently a hard CI gate.
+
+## Vault values regressions
+
+`internal/client/vault_test.go` uses local HTTP servers to check version headers,
+segmented paths, confirmation bodies, typed errors and retry attempt counts.
+PUT and purge make one attempt on 5xx, reset and attempt timeout; a 429 permits
+one retry. Command tests reject invalid JSON and reserved paths before any
+client call, check confirmation and reference refusals, and compare stdout,
+stderr, hints and exit codes with golden files. Synthetic input sentinels must
+be absent from both output streams.
+
+The live secret fixture covers create-only, versioned replacement, stale-version
+refusal, metadata read and purge after deleting the definition. `make vet-live`
+compiles it without credentials; running it remains an engineer step.

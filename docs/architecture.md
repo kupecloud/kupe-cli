@@ -101,6 +101,7 @@ internal/
 │   ├── cluster/                 — list, get, create, delete, update, kubeconfig, wait.
 │   ├── apikey/                  — list, create, delete.
 │   ├── secret/                  — list, get, create, update, delete, refresh, wait.
+│   │                              values metadata/write, guarded purge.
 │   ├── database/                — list, get, create, update, upgrade, delete,
 │   │                              rotate-credentials, wait, binding add/list/get/update/delete.
 │   ├── cmdutil/                 — Shared helpers: phase waits, wait-error mapping,
@@ -132,6 +133,7 @@ internal/
 │   ├── plan.go                  — ListPlans, GetPlan.
 │   ├── tenant.go                — GetTenant (used by whoami).
 │   ├── errors.go                — APIError with Is* helpers.
+│   ├── vault.go                 — Metadata reads, versioned value writes, purge.
 │   ├── retry.go                 — Exponential backoff + idempotent-method gating.
 │   ├── ratelimit.go             — Retry-After parsing (seconds + HTTP-date).
 │   └── interface.go             — Interface the command layer depends on (fake'd in tests).
@@ -154,6 +156,7 @@ internal/
 │   ├── cluster.go               — Cluster column specs + age helpers.
 │   ├── apikey.go                — APIKey column specs + ID truncation.
 │   ├── secret.go                — Secret column specs + sync-target rendering.
+│   ├── vault.go                 — Vault metadata detail columns.
 │   ├── database.go              — Database and binding column specs.
 │   ├── member.go                — Member column specs.
 │   ├── tenant.go                — Tenant detail rows.

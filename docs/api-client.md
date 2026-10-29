@@ -285,3 +285,17 @@ Timing: target around the v1.0 CLI release. Until then, the two consumers each o
 - [kupe-api/api/swagger.json](https://github.com/kupecloud/kupe-api/blob/main/api/swagger.json) — authoritative endpoint list.
 - [kupe-api/internal/server/handler_cluster.go](https://github.com/kupecloud/kupe-api/blob/main/internal/server/handler_cluster.go) — request/response shapes for cluster endpoints.
 - [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) — field validation regexes (CPU/memory/storage quantity formats).
+
+## Vault entry subresources
+
+`GetVaultEntry` reads metadata only. Its DTO has no values field.
+`PutVaultValues` returns the path, new version and definitions requested to
+refresh, without another request. Version 0 sends `If-None-Match: *`; positive
+versions send a quoted `If-Match`. Each path segment is escaped separately.
+`PurgeVaultEntry` sends the reviewed version and `{confirm: path}`.
+
+PUT uses the shared refusal to replay writes on server or transport failures.
+Purge opts out of ordinary DELETE retries per request, leaving other DELETE
+callers unchanged. Both retain one retry for a 429 limiter refusal, which occurs
+before a Vault handler can apply a write. The API's IP limiter runs before the
+router; its tenant limiter returns before the Vault handler continues.

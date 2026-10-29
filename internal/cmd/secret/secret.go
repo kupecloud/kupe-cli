@@ -1,6 +1,6 @@
 // Package secret wires the "kupe secret" subcommand tree for managed
-// tenant secrets. Values are stored in OpenBao by the operator; the CLI
-// only handles metadata — name, Vault path pointer, and per-cluster/
+// tenant secrets. Values are stored in OpenBao; the CLI
+// also handles versioned value writes, Vault path pointers, and per-cluster/
 // -namespace sync targets.
 package secret
 
@@ -21,7 +21,11 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secret",
 		Short: "Manage tenant-scoped secrets",
-		Long:  `Create, inspect, update, refresh, wait for and delete secret definitions. A definition names a Vault path and the cluster namespaces that receive its values. Deleting a definition keeps the stored values.`,
+		Long: `Create, inspect, update, refresh, wait for and delete secret definitions. A definition names a Vault path and the cluster namespaces that receive its values. Deleting a definition keeps the stored values.
+
+Use values set to replace values with a version check; values get reads
+metadata only. Use purge to permanently delete values after removing
+their definitions.`,
 	}
 
 	cmd.AddCommand(newListCmd(f))
@@ -31,6 +35,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd.AddCommand(newDeleteCmd(f))
 	cmd.AddCommand(newRefreshCmd(f))
 	cmd.AddCommand(newWaitCmd(f))
+	cmd.AddCommand(newValuesCmd(f), newPurgeCmd(f))
 	return cmd
 }
 

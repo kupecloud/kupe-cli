@@ -133,6 +133,7 @@ func (c *Client) requestWithETag(ctx context.Context, method, path, etag string,
 type requestOptions struct {
 	ifNoneMatch string
 	noReplay    bool
+	noRedirect  bool
 }
 
 func (c *Client) requestWithOptions(ctx context.Context, method, path, etag string, body, result any, opts requestOptions) (string, error) {
@@ -151,6 +152,12 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path, etag stri
 	}
 
 	requestID := resp.Header.Get("X-Request-Id")
+
+	// A refused redirect is not a successful write. Do not parse or retain its
+	// body or Location: either may echo values from the original request.
+	if opts.noRedirect && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return "", &APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode), RequestID: requestID, Method: method, Path: path}
+	}
 
 	if resp.StatusCode >= 400 {
 		apiErr := &APIError{
@@ -215,6 +222,14 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 	if len(options) > 0 {
 		opts = options[0]
 	}
+	// Clone only this operation's client: a 307/308 would otherwise replay
+	// the body inside Do, before the outer retry policy can refuse it.
+	httpClient := c.httpClient
+	if opts.noRedirect {
+		clone := *httpClient
+		clone.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+		httpClient = &clone
+	}
 	var (
 		lastResp   *http.Response
 		lastBody   []byte
@@ -229,7 +244,7 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 		}
 
 		start := time.Now()
-		resp, err := c.httpClient.Do(req)
+		resp, err := httpClient.Do(req)
 		var body []byte
 		if resp != nil {
 			var readErr error

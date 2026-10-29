@@ -155,3 +155,84 @@ func TestVaultWritesRetry429Once(t *testing.T) {
 		})
 	}
 }
+
+func TestVaultWritesRefuseRedirects(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		for _, operation := range []string{"create", "update", "purge"} {
+			t.Run(fmt.Sprintf("%s/%d", operation, status), func(t *testing.T) {
+				const sentinel = "synthetic-redirect-value"
+				initial, target := 0, 0
+				c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/redirected" {
+						target++
+						if operation == "purge" {
+							w.WriteHeader(204)
+						} else {
+							fmt.Fprint(w, `{"path":"db","version":2,"refreshRequested":[]}`)
+						}
+						return
+					}
+					initial++
+					_, _ = io.Copy(io.Discard, r.Body)
+					w.Header().Set("Location", "/redirected?value="+sentinel)
+					w.Header().Set("X-Request-Id", "redirect-test")
+					w.WriteHeader(status)
+					fmt.Fprintf(w, `{"message":%q}`, sentinel)
+				})
+				var err error
+				if operation == "purge" {
+					err = c.PurgeVaultEntry(context.Background(), "db", 1)
+				} else {
+					version := int64(1)
+					if operation == "create" {
+						version = 0
+					}
+					_, err = c.PutVaultValues(context.Background(), "db", map[string]string{"FIELD_A": sentinel}, version)
+				}
+				if initial != 1 || target != 0 || err == nil {
+					t.Fatalf("initial=%d target=%d err=%v", initial, target, err)
+				}
+				var ae *APIError
+				if !errors.As(err, &ae) || ae.StatusCode != status || ae.RequestID != "redirect-test" || ae.Message != http.StatusText(status) || len(ae.Body()) != 0 {
+					t.Fatalf("unsafe or untyped redirect error: %#v", err)
+				}
+				if strings.Contains(err.Error(), sentinel) || strings.Contains(err.Error(), "/redirected") {
+					t.Fatalf("redirect data in error: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestVaultRedirectRefusalPreservesLegacyPolicy(t *testing.T) {
+	redirects, target := 0, 0
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirected" {
+			target++
+			fmt.Fprint(w, `{"name":"acme"}`)
+			return
+		}
+		w.Header().Set("Location", "/redirected")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	})
+	original := c.httpClient
+	original.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { redirects++; return nil }
+	_, err := c.PutVaultValues(context.Background(), "db", map[string]string{"A": "synthetic"}, 1)
+	if err == nil || redirects != 0 || target != 0 || c.httpClient != original {
+		t.Fatalf("Vault redirect followed or shared client mutated: redirects=%d target=%d err=%v", redirects, target, err)
+	}
+	tenant, _, err := c.GetTenant(context.Background())
+	if err != nil || tenant.Name != "acme" || redirects != 1 || target != 1 {
+		t.Fatalf("legacy redirect changed: redirects=%d target=%d tenant=%+v err=%v", redirects, target, tenant, err)
+	}
+}
+
+func TestVaultRedirectWithoutLocationIsNotSuccess(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusPermanentRedirect) })
+	if _, err := c.PutVaultValues(context.Background(), "db", nil, 0); err == nil {
+		t.Fatal("redirect accepted as a successful write")
+	}
+	if err := c.PurgeVaultEntry(context.Background(), "db", 1); err == nil {
+		t.Fatal("redirect accepted as a successful purge")
+	}
+}

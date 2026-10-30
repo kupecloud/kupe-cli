@@ -1930,32 +1930,41 @@ func TestCreate_RestoreOfAMissingSourceExits2(t *testing.T) {
 	}
 }
 
-// TestCreate_RestoreAgainstAPlatformWithoutBackups: --from-backup without
-// --storage reads the backup first; a kupe-api without the backup routes,
-// or a platform without the backup kind, exits 7 there.
-func TestCreate_RestoreAgainstAPlatformWithoutBackups(t *testing.T) {
-	tests := []struct {
-		name string
-		err  func(*testing.T) error
-	}{
-		{"a kupe-api without manual backups", unknownRouteErr},
-		{"a platform that cannot take manual backups", func(*testing.T) error {
-			return &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable, Message: "backups are not available on this platform"}
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fake := clienttest.New()
-			fake.GetBackupErr = tt.err(t)
-			f := factoryWith(t, fake)
-			_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
-			assertExit(t, err, cli.ExitUnavailable)
-			if err.Error() != "this platform does not offer database restores yet" || hint(err) != "" {
-				t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
-			}
-			assertNoCall(t, fake, "CreateDatabase")
-		})
-	}
+// TestCreate_RestoreReadingTheBackupsStorage: --from-backup without
+// --storage reads the backup first (GET /backups/{backup}).
+//   - A kupe-api without the backup routes answers Go's non-JSON 404: the
+//     platform cannot restore, exit 7.
+//   - A kupe-api whose platform lacks the backup kind answers that read with
+//     an uncoded JSON 404, as for any missing backup (kupe-api maps the
+//     missing kind to backups_unavailable only on list and create): exit 2
+//     with the API's message and the list hint, as a missing source.
+func TestCreate_RestoreReadingTheBackupsStorage(t *testing.T) {
+	t.Run("a kupe-api without the backup routes exits 7", func(t *testing.T) {
+		fake := clienttest.New()
+		fake.GetBackupErr = unknownRouteErr(t)
+		f := factoryWith(t, fake)
+		_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+		assertExit(t, err, cli.ExitUnavailable)
+		if err.Error() != "this platform does not offer database restores yet" || hint(err) != "" {
+			t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
+		}
+		assertNoCall(t, fake, "CreateDatabase")
+	})
+	t.Run("an uncoded 404 is a missing source and exits 2", func(t *testing.T) {
+		const message = `database backup "b1" not found`
+		fake := clienttest.New()
+		fake.GetBackupErr = &client.APIError{StatusCode: 404, Message: message}
+		f := factoryWith(t, fake)
+		_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+		assertExit(t, err, cli.ExitMisuse)
+		if err.Error() != message {
+			t.Fatalf("message = %q; want the API's message alone", err.Error())
+		}
+		if h := hint(err); !strings.Contains(h, "kupe database backup list") {
+			t.Errorf("hint = %q; want the list command", h)
+		}
+		assertNoCall(t, fake, "CreateDatabase")
+	})
 }
 
 func TestCreate_RestoreRefusals(t *testing.T) {

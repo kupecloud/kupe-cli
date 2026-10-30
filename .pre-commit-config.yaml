@@ -47,13 +47,6 @@ repos:
           - --write-changes
         exclude: ^(vendor/|go\.sum|coverage\.out|testdata/)
 
-  - repo: https://github.com/golangci/golangci-lint
-    rev: 8f3b0c7ed018e57905fbd873c697e0b1ede605a5
-    hooks:
-      - id: golangci-lint
-        args:
-          - --timeout=10m
-
   - repo: local
     hooks:
       - id: actionlint
@@ -81,6 +74,60 @@ repos:
         language: system
         pass_filenames: false
         files: ^(cmd/|internal/|test/|go\.mod|\.goreleaser\.yaml|Makefile)
+        # Slow (minutes): CI runs it on every PR (`--hook-stage manual`).
+        stages:
+          - manual
+
+      # CI gates (kupecloud/github-workflows#14). The PR and main workflows run
+      # `pre-commit run --all-files --hook-stage manual` as one job, so each
+      # former CI job is a hook here. The slow ones are `manual`: a commit stays
+      # fast; run them all locally with
+      #   pre-commit run --all-files --hook-stage manual
+      - id: golangci-lint
+        name: golangci-lint
+        # v2.1.6 is the version CI's go-lint.yaml job installed (its
+        # golangci-version default; main run 39923837440 log), with the
+        # repository's .golangci.yaml, so CI's result is unchanged. The old
+        # hook pinned v2.11.4; bump this deliberately, in its own change.
+        entry: bash -c 'GOWORK=off go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run --timeout=10m'
+        language: system
+        pass_filenames: false
+        files: ^(.*\.go|go\.(mod|sum)|\.golangci\.yaml)$
+        stages:
+          - manual
+      - id: go-version-drift
+        name: go version drift (Dockerfile builder >= go.mod)
+        # No Dockerfile today, so this no-ops, as the CI job did.
+        entry: bash .github/hooks/go-version-drift.sh
+        language: system
+        pass_filenames: false
+        files: ^(Dockerfile|go\.mod)$
+      - id: go-unit-tests
+        name: go vet + unit tests (race, coverage)
+        entry: bash .github/hooks/go-unit-tests.sh
+        language: system
+        pass_filenames: false
+        files: ^(.*\.go|go\.(mod|sum)|vendor/modules\.txt|.*/testdata/.*|\.github/hooks/go-unit-tests\.sh)$
+        stages:
+          - manual
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: bash .github/hooks/go-mod-tidy.sh
+        language: system
+        pass_filenames: false
+        files: ^(.*\.go|go\.(mod|sum)|\.github/hooks/go-mod-tidy\.sh)$
+        stages:
+          - manual
+      # The live suite sits behind the `live` build tag, so `go vet ./...`
+      # never compiles it. Compile only, never run (same as `make vet-live`).
+      - id: go-vet-live
+        name: go vet live suite (compile only)
+        entry: bash -c 'GOWORK=off go vet -mod=vendor -tags=live ./test/live/...'
+        language: system
+        pass_filenames: false
+        files: ^(.*\.go|go\.(mod|sum)|vendor/modules\.txt)$
+        stages:
+          - manual
 
   # Refuse any commit whose STAGED content contains a secret. Added org-wide on
   # 2026-10-06 after three OpenTofu state files carrying a dev SSH private key

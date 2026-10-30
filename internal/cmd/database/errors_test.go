@@ -40,7 +40,7 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		emptyBackupMessage = "backup must set at least one of retention, schedule"
 	)
 	translate := func(err error) error { return translateErr(err, name) }
-	create := func(err error) error { return translateCreateErr(err, name) }
+	create := func(err error) error { return translateCreateErr(err, name, nil) }
 	update := func(err error) error { return translateUpdateErr(err, name) }
 	del := func(err error) error { return translateDeleteErr(err, name) }
 	upgrade := func(err error) error { return translateUpgradeErr(err, name) }

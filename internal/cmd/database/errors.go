@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -19,14 +20,58 @@ func translateErr(err error, name string) error {
 	return cmdutil.TranslateCommon(noun, name, err)
 }
 
-// translateCreateErr adds the refusal only a create can get: a name longer
-// than the tenant may use. It exits 2 like any other refused name.
-func translateCreateErr(err error, name string) error {
+// translateCreateErr adds the refusals only a create can get: a name
+// longer than the tenant may use (exit 2 like any other refused name), and
+// a restore's (source non-nil): a source that does not fit is a misuse
+// (exit 2), one not ready yet a conflict (exit 5).
+func translateCreateErr(err error, name string, source *client.DatabaseSource) error {
 	if client.ErrorCode(err) == client.DatabaseCodeNameTooLong {
 		return cli.WrapAPI(cli.ExitMisuse, fmt.Sprintf("database name %q is too long for this tenant", name), err).
 			WithHint("choose a shorter name: database names may be at most 44 characters, and fewer when the tenant name is over 12")
 	}
+	if source != nil {
+		if out := translateRestoreErr(err, source); out != nil {
+			return out
+		}
+	}
 	return translateErr(err, name)
+}
+
+// translateRestoreErr maps the refusals of a restore from source, or
+// returns nil for any other error.
+func translateRestoreErr(err error, source *client.DatabaseSource) error {
+	check := "check it:  kupe database get " + source.Database
+	if source.Backup != "" {
+		check = "check it:  kupe database backup get " + source.Backup
+	}
+	switch client.ErrorCode(err) {
+	case client.RestoreCodeSourceNotFound:
+		hint := "list your databases:  kupe database list"
+		if source.Backup != "" {
+			hint = "list your manual backups:  kupe database backup list"
+		}
+		return cli.WrapAPI(cli.ExitMisuse, "the restore source was not found", err).WithHint(hint)
+	case client.RestoreCodeSourceNotReady:
+		hint := "a database can be restored once its first backup has completed and it has a restore window\n" + check
+		if source.Backup != "" {
+			hint = "a backup can be restored once it is Completed\n" + check
+		}
+		return cli.WrapAPI(cli.ExitConflict, "the restore source is not ready yet", err).WithHint(hint)
+	case client.RestoreCodePointOutsideWindow:
+		return cli.WrapAPI(cli.ExitMisuse, "--point-in-time is outside the database's restore window", err).
+			WithHint("pick a moment inside its Restore Window, or leave out --point-in-time for the latest point\n" + check)
+	case client.RestoreCodeVersionMismatch:
+		return cli.WrapAPI(cli.ExitMisuse, "a restore runs the source's major version", err).
+			WithHint("leave out --version, or give the source's\n" + check)
+	case client.RestoreCodeStorageTooSmall:
+		return cli.WrapAPI(cli.ExitMisuse, "--storage is less than the source's", err).
+			WithHint("leave out --storage to take the source's, or give at least that much\n" + check)
+	}
+	// A kupe-api that predates restores refuses the unknown field.
+	if client.IsValidation(err) && client.ErrorCode(err) == "" && strings.Contains(err.Error(), `unknown field "source"`) {
+		return cli.New(cli.ExitUnavailable, "this platform does not offer database restores yet")
+	}
+	return nil
 }
 
 // translateUpdateErr adds the refusal only a resize can get: a smaller

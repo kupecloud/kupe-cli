@@ -830,3 +830,206 @@ func TestPatchDatabaseRequest_NeedsWaitCoversEveryField(t *testing.T) {
 		}
 	}
 }
+
+// backupJSON is a representative GET /backups/{backup} body.
+const backupJSON = `{"name":"orders-db-20261030-141500","database":"orders-db","reason":"Manual",
+  "status":{"phase":"Completed","completedAt":"2026-10-30T14:17:00Z","sizeBytes":1073741824,
+    "source":{"name":"orders-db","version":"18","storage":"10Gi"},"databaseDeleted":true,
+    "conditions":[{"type":"Ready","status":"True","reason":"Completed","message":"backup completed"}]},
+  "resourceVersion":"582031","createdAt":"2026-10-30T14:15:00Z"}`
+
+func TestBackup_Decodes(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/backups/orders-db-20261030-141500")
+		fmt.Fprintln(w, backupJSON)
+	})
+	b, err := c.GetBackup(context.Background(), "orders-db-20261030-141500")
+	if err != nil {
+		t.Fatalf("GetBackup: %v", err)
+	}
+	want := Backup{
+		Name: "orders-db-20261030-141500", Database: "orders-db", Reason: "Manual",
+		Status: &BackupStatus{
+			Phase: "Completed", CompletedAt: "2026-10-30T14:17:00Z", SizeBytes: 1073741824,
+			Source:          &BackupSource{Name: "orders-db", Version: "18", Storage: "10Gi"},
+			DatabaseDeleted: true,
+			Conditions:      []Condition{{Type: "Ready", Status: "True", Reason: "Completed", Message: "backup completed"}},
+		},
+		ResourceVersion: "582031", CreatedAt: "2026-10-30T14:15:00Z",
+	}
+	if !reflect.DeepEqual(*b, want) {
+		t.Fatalf("backup = %+v\nwant %+v", *b, want)
+	}
+	if got := b.Status.Message(); got != "backup completed" {
+		t.Errorf("Message() = %q; want the Ready condition's message", got)
+	}
+}
+
+func TestListDatabaseBackups(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/databases/orders-db/backups")
+		if r.URL.RawQuery != "" {
+			t.Errorf("query = %q; want none", r.URL.RawQuery)
+		}
+		fmt.Fprintf(w, `{"items":[%s]}`, backupJSON)
+	})
+	list, err := c.ListDatabaseBackups(context.Background(), "orders-db")
+	if err != nil {
+		t.Fatalf("ListDatabaseBackups: %v", err)
+	}
+	if len(list) != 1 || list[0].Status.Source.Storage != "10Gi" {
+		t.Fatalf("backups = %+v", list)
+	}
+}
+
+func TestListBackups_DatabaseIsAQueryParameter(t *testing.T) {
+	tests := []struct {
+		name, database, wantQuery string
+	}{
+		{"every backup of the tenant", "", ""},
+		{"the backups of databases with one name", "orders-db", "database=orders-db"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/backups")
+				if r.URL.RawQuery != tt.wantQuery {
+					t.Errorf("query = %q; want %q", r.URL.RawQuery, tt.wantQuery)
+				}
+				fmt.Fprintf(w, `{"items":[%s]}`, backupJSON)
+			})
+			list, err := c.ListBackups(context.Background(), tt.database)
+			if err != nil {
+				t.Fatalf("ListBackups: %v", err)
+			}
+			if len(list) != 1 || !list[0].Status.DatabaseDeleted {
+				t.Fatalf("backups = %+v", list)
+			}
+		})
+	}
+}
+
+func TestCreateDatabaseBackup_SendsOnlyAName(t *testing.T) {
+	tests := []struct {
+		name     string
+		req      CreateBackupRequest
+		wantBody map[string]any
+	}{
+		{"no name leaves it to the platform", CreateBackupRequest{}, map[string]any{}},
+		{"a name is sent", CreateBackupRequest{Name: "before-migration"}, map[string]any{"name": "before-migration"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				expectRequest(t, r, http.MethodPost, "/api/v1/tenants/acme/databases/orders-db/backups")
+				if body := decodeBody(t, r); !reflect.DeepEqual(body, tt.wantBody) {
+					t.Errorf("body = %v; want %v (never a reason or platform field)", body, tt.wantBody)
+				}
+				w.WriteHeader(http.StatusCreated)
+				fmt.Fprintln(w, `{"name":"before-migration","database":"orders-db","reason":"Manual","status":{"phase":"Pending","databaseDeleted":false}}`)
+			})
+			b, err := c.CreateDatabaseBackup(context.Background(), "orders-db", tt.req)
+			if err != nil {
+				t.Fatalf("CreateDatabaseBackup: %v", err)
+			}
+			if b.Name != "before-migration" || b.Status.Phase != PhasePending {
+				t.Fatalf("backup = %+v", b)
+			}
+		})
+	}
+}
+
+func TestCreateDatabaseBackup_CodesSurvive(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprintln(w, `{"code":"backup_limit_reached","severity":"error","message":"database orders-db already has 20 manual backups"}`)
+	})
+	_, err := c.CreateDatabaseBackup(context.Background(), "orders-db", CreateBackupRequest{})
+	if !IsConflict(err) || ErrorCode(err) != BackupCodeLimitReached {
+		t.Fatalf("err = %v (code %q); want 409 %s", err, ErrorCode(err), BackupCodeLimitReached)
+	}
+}
+
+func TestDeleteBackup(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		expectRequest(t, r, http.MethodDelete, "/api/v1/tenants/acme/backups/orders-db-20261030-141500")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	if err := c.DeleteBackup(context.Background(), "orders-db-20261030-141500"); err != nil {
+		t.Fatalf("DeleteBackup: %v", err)
+	}
+}
+
+func TestCreateDatabase_SendsSource(t *testing.T) {
+	tests := []struct {
+		name string
+		src  *DatabaseSource
+		want map[string]any
+	}{
+		{"from a backup", &DatabaseSource{Backup: "orders-db-20261030-141500"}, map[string]any{"backup": "orders-db-20261030-141500"}},
+		{"from a database at its latest point", &DatabaseSource{Database: "orders-db"}, map[string]any{"database": "orders-db"}},
+		{"from a database at a point", &DatabaseSource{Database: "orders-db", PointInTime: "2026-10-30T09:00:00Z"},
+			map[string]any{"database": "orders-db", "pointInTime": "2026-10-30T09:00:00Z"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				expectRequest(t, r, http.MethodPost, "/api/v1/tenants/acme/databases")
+				body := decodeBody(t, r)
+				if !reflect.DeepEqual(body["source"], tt.want) {
+					t.Errorf("source = %v; want %v", body["source"], tt.want)
+				}
+				if _, ok := body["version"]; ok {
+					t.Errorf("version sent: %v; a restore leaves it to the platform", body["version"])
+				}
+				w.WriteHeader(http.StatusCreated)
+				fmt.Fprintln(w, `{"name":"orders-copy","source":{"backup":"orders-db-20261030-141500"}}`)
+			})
+			db, _, err := c.Databases().Create(context.Background(), CreateDatabaseRequest{
+				Name: "orders-copy", Resources: &DatabaseResources{CPU: "500m", Memory: "1Gi", Storage: "10Gi"}, Source: tt.src,
+			})
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			if db.Source == nil || db.Source.Backup != "orders-db-20261030-141500" {
+				t.Fatalf("source not decoded: %+v", db.Source)
+			}
+		})
+	}
+}
+
+func TestIsUnknownRoute(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    bool
+	}{
+		{"Go's 404 for a route the server lacks", http.NotFound, true},
+		{"kupe-api's JSON 404", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintln(w, `{"error":"database \"orders-db\" not found"}`)
+		}, false},
+		{"a coded 404", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintln(w, `{"code":"backups_unavailable","message":"backups are not available on this platform"}`)
+		}, false},
+		{"a 400 with a plain body", func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "bad", http.StatusBadRequest)
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestClient(t, tt.handler)
+			_, err := c.ListBackups(context.Background(), "")
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if got := IsUnknownRoute(err); got != tt.want {
+				t.Fatalf("IsUnknownRoute = %v; want %v (%v)", got, tt.want, err)
+			}
+		})
+	}
+	if IsUnknownRoute(&APIError{StatusCode: 404, Message: "database not found"}) {
+		t.Error("a 404 with no body at all is not an unknown route")
+	}
+}

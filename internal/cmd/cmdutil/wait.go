@@ -103,10 +103,16 @@ func PollPhase[T any](get PhaseGetter[T], decide func(resource T, phase string) 
 // the target. Returns the last observed resource (the zero value if none was
 // seen).
 func WaitForPhase[T any](ctx context.Context, streams *cli.IOStreams, noun, name, target string, get PhaseGetter[T], timeout time.Duration) (T, error) {
-	return waitForPhase(ctx, streams, named(noun, name), target, get, timeout)
+	return waitForPhase(ctx, streams, named(noun, name), target, "", get, timeout)
 }
 
-func waitForPhase[T any](ctx context.Context, streams *cli.IOStreams, subj subject, target string, get PhaseGetter[T], timeout time.Duration) (T, error) {
+// WaitForPhaseDone is WaitForPhase whose success line ends with doneVerb
+// ("database backup b1 completed") in place of the default "ready".
+func WaitForPhaseDone[T any](ctx context.Context, streams *cli.IOStreams, noun, name, target, doneVerb string, get PhaseGetter[T], timeout time.Duration) (T, error) {
+	return waitForPhase(ctx, streams, named(noun, name), target, doneVerb, get, timeout)
+}
+
+func waitForPhase[T any](ctx context.Context, streams *cli.IOStreams, subj subject, target, doneVerb string, get PhaseGetter[T], timeout time.Duration) (T, error) {
 	var latest T
 	poll := PollPhase(get, func(resource T, phase string) (bool, error) {
 		latest = resource
@@ -119,9 +125,10 @@ func waitForPhase[T any](ctx context.Context, streams *cli.IOStreams, subj subje
 		return false, nil
 	})
 	err := ux.WaitFor(ctx, streams, ux.WaitForOpts{
-		Label:   subj.label(),
-		Poll:    poll,
-		Timeout: timeout,
+		Label:    subj.label(),
+		DoneVerb: doneVerb,
+		Poll:     poll,
+		Timeout:  timeout,
 	})
 	return latest, err
 }
@@ -247,7 +254,7 @@ func runWait[T any](ctx context.Context, streams *cli.IOStreams, subj subject, f
 			return mapWaitErr(err, subj, "delete")
 		}
 	default:
-		if _, err := waitForPhase(ctx, streams, subj, target, get, timeout); err != nil {
+		if _, err := waitForPhase(ctx, streams, subj, target, "", get, timeout); err != nil {
 			return mapWaitErr(err, subj, "wait")
 		}
 	}

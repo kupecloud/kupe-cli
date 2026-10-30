@@ -865,23 +865,6 @@ func TestBackup_Decodes(t *testing.T) {
 	}
 }
 
-func TestListDatabaseBackups(t *testing.T) {
-	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		expectRequest(t, r, http.MethodGet, "/api/v1/tenants/acme/databases/orders-db/backups")
-		if r.URL.RawQuery != "" {
-			t.Errorf("query = %q; want none", r.URL.RawQuery)
-		}
-		fmt.Fprintf(w, `{"items":[%s]}`, backupJSON)
-	})
-	list, err := c.ListDatabaseBackups(context.Background(), "orders-db")
-	if err != nil {
-		t.Fatalf("ListDatabaseBackups: %v", err)
-	}
-	if len(list) != 1 || list[0].Status.Source.Storage != "10Gi" {
-		t.Fatalf("backups = %+v", list)
-	}
-}
-
 func TestListBackups_DatabaseIsAQueryParameter(t *testing.T) {
 	tests := []struct {
 		name, database, wantQuery string

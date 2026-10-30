@@ -542,14 +542,6 @@ type CreateBackupRequest struct {
 	Name string `json:"name,omitempty"`
 }
 
-// ListDatabaseBackups returns the manual backups of one database, newest
-// first. A missing database is a 404, not an empty list; the backups of an
-// earlier database of the same name are not listed (ListBackups lists
-// them).
-func (c *Client) ListDatabaseBackups(ctx context.Context, database string) ([]Backup, error) {
-	return c.listBackups(ctx, c.tenantPath("databases", database, "backups"))
-}
-
 // CreateDatabaseBackup takes a manual backup of a running database. The
 // backup is taken asynchronously: poll GetBackup until Completed.
 func (c *Client) CreateDatabaseBackup(ctx context.Context, database string, req CreateBackupRequest) (*Backup, error) {
@@ -568,14 +560,10 @@ func (c *Client) ListBackups(ctx context.Context, database string) ([]Backup, er
 	if database != "" {
 		q.Set("database", database)
 	}
-	return c.listBackups(ctx, withQuery(c.tenantPath("backups"), q))
-}
-
-func (c *Client) listBackups(ctx context.Context, path string) ([]Backup, error) {
 	var resp struct {
 		Items []Backup `json:"items"`
 	}
-	if _, err := c.request(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	if _, err := c.request(ctx, http.MethodGet, withQuery(c.tenantPath("backups"), q), nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Items, nil

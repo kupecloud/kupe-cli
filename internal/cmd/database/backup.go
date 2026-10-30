@@ -82,10 +82,10 @@ accepted, then follow it with "kupe database backup get BACKUP".`,
 			if !opts.wait {
 				return printer.Backup.One(f.IOStreams, format, b)
 			}
-			final, werr := cmdutil.WaitForPhase(cmd.Context(), f.IOStreams, backupNoun, b.Name, client.PhaseCompleted,
-				backupPhaseGetter(api, b.Name), opts.waitTimeout)
+			final, werr := cmdutil.WaitForPhaseDone(cmd.Context(), f.IOStreams, backupNoun, b.Name, client.PhaseCompleted,
+				"completed", backupPhaseGetter(api, b.Name), opts.waitTimeout)
 			if werr != nil {
-				return backupWaitErr(werr, b.Name, final)
+				return backupWaitErr(werr, b.Name, database, final)
 			}
 			return printer.Backup.One(f.IOStreams, format, final)
 		},
@@ -108,17 +108,25 @@ func backupPhaseGetter(api client.Interface, name string) cmdutil.PhaseGetter[*c
 		if b.Status != nil {
 			phase = b.Status.Phase
 		}
+		// A backup being deleted never completes: end the wait now rather
+		// than at the timeout.
+		if phase == client.PhaseDeleting {
+			return nil, "", &cmdutil.TerminalPhaseError{Noun: backupNoun, Name: name, Phase: phase}
+		}
 		return b, phase, nil
 	}
 }
 
-// backupWaitErr explains why waiting for a backup ended before it was
-// Completed. last is the backup as last seen, nil if never seen. The
-// backup was requested before the wait in every case.
-func backupWaitErr(err error, name string, last *client.Backup) error {
+// backupWaitErr explains why waiting for backup name of database ended
+// before it was Completed. last is the backup as last seen, nil if never
+// seen. The backup was requested before the wait in every case.
+func backupWaitErr(err error, name, database string, last *client.Backup) error {
 	check := "check status:  kupe database backup get " + name
 	var terminal *cmdutil.TerminalPhaseError
 	switch {
+	case errors.As(err, &terminal) && terminal.Phase == client.PhaseDeleting:
+		return cli.New(cli.ExitGeneral, fmt.Sprintf("backup %q is being deleted", name)).
+			WithHint("it can no longer be restored from; to take another:  kupe database backup create " + database)
 	case errors.As(err, &terminal):
 		msg := fmt.Sprintf("backup %q failed", name)
 		if reason := last.Status.Message(); reason != "" {

@@ -46,11 +46,7 @@ func translateRestoreErr(err error, source *client.DatabaseSource) error {
 	}
 	switch client.ErrorCode(err) {
 	case client.RestoreCodeSourceNotFound:
-		hint := "list your databases:  kupe database list"
-		if source.Backup != "" {
-			hint = "list your manual backups:  kupe database backup list"
-		}
-		return cli.WrapAPI(cli.ExitMisuse, "the restore source was not found", err).WithHint(hint)
+		return sourceNotFound(err, source)
 	case client.RestoreCodeSourceNotReady:
 		hint := "a database can be restored once its first backup has completed and it has a restore window\n" + check
 		if source.Backup != "" {
@@ -67,11 +63,29 @@ func translateRestoreErr(err error, source *client.DatabaseSource) error {
 		return cli.WrapAPI(cli.ExitMisuse, "--storage is less than the source's", err).
 			WithHint("leave out --storage to take the source's, or give at least that much\n" + check)
 	}
-	// A kupe-api that predates restores refuses the unknown field.
-	if client.IsValidation(err) && client.ErrorCode(err) == "" && strings.Contains(err.Error(), `unknown field "source"`) {
-		return cli.New(cli.ExitUnavailable, "this platform does not offer database restores yet")
+	// A kupe-api that predates restores refuses the unknown field; one
+	// whose platform cannot restore yet answers 404 backups_unavailable.
+	if client.IsValidation(err) && client.ErrorCode(err) == "" && strings.Contains(err.Error(), `unknown field "source"`) ||
+		backupsMissing(err) {
+		return noRestoresYet()
 	}
 	return nil
+}
+
+// noRestoresYet is noBackupsYet for a restore.
+func noRestoresYet() error {
+	return cli.New(cli.ExitUnavailable, "this platform does not offer database restores yet")
+}
+
+// sourceNotFound is a restore source that does not exist, whether the API
+// refused the restore (restore_source_not_found) or the CLI's read of the
+// source's storage got a 404: exit 2 either way, with the API's message.
+func sourceNotFound(err error, source *client.DatabaseSource) error {
+	hint := "list your databases:  kupe database list"
+	if source.Backup != "" {
+		hint = "list your manual backups:  kupe database backup list"
+	}
+	return cli.WrapAPI(cli.ExitMisuse, "the restore source was not found", err).WithHint(hint)
 }
 
 // translateUpdateErr adds the refusal only a resize can get: a smaller
@@ -125,10 +139,20 @@ func noBackupsYet() error {
 // (get, delete, list, the wait). The shared refusals get no database name,
 // so no hint points at a database command.
 func translateBackupErr(err error) error {
-	if client.IsUnknownRoute(err) {
+	if backupsMissing(err) {
 		return noBackupsYet()
 	}
 	return translateErr(err, "")
+}
+
+// backupsMissing reports whether err says the platform cannot take manual
+// backups at all: a kupe-api that predates them (no route), or one whose
+// platform has no backup kind installed (404 backups_unavailable). The
+// 400 backups_unavailable (backups switched off) is not this: manual
+// backups can still be listed and deleted then.
+func backupsMissing(err error) bool {
+	return client.IsUnknownRoute(err) ||
+		(client.IsNotFound(err) && client.ErrorCode(err) == client.DatabaseCodeBackupsUnavailable)
 }
 
 // translateBackupCreateErr adds the refusals only a backup of database
@@ -143,7 +167,7 @@ func translateBackupCreateErr(err error, database string) error {
 		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q already has the most manual backups it can keep", database), err).
 			WithHint(fmt.Sprintf("delete one you no longer need:  kupe database backup list %s\n  then:  kupe database backup delete BACKUP", database))
 	}
-	if client.IsUnknownRoute(err) {
+	if backupsMissing(err) {
 		return noBackupsYet()
 	}
 	return translateErr(err, database)

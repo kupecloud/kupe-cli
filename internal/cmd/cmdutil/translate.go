@@ -37,7 +37,8 @@ var refusals = []refusal{
 		hint: func(string, string) string {
 			return "this is a platform setting, not an outage, so retrying will not help; " +
 				"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, " +
-				"and their bindings deleted or narrowed (binding update --remove-namespace)"
+				"and their bindings deleted or narrowed (binding update --remove-namespace); " +
+				"manual backups can still be listed and deleted (kupe database backup delete)"
 		},
 	},
 	{
@@ -51,9 +52,14 @@ var refusals = []refusal{
 	},
 	{
 		// The platform does not offer backups: a request that sets backup
-		// settings is refused. The request was valid, so not a misuse.
+		// settings, takes a manual backup or restores is refused. The
+		// request was valid, so not a misuse.
 		code: client.DatabaseCodeBackupsUnavailable, phrase: "backups are not available on this platform", exit: cli.ExitUnavailable,
 		fallback: func(string, string) string { return "backups are not available on this platform" },
+		hint: func(string, string) string {
+			return "this is a platform setting, not an outage, so retrying will not help; " +
+				"existing manual backups can still be listed and deleted (kupe database backup delete)"
+		},
 	},
 	{
 		code: client.CodeTerminating, phrase: "is being deleted; it cannot be bound", exit: cli.ExitConflict,

@@ -68,3 +68,38 @@ func translateRotateErr(err error, name string) error {
 	}
 	return translateErr(err, name)
 }
+
+// noBackupsYet is the answer of a kupe-api that predates manual backups:
+// the route does not exist there. The request was valid; the platform does
+// not offer it, so it exits 7 like a refusal.
+func noBackupsYet() error {
+	return cli.New(cli.ExitUnavailable, "this platform does not offer database backups yet")
+}
+
+// translateBackupErr maps errors of the backup commands that name a backup
+// (get, delete, list, the wait). The shared refusals get no database name,
+// so no hint points at a database command.
+func translateBackupErr(err error) error {
+	if client.IsUnknownRoute(err) {
+		return noBackupsYet()
+	}
+	return translateErr(err, "")
+}
+
+// translateBackupCreateErr adds the refusals only a backup of database
+// can get: it is not running, or it keeps the most manual backups a
+// database may. Both exit 5 like any other conflict.
+func translateBackupCreateErr(err error, database string) error {
+	switch client.ErrorCode(err) {
+	case client.BackupCodeDatabaseNotReady:
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q is not running", database), err).
+			WithHint(fmt.Sprintf("back it up once it is Running:  kupe database wait %s", database))
+	case client.BackupCodeLimitReached:
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("database %q already has the most manual backups it can keep", database), err).
+			WithHint(fmt.Sprintf("delete one you no longer need:  kupe database backup list %s\n  then:  kupe database backup delete BACKUP", database))
+	}
+	if client.IsUnknownRoute(err) {
+		return noBackupsYet()
+	}
+	return translateErr(err, database)
+}

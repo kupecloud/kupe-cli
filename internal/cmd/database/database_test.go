@@ -351,7 +351,7 @@ func TestCommands_DatabasesUnavailableSaysSo(t *testing.T) {
 	if err.Error() != "databases are not enabled" {
 		t.Fatalf("message = %q; want the API's message alone", err.Error())
 	}
-	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace)") {
+	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace); manual backups can still be listed and deleted (kupe database backup delete)") {
 		t.Fatalf("hint should name the clean-up that still works: %v", err)
 	}
 }
@@ -688,7 +688,8 @@ func TestUpdate_BackupChangeRefusedByThePlatform(t *testing.T) {
 		{"databases off", &client.APIError{StatusCode: 404, Code: client.DatabaseCodeUnavailable,
 			Message: "databases are not available on this platform"}, cli.ExitNotFound, "existing databases can still be listed"},
 		{"backups not offered", &client.APIError{StatusCode: 400, Code: client.DatabaseCodeBackupsUnavailable,
-			Field: "spec.backup", Message: "backups are not available on this platform"}, cli.ExitUnavailable, ""},
+			Field: "spec.backup", Message: "backups are not available on this platform"}, cli.ExitUnavailable,
+			"manual backups can still be listed and deleted"},
 		{"retention outside the range", &client.APIError{StatusCode: 400, Code: "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE",
 			Field: "spec.backup.retention", Message: "backup.retention must be between 7 and 35 days"}, cli.ExitMisuse, ""},
 	}
@@ -1763,6 +1764,7 @@ func TestNewCmd_RegistersAliasAndSubcommands(t *testing.T) {
 	for _, path := range [][]string{
 		{"list"}, {"get"}, {"create"}, {"update"}, {"upgrade"}, {"delete"}, {"rotate-credentials"}, {"wait"},
 		{"binding", "add"}, {"binding", "list"}, {"binding", "get"}, {"binding", "update"}, {"binding", "delete"},
+		{"backup", "create"}, {"backup", "list"}, {"backup", "get"}, {"backup", "delete"},
 	} {
 		if found, _, err := cmd.Find(path); err != nil || found == cmd {
 			t.Errorf("subcommand %v not registered", path)
@@ -1786,5 +1788,279 @@ func TestUpgrade_IsHidden(t *testing.T) {
 		if strings.Contains(c.Long, "upgrade") || strings.Contains(c.Short, "upgrade") {
 			t.Errorf("%q help mentions upgrade:\n%s", c.Name(), c.Long)
 		}
+	}
+}
+
+func TestCreate_RestoreFlagValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"both sources", []string{"--from-backup", "b1", "--from", "orders-db"}, "--from-backup and --from cannot be used together"},
+		{"a point without a database", []string{"--point-in-time", "2026-10-30T09:00:00Z"}, "--point-in-time needs --from"},
+		{"a point with a backup", []string{"--from-backup", "b1", "--point-in-time", "2026-10-30T09:00:00Z"}, "--point-in-time needs --from"},
+		{"a point that is not RFC 3339", []string{"--from", "orders-db", "--point-in-time", "2026-10-30 09:00"}, "invalid --point-in-time 2026-10-30 09:00"},
+		{"a point without a zone", []string{"--from", "orders-db", "--point-in-time", "2026-10-30T09:00:00"}, "invalid --point-in-time"},
+		{"storage is still required without a source", nil, "--storage is required"},
+		{"cpu is still required with a source", []string{"--from", "orders-db", "--cpu", ""}, "--cpu is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.Backups["b1"] = completedBackup("b1", "orders-db")
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-copy", "--cpu", "500m", "--memory", "1Gi", "--wait=false"}, tt.args...)
+			_, _, err := run(f, newCreateCmd(f), args...)
+			assertExit(t, err, cli.ExitMisuse)
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v; want %q", err, tt.want)
+			}
+			if len(fake.Calls) != 0 {
+				t.Fatalf("calls = %v; want no request", fake.Calls)
+			}
+		})
+	}
+}
+
+func TestCreate_RestoreSendsTheSourceAndDefaultsStorage(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantSource  client.DatabaseSource
+		wantStorage string
+		wantVersion string
+		wantRead    string // the call that read the source's storage, "" for none
+	}{
+		{"from a backup takes the backup's storage", []string{"--from-backup", "b1"},
+			client.DatabaseSource{Backup: "b1"}, "20Gi", "", "GetBackup:b1"},
+		{"from a database takes its storage", []string{"--from", "orders-db"},
+			client.DatabaseSource{Database: "orders-db"}, "10Gi", "", "GetDatabase:orders-db"},
+		{"from a database at a point", []string{"--from", "orders-db", "--point-in-time", "2026-10-30T09:00:00+01:00"},
+			client.DatabaseSource{Database: "orders-db", PointInTime: "2026-10-30T09:00:00+01:00"}, "10Gi", "", "GetDatabase:orders-db"},
+		{"an explicit storage is not looked up", []string{"--from-backup", "b1", "--storage", "40Gi"},
+			client.DatabaseSource{Backup: "b1"}, "40Gi", "", ""},
+		{"an explicit version is sent", []string{"--from", "orders-db", "--version", "18"},
+			client.DatabaseSource{Database: "orders-db"}, "10Gi", "18", "GetDatabase:orders-db"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			b := completedBackup("b1", "orders-db")
+			b.Status.Source.Storage = "20Gi"
+			fake.Backups["b1"] = b
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-copy", "--cpu", "500m", "--memory", "1Gi", "--wait=false"}, tt.args...)
+			_, stderr, err := run(f, newCreateCmd(f), args...)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			db := fake.DatabasesByName["orders-copy"]
+			if db == nil {
+				t.Fatal("database not created")
+			}
+			if db.Source == nil || *db.Source != tt.wantSource {
+				t.Fatalf("source = %+v; want %+v", db.Source, tt.wantSource)
+			}
+			if db.Resources.Storage != tt.wantStorage || db.Version != tt.wantVersion {
+				t.Fatalf("storage = %q, version = %q; want %q, %q", db.Resources.Storage, db.Version, tt.wantStorage, tt.wantVersion)
+			}
+			read := ""
+			for _, c := range fake.Calls {
+				if strings.HasPrefix(c, "GetBackup:") || strings.HasPrefix(c, "GetDatabase:") {
+					read = c
+				}
+			}
+			if read != tt.wantRead {
+				t.Fatalf("source read = %q; want %q (calls %v)", read, tt.wantRead, fake.Calls)
+			}
+			if said := strings.Contains(stderr, "Using the source's storage, "+tt.wantStorage); said != (tt.wantRead != "") {
+				t.Errorf("stderr = %q; want the defaulted storage named only when it was defaulted", stderr)
+			}
+		})
+	}
+}
+
+func TestCreate_RestoreOfABackupWithoutStorageYet(t *testing.T) {
+	fake := clienttest.New()
+	fake.Backups["b1"] = &client.Backup{Name: "b1", Database: "orders-db", Status: &client.BackupStatus{Phase: client.PhasePending}}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+	assertExit(t, err, cli.ExitConflict)
+	if h := hint(err); !strings.Contains(h, "kupe database backup get b1") || !strings.Contains(h, "--storage") {
+		t.Errorf("hint = %q", h)
+	}
+	assertNoCall(t, fake, "CreateDatabase")
+}
+
+// TestCreate_RestoreOfAMissingSourceExits2 pins that a missing source
+// exits 2 with the same hint whether the CLI found out by reading its
+// storage or the API refused the restore (restore_source_not_found).
+func TestCreate_RestoreOfAMissingSourceExits2(t *testing.T) {
+	tests := []struct {
+		flag, wantHint string
+		storage        []string
+		apiRefuses     bool
+	}{
+		{"--from-backup", "kupe database backup list", nil, false},
+		{"--from", "kupe database list", nil, false},
+		{"--from-backup", "kupe database backup list", []string{"--storage", "10Gi"}, true},
+		{"--from", "kupe database list", []string{"--storage", "10Gi"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s storage given %v", tt.flag, tt.storage != nil), func(t *testing.T) {
+			fake := clienttest.New()
+			if tt.apiRefuses {
+				fake.CreateDatabaseErr = &client.APIError{StatusCode: 400, Code: client.RestoreCodeSourceNotFound,
+					Field: "spec.source", Message: "the restore source ghost does not exist"}
+			}
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-copy", tt.flag, "ghost", "--cpu", "500m", "--memory", "1Gi", "--wait=false"}, tt.storage...)
+			_, _, err := run(f, newCreateCmd(f), args...)
+			assertExit(t, err, cli.ExitMisuse)
+			if h := hint(err); !strings.Contains(h, tt.wantHint) {
+				t.Errorf("hint = %q; want %q", h, tt.wantHint)
+			}
+			if !tt.apiRefuses {
+				assertNoCall(t, fake, "CreateDatabase")
+			}
+		})
+	}
+}
+
+// TestCreate_RestoreReadingTheBackupsStorage: --from-backup without
+// --storage reads the backup first (GET /backups/{backup}).
+//   - A kupe-api without the backup routes answers Go's non-JSON 404: the
+//     platform cannot restore, exit 7.
+//   - A kupe-api whose platform lacks the backup kind answers that read with
+//     an uncoded JSON 404, as for any missing backup (kupe-api maps the
+//     missing kind to backups_unavailable only on list and create): exit 2
+//     with the API's message and the list hint, as a missing source.
+func TestCreate_RestoreReadingTheBackupsStorage(t *testing.T) {
+	t.Run("a kupe-api without the backup routes exits 7", func(t *testing.T) {
+		fake := clienttest.New()
+		fake.GetBackupErr = unknownRouteErr(t)
+		f := factoryWith(t, fake)
+		_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+		assertExit(t, err, cli.ExitUnavailable)
+		if err.Error() != "this platform does not offer database restores yet" || hint(err) != "" {
+			t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
+		}
+		assertNoCall(t, fake, "CreateDatabase")
+	})
+	t.Run("an uncoded 404 is a missing source and exits 2", func(t *testing.T) {
+		const message = `database backup "b1" not found`
+		fake := clienttest.New()
+		fake.GetBackupErr = &client.APIError{StatusCode: 404, Message: message}
+		f := factoryWith(t, fake)
+		_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+		assertExit(t, err, cli.ExitMisuse)
+		if err.Error() != message {
+			t.Fatalf("message = %q; want the API's message alone", err.Error())
+		}
+		if h := hint(err); !strings.Contains(h, "kupe database backup list") {
+			t.Errorf("hint = %q; want the list command", h)
+		}
+		assertNoCall(t, fake, "CreateDatabase")
+	})
+}
+
+func TestCreate_RestoreRefusals(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    []string
+		err      *client.APIError
+		wantExit int
+		wantHint string
+	}{
+		{"source not found", []string{"--from-backup", "b1"},
+			&client.APIError{StatusCode: 400, Code: client.RestoreCodeSourceNotFound, Field: "spec.source", Message: `backup "b1" not found`},
+			cli.ExitMisuse, "kupe database backup list"},
+		{"database source not found", []string{"--from", "orders-db"},
+			&client.APIError{StatusCode: 400, Code: client.RestoreCodeSourceNotFound, Field: "spec.source", Message: `database "orders-db" not found`},
+			cli.ExitMisuse, "kupe database list"},
+		{"backup not completed", []string{"--from-backup", "b1"},
+			&client.APIError{StatusCode: 409, Code: client.RestoreCodeSourceNotReady, Message: `backup "b1" has not completed`},
+			cli.ExitConflict, "kupe database backup get b1"},
+		{"database without a restore window", []string{"--from", "orders-db"},
+			&client.APIError{StatusCode: 409, Code: client.RestoreCodeSourceNotReady, Message: `database "orders-db" has no restore window yet`},
+			cli.ExitConflict, "kupe database get orders-db"},
+		{"point outside the window", []string{"--from", "orders-db", "--point-in-time", "2020-01-01T00:00:00Z"},
+			&client.APIError{StatusCode: 400, Code: client.RestoreCodePointOutsideWindow, Field: "spec.source.pointInTime", Message: "pointInTime is outside the restore window"},
+			cli.ExitMisuse, "Restore Window"},
+		{"another major version", []string{"--from", "orders-db", "--version", "17"},
+			&client.APIError{StatusCode: 400, Code: client.RestoreCodeVersionMismatch, Field: "spec.version", Message: "the source runs PostgreSQL 18"},
+			cli.ExitMisuse, "leave out --version"},
+		{"too little storage", []string{"--from", "orders-db", "--storage", "5Gi"},
+			&client.APIError{StatusCode: 400, Code: client.RestoreCodeStorageTooSmall, Field: "spec.resources.storage", Message: "storage must be at least 10Gi"},
+			cli.ExitMisuse, "leave out --storage"},
+		{"backups switched off", []string{"--from", "orders-db"},
+			&client.APIError{StatusCode: 400, Code: client.DatabaseCodeBackupsUnavailable, Field: "spec.source", Message: "backups are not available on this platform"},
+			cli.ExitUnavailable, "manual backups can still be listed and deleted"},
+		{"plan limit", []string{"--from", "orders-db"},
+			&client.APIError{StatusCode: 400, Code: client.CodePlanLimitReached, Message: "maximum database limit reached: your plan allows 1 database(s)"},
+			cli.ExitConflict, "upgrade your plan"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.Backups["b1"] = completedBackup("b1", "orders-db")
+			fake.CreateDatabaseErr = tt.err
+			f := factoryWith(t, fake)
+			args := append([]string{"orders-copy", "--cpu", "500m", "--memory", "1Gi", "--wait=false"}, tt.flags...)
+			_, _, err := run(f, newCreateCmd(f), args...)
+			assertExit(t, err, tt.wantExit)
+			if err.Error() != tt.err.Message {
+				t.Fatalf("message = %q; want the API's message alone", err.Error())
+			}
+			if h := hint(err); !strings.Contains(h, tt.wantHint) {
+				t.Fatalf("hint = %q; want %q", h, tt.wantHint)
+			}
+		})
+	}
+}
+
+func TestCreate_RestoreAgainstAKupeAPIWithoutRestores(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *client.APIError
+	}{
+		{"an older kupe-api refuses the field", &client.APIError{StatusCode: 400, Message: `invalid request body: json: unknown field "source"`}},
+		// No list or delete promise: the platform has no manual backups.
+		{"the platform cannot restore yet", &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable,
+			Message: "backups are not available on this platform"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.CreateDatabaseErr = tt.err
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from", "orders-db", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+			assertExit(t, err, cli.ExitUnavailable)
+			if err.Error() != "this platform does not offer database restores yet" || hint(err) != "" {
+				t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
+			}
+		})
+	}
+}
+
+func TestCreate_RestoreWaitsForRunning(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = running("orders-db")
+	fake.GetDatabaseSeq["orders-copy"] = []*client.Database{
+		{Name: "orders-copy", Status: &client.DatabaseStatus{Phase: client.PhaseProvisioning}},
+		running("orders-copy"),
+	}
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newCreateCmd(f), "orders-copy", "--from", "orders-db", "--cpu", "500m", "--memory", "1Gi", "--wait-timeout", "30s")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if v, _ := detailValue(out, "Phase"); v != "Running" {
+		t.Fatalf("final render should be the Running database:\n%s", out)
 	}
 }

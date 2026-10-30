@@ -3,6 +3,7 @@ package cmdutil
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -20,6 +21,9 @@ type refusal struct {
 	// message (cli.WrapAPI). hint, when set, is the next step.
 	fallback func(noun, name string) string
 	hint     func(noun, name string) string
+	// hintStatus, when set, gives the hint only for a refusal with this
+	// HTTP status: the same code can mean different things at another one.
+	hintStatus int
 }
 
 // refusals is tried in order; the first row whose code, or failing that
@@ -42,7 +46,8 @@ var refusals = []refusal{
 		hint: func(string, string) string {
 			return "this is a platform setting, not an outage, so retrying will not help; " +
 				"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, " +
-				"and their bindings deleted or narrowed (binding update --remove-namespace)"
+				"and their bindings deleted or narrowed (binding update --remove-namespace); " +
+				"manual backups can still be listed and deleted (kupe database backup delete)"
 		},
 	},
 	{
@@ -56,9 +61,17 @@ var refusals = []refusal{
 	},
 	{
 		// The platform does not offer backups: a request that sets backup
-		// settings is refused. The request was valid, so not a misuse.
+		// settings, takes a manual backup or restores is refused. The
+		// request was valid, so not a misuse. Only the 400 (backups
+		// switched off) leaves manual backups listable; the 404 means the
+		// platform cannot take them at all (callers word it themselves).
 		code: client.DatabaseCodeBackupsUnavailable, phrase: "backups are not available on this platform", exit: cli.ExitUnavailable,
 		fallback: func(string, string) string { return "backups are not available on this platform" },
+		hint: func(string, string) string {
+			return "this is a platform setting, not an outage, so retrying will not help; " +
+				"existing manual backups can still be listed and deleted (kupe database backup delete)"
+		},
+		hintStatus: http.StatusBadRequest,
 	},
 	{
 		code: client.CodeTerminating, phrase: "is being deleted; it cannot be bound", exit: cli.ExitConflict,
@@ -126,7 +139,7 @@ func TranslateCommon(noun, name string, err error) error {
 			}
 		}
 		out := cli.WrapAPI(r.exit, fallback, err)
-		if r.hint != nil {
+		if r.hint != nil && (r.hintStatus == 0 || client.StatusCode(err) == r.hintStatus) {
 			if hint := r.hint(noun, name); hint != "" {
 				out = out.WithHint(hint)
 			}

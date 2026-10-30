@@ -277,7 +277,7 @@ func TestGet(t *testing.T) {
 		for _, w := range []string{
 			"Backups:              14 days, DailyThenWeekly\n",
 			"Last Backup:          2026-10-16T02:14:07Z (",
-			"Recovery Window:      2026-10-02T02:14:07Z to 2026-10-16T10:41:33Z\n",
+			"Restore Window:       2026-10-02T02:14:07Z to 2026-10-16T10:41:33Z\n",
 			"Backup Size:          3.2 GiB\n",
 		} {
 			if !strings.Contains(out, w) {
@@ -296,7 +296,7 @@ func TestGet(t *testing.T) {
 		if !strings.Contains(out, "Backups:              defaults\n") {
 			t.Errorf("want the Backups row to read defaults in:\n%s", out)
 		}
-		for name, want := range map[string]string{"Backups": "defaults", "Last Backup": "never", "Recovery Window": "", "Backup Size": ""} {
+		for name, want := range map[string]string{"Backups": "defaults", "Last Backup": "never", "Restore Window": "", "Backup Size": ""} {
 			if got, ok := detailValue(out, name); !ok || got != want {
 				t.Errorf("%s = %q (found %v); want %q in:\n%s", name, got, ok, want, out)
 			}

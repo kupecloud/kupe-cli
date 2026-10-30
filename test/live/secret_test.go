@@ -22,7 +22,7 @@ func TestSecretLifecycle(t *testing.T) {
 	// Create.
 	var created map[string]any
 	runCLIJSON(t, &created, "secret", "create", name,
-		"--path", path,
+		"--path", path, "--wait=false",
 	)
 	if created["name"] != name {
 		t.Errorf("created.name = %v; want %q", created["name"], name)
@@ -57,7 +57,7 @@ func TestSecretLifecycle(t *testing.T) {
 
 	// Update — add a sync target. The spec is `cluster:namespace[:secretName]`.
 	syncSpec := "test-cluster:test-ns:remote-name"
-	runCLIExpectOK(t, "secret", "update", name, "--sync", syncSpec)
+	runCLIExpectOK(t, "secret", "update", name, "--sync", syncSpec, "--wait=false")
 
 	// Verify the sync entry came back as expected.
 	var afterUpdate map[string]any
@@ -98,4 +98,38 @@ func TestSecretCreateRejectsBadSyncSpec(t *testing.T) {
 	if !strings.Contains(r.stderr, "sync") {
 		t.Errorf("stderr should mention --sync:\n%s", r.stderr)
 	}
+}
+
+// TestSecretSelectedKeysAndRefreshWait exercises the additive CLI surface.
+// The selected-key definition uses a nonexistent target without waiting;
+// a separate no-target definition proves refresh acknowledgement and wait.
+func TestSecretSelectedKeysAndRefreshWait(t *testing.T) {
+	selected := uniqueName("cli-live-selected")
+	var created map[string]any
+	runCLIJSON(t, &created, "secret", "create", selected, "--path", "cli-live/"+selected,
+		"--sync", "nonexistent-cluster:test-ns", "--sync-key", "nonexistent-cluster:test-ns:API_KEY", "--wait=false")
+	t.Cleanup(func() { _ = runCLI(t, "secret", "delete", selected, "--yes", "--wait=false") })
+	targets, _ := created["sync"].([]any)
+	if len(targets) != 1 {
+		t.Fatalf("sync targets=%v", targets)
+	}
+	target, _ := targets[0].(map[string]any)
+	keys, _ := target["keys"].([]any)
+	if len(keys) != 1 || keys[0] != "API_KEY" {
+		t.Fatalf("keys=%v", keys)
+	}
+	runCLIExpectOK(t, "secret", "delete", selected, "--yes", "--wait=true")
+
+	name := uniqueName("cli-live-refresh")
+	var noTargets map[string]any
+	runCLIJSON(t, &noTargets, "secret", "create", name, "--path", "cli-live/"+name)
+	t.Cleanup(func() { _ = runCLI(t, "secret", "delete", name, "--yes", "--wait=false") })
+	var refreshed map[string]any
+	runCLIJSON(t, &refreshed, "secret", "refresh", name, "--wait=true")
+	if refreshed["secret"] != name || refreshed["requestedAt"] == "" || refreshed["delivered"] != true {
+		t.Fatalf("refresh=%v", refreshed)
+	}
+	runCLIExpectOK(t, "secret", "wait", name, "--for", "delivered", "--timeout", "5m")
+	runCLIExpectOK(t, "secret", "delete", name, "--yes", "--wait=true")
+	runCLIExpectOK(t, "secret", "wait", name, "--for", "deleted", "--timeout", "5m")
 }

@@ -57,6 +57,9 @@ type Interface interface {
 	// `secret update`; one retry on 412 before ErrSecretRMWContention.
 	UpdateSecretRMW(ctx context.Context, name string, mutate SecretMutator) (*Secret, error)
 
+	// RefreshSecret requests a refresh of a secret's current values.
+	RefreshSecret(ctx context.Context, name string) (string, error)
+
 	// DeleteSecret revokes a managed secret.
 	DeleteSecret(ctx context.Context, name string) error
 

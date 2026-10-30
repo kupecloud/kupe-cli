@@ -20,12 +20,8 @@ import (
 func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secret",
-		Short: "Manage tenant-scoped managed secrets",
-		Long: `Create, inspect, update, and delete ManagedSecret resources.
-
-Managed secrets store their actual values in OpenBao — the CLI manages the
-pointer (Vault path) and the list of clusters/namespaces where the operator
-mirrors the secret into the vcluster as a Kubernetes Secret.`,
+		Short: "Manage tenant-scoped secrets",
+		Long:  `Create, inspect, update, refresh, wait for and delete secret definitions. A definition names a Vault path and the cluster namespaces that receive its values. Deleting a definition keeps the stored values.`,
 	}
 
 	cmd.AddCommand(newListCmd(f))
@@ -33,6 +29,8 @@ mirrors the secret into the vcluster as a Kubernetes Secret.`,
 	cmd.AddCommand(newCreateCmd(f))
 	cmd.AddCommand(newUpdateCmd(f))
 	cmd.AddCommand(newDeleteCmd(f))
+	cmd.AddCommand(newRefreshCmd(f))
+	cmd.AddCommand(newWaitCmd(f))
 	return cmd
 }
 

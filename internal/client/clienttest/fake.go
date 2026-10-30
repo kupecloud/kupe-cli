@@ -78,6 +78,13 @@ type Fake struct {
 	CreateSecretErr error
 	UpdateSecretErr error
 	DeleteSecretErr error
+	// GetSecretSeq scripts reads; a nil entry is a plain 404 and the last entry repeats.
+	GetSecretSeq             map[string][]*client.Secret
+	GetSecretErrors          []error
+	RefreshSecretErr         error
+	RefreshSecretRequestedAt string
+	// KeepDeletedSecret leaves the record in place to test asynchronous withdrawal.
+	KeepDeletedSecret bool
 
 	// Databases keyed by name. CreateDatabase stores the request with the
 	// API's defaults applied; UpdateRMW applies patches in place.
@@ -208,6 +215,7 @@ func New() *Fake {
 		Kubeconfigs:      map[string]*client.ClusterKubeconfig{},
 		APIKeys:          map[string]*client.APIKey{},
 		Secrets:          map[string]*client.Secret{},
+		GetSecretSeq:     map[string][]*client.Secret{},
 		DatabasesByName:  map[string]*client.Database{},
 		GetDatabaseSeq:   map[string][]*client.Database{},
 		DatabaseBindings: map[string]*client.DatabaseBinding{},
@@ -389,6 +397,24 @@ func (f *Fake) GetSecret(_ context.Context, name string) (*client.Secret, string
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record("GetSecret:" + name)
+	if len(f.GetSecretErrors) > 0 {
+		err := f.GetSecretErrors[0]
+		f.GetSecretErrors = f.GetSecretErrors[1:]
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	if seq := f.GetSecretSeq[name]; len(seq) > 0 {
+		s := seq[0]
+		if len(seq) > 1 {
+			f.GetSecretSeq[name] = seq[1:]
+		}
+		if s == nil {
+			return nil, "", &client.APIError{StatusCode: 404, Message: "secret not found"}
+		}
+		return s, "etag-fake", nil
+	}
 	if f.GetSecretErr != nil {
 		return nil, "", f.GetSecretErr
 	}
@@ -462,7 +488,9 @@ func (f *Fake) DeleteSecret(_ context.Context, name string) error {
 	if _, ok := f.Secrets[name]; !ok {
 		return &client.APIError{StatusCode: 404, Message: "secret not found"}
 	}
-	delete(f.Secrets, name)
+	if !f.KeepDeletedSecret {
+		delete(f.Secrets, name)
+	}
 	return nil
 }
 
@@ -749,3 +777,25 @@ func (f *Fake) GetPlan(_ context.Context, name string) (*client.Plan, error) {
 
 // Compile-time interface check.
 var _ client.Interface = (*Fake)(nil)
+
+// RefreshSecret implements client.Interface without exposing stored values.
+func (f *Fake) RefreshSecret(_ context.Context, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("RefreshSecret:" + name)
+	if f.RefreshSecretErr != nil {
+		return "", f.RefreshSecretErr
+	}
+	s, ok := f.Secrets[name]
+	if !ok {
+		return "", &client.APIError{StatusCode: 404, Message: "secret not found"}
+	}
+	if s.Status != nil && s.Status.Phase == "Deleting" {
+		return "", &client.APIError{StatusCode: 409, Code: "terminating", Message: "secret is being deleted"}
+	}
+	requestedAt := f.RefreshSecretRequestedAt
+	if requestedAt == "" {
+		requestedAt = "2026-10-30T12:00:00Z"
+	}
+	return requestedAt, nil
+}

@@ -12,6 +12,7 @@ import (
 // namespaces the secret is synced to.
 type Secret struct {
 	Name            string        `json:"name" yaml:"name"`
+	Generation      int64         `json:"generation" yaml:"generation"`
 	SecretPath      string        `json:"secretPath" yaml:"secretPath"`
 	Sync            []SyncTarget  `json:"sync,omitempty" yaml:"sync,omitempty"`
 	Status          *SecretStatus `json:"status,omitempty" yaml:"status,omitempty"`
@@ -22,15 +23,40 @@ type Secret struct {
 // SyncTarget pins a managed secret into a specific cluster + namespace.
 // SecretName is optional; if empty, the server defaults to Secret.Name.
 type SyncTarget struct {
-	Cluster    string `json:"cluster" yaml:"cluster"`
-	Namespace  string `json:"namespace" yaml:"namespace"`
-	SecretName string `json:"secretName,omitempty" yaml:"secretName,omitempty"`
+	Cluster    string   `json:"cluster" yaml:"cluster"`
+	Namespace  string   `json:"namespace" yaml:"namespace"`
+	SecretName string   `json:"secretName,omitempty" yaml:"secretName,omitempty"`
+	Keys       []string `json:"keys,omitempty" yaml:"keys,omitempty"`
 }
 
 // SecretStatus carries the operator's observed state. Phase values
 // (Pending / Active / Degraded / Deleting) mirror the CRD.
 type SecretStatus struct {
-	Phase string `json:"phase" yaml:"phase"`
+	Phase              string               `json:"phase" yaml:"phase"`
+	ObservedGeneration int64                `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+	ObservedRefresh    string               `json:"observedRefresh,omitempty" yaml:"observedRefresh,omitempty"`
+	Refresh            *SecretRefreshStatus `json:"refresh,omitempty" yaml:"refresh,omitempty"`
+	Conditions         []Condition          `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	SyncStatuses       []SecretTargetStatus `json:"syncStatuses,omitempty" yaml:"syncStatuses,omitempty"`
+}
+
+// SecretRefreshStatus records the requested refresh and its observed delivery.
+type SecretRefreshStatus struct {
+	RequestedAt string `json:"requestedAt,omitempty" yaml:"requestedAt,omitempty"`
+	ObservedAt  string `json:"observedAt,omitempty" yaml:"observedAt,omitempty"`
+	Pending     bool   `json:"pending" yaml:"pending"`
+}
+
+// SecretTargetStatus describes delivery into one cluster namespace.
+type SecretTargetStatus struct {
+	Cluster          string `json:"cluster" yaml:"cluster"`
+	Namespace        string `json:"namespace" yaml:"namespace"`
+	SecretName       string `json:"secretName,omitempty" yaml:"secretName,omitempty"`
+	Phase            string `json:"phase" yaml:"phase"`
+	Reason           string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	DeliveredRefresh string `json:"deliveredRefresh,omitempty" yaml:"deliveredRefresh,omitempty"`
+	LastDeliveredAt  string `json:"lastDeliveredAt,omitempty" yaml:"lastDeliveredAt,omitempty"`
+	Message          string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // CreateSecretRequest is the POST body.
@@ -107,4 +133,13 @@ func (c *Client) UpdateSecretRMW(ctx context.Context, name string, mutate Secret
 func (c *Client) DeleteSecret(ctx context.Context, name string) error {
 	_, err := c.request(ctx, http.MethodDelete, c.tenantPath("secrets", name), nil, nil)
 	return err
+}
+
+// RefreshSecret asks the platform to read and deliver the current stored values.
+func (c *Client) RefreshSecret(ctx context.Context, name string) (string, error) {
+	var response struct {
+		RequestedAt string `json:"requestedAt"`
+	}
+	_, err := c.request(ctx, http.MethodPost, c.tenantPath("secrets", name, "refresh"), nil, &response)
+	return response.RequestedAt, err
 }

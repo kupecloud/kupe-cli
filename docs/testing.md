@@ -73,7 +73,7 @@ Printer tests live in `internal/printer/`. They cover:
 - ANSI-colored cell alignment.
 - Detail rendering.
 
-There are no golden files in the current tree. If byte-for-byte output fixtures are added later, they should live under `testdata/` next to the package that owns the renderer.
+Secret list and detail golden files live in `internal/printer/testdata/`. Regenerate them with `make test-update`; the target runs the printer package, which owns the `-update` flag.
 
 ## Layer 3 — client tests
 

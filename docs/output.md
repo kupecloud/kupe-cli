@@ -93,7 +93,7 @@ Each resource has a `Columns() []Column` function. A `Column` has a `Name`, an `
 |--------|--------|------------|
 | NAME | `.name` | |
 | PHASE | `.status.phase` | |
-| SYNCS | `len(.sync)` | |
+| DELIVERED | Current targets reported `Synced`, as delivered/total | |
 | AGE | `.createdAt` → relative | |
 | PATH | `.secretPath` | ✓ |
 | CLUSTERS | deduped cluster names from `.sync[].cluster`, comma-joined | ✓ |

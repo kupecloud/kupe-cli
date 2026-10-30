@@ -3,7 +3,9 @@ package secret
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,7 +59,7 @@ func TestListEmpty(t *testing.T) {
 func TestCreateAndList(t *testing.T) {
 	fake := clienttest.New()
 	f := factoryWith(t, fake)
-	if err := exec(newCreateCmd(f), "db", "--path", "kv/db"); err != nil {
+	if err := exec(newCreateCmd(f), "db", "--path", "kv/db", "--wait=false"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if _, ok := fake.Secrets["db"]; !ok {
@@ -90,7 +92,7 @@ func TestCreateWithSyncTargets(t *testing.T) {
 	f := factoryWith(t, fake)
 	if err := exec(newCreateCmd(f), "db", "--path", "kv/db",
 		"--sync", "prod:default",
-		"--sync", "staging:default:renamed",
+		"--sync", "staging:default:renamed", "--wait=false",
 	); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -140,7 +142,7 @@ func TestUpdateReplacesSyncList(t *testing.T) {
 		Sync: []client.SyncTarget{{Cluster: "old", Namespace: "default"}},
 	}
 	f := factoryWith(t, fake)
-	if err := exec(newUpdateCmd(f), "db", "--sync", "new:default"); err != nil {
+	if err := exec(newUpdateCmd(f), "db", "--sync", "new:default", "--wait=false"); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	s := fake.Secrets["db"]
@@ -225,5 +227,154 @@ func TestParseSyncTargets(t *testing.T) {
 		if tt.ok && len(got) != len(tt.want) {
 			t.Errorf("parseSyncTargets(%v) = %+v; want %+v", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestSyncKeyValidation(t *testing.T) {
+	tooMany := make([]string, 65)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("c:ns:KEY_%d", i)
+	}
+	tests := []struct {
+		name string
+		keys []string
+		want bool
+	}{
+		{"unknown target", []string{"other:ns:key"}, false},
+		{"empty", []string{"c:ns:"}, false},
+		{"repeated", []string{"c:ns:key", "c:ns:key"}, false},
+		{"65 keys", tooMany, false},
+		{"dot", []string{"c:ns:."}, false},
+		{"two dots", []string{"c:ns:.."}, false},
+		{"leading two dots", []string{"c:ns:..a"}, false},
+		{"space", []string{"c:ns:a b"}, false},
+		{"254 bytes", []string{"c:ns:" + strings.Repeat("a", 254)}, false},
+		{"valid", []string{"c:ns:API_KEY", "c:ns:tls.crt", "c:ns:a-b", "c:ns:a..b"}, true},
+	}
+	for _, verb := range []string{"create", "update"} {
+		for _, tt := range tests {
+			t.Run(verb+"/"+tt.name, func(t *testing.T) {
+				fake := clienttest.New()
+				fake.Secrets["db"] = &client.Secret{Name: "db"}
+				f := factoryWith(t, fake)
+				cmd := newUpdateCmd(f)
+				args := []string{"db", "--sync", "c:ns", "--wait=false"}
+				if verb == "create" {
+					delete(fake.Secrets, "db")
+					cmd = newCreateCmd(f)
+					args = append(args, "--path", "kv/db")
+				}
+				for _, key := range tt.keys {
+					args = append(args, "--sync-key", key)
+				}
+				err := exec(cmd, args...)
+				if tt.want {
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(fake.Secrets["db"].Sync[0].Keys) != len(tt.keys) {
+						t.Fatal("keys missing")
+					}
+				} else if cli.ExitCode(err) != cli.ExitMisuse || len(fake.Calls) != 0 {
+					t.Fatalf("err=%v calls=%v", err, fake.Calls)
+				}
+			})
+		}
+	}
+}
+
+func TestSyncKeyTotalLimit(t *testing.T) {
+	var targets []client.SyncTarget
+	var keys []string
+	for i := range 17 {
+		name := fmt.Sprintf("c%d", i)
+		targets = append(targets, client.SyncTarget{Cluster: name, Namespace: "ns"})
+		for k := range 64 {
+			keys = append(keys, fmt.Sprintf("%s:ns:K%d", name, k))
+		}
+	}
+	if _, err := selectKeys(targets, keys, nil); err == nil {
+		t.Fatal("1,088 keys accepted")
+	}
+	targets = targets[:16]
+	// Fresh selections prove the accepted boundary independently of the failed parse.
+	for i := range targets {
+		targets[i].Keys = nil
+	}
+	if _, err := selectKeys(targets, keys[:1024], nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateKeepsOrReplacesTargetKeys(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		extra  []string
+		want   []string
+		misuse bool
+	}{
+		{name: "keep", want: []string{"EXISTING"}},
+		{name: "replace", extra: []string{"--sync-key", "c:ns:NEW"}, want: []string{"NEW"}},
+		{name: "all", extra: []string{"--all-keys", "c:ns"}},
+		{name: "conflicting flags", extra: []string{"--sync-key", "c:ns:NEW", "--all-keys", "c:ns"}, misuse: true},
+		{name: "unknown all target", extra: []string{"--all-keys", "other:ns"}, misuse: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.Secrets["db"] = &client.Secret{Name: "db", Sync: []client.SyncTarget{{Cluster: "c", Namespace: "ns", Keys: []string{"EXISTING"}}}}
+			f := factoryWith(t, fake)
+			args := append([]string{"db", "--sync", "c:ns", "--wait=false"}, tt.extra...)
+			err := exec(newUpdateCmd(f), args...)
+			if tt.misuse {
+				if cli.ExitCode(err) != cli.ExitMisuse || len(fake.Calls) != 0 {
+					t.Fatalf("err=%v calls=%v", err, fake.Calls)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := fake.Secrets["db"].Sync[0].Keys
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("keys=%v want%v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpdateCombinedPreservedKeysLimit(t *testing.T) {
+	fake := clienttest.New()
+	current := &client.Secret{Name: "db"}
+	args := []string{"db", "--wait=false"}
+	for i := range 17 {
+		cluster := fmt.Sprintf("c%d", i)
+		target := client.SyncTarget{Cluster: cluster, Namespace: "ns"}
+		args = append(args, "--sync", cluster+":ns")
+		for k := range 64 {
+			target.Keys = append(target.Keys, fmt.Sprintf("KEY_%d", k))
+		}
+		current.Sync = append(current.Sync, target)
+	}
+	// The existing valid sixteen-target selection plus 64 new keys exceeds the total.
+	current.Sync = current.Sync[:16]
+	for k := range 64 {
+		args = append(args, "--sync-key", fmt.Sprintf("c16:ns:KEY_%d", k))
+	}
+	fake.Secrets["db"] = current
+	f := factoryWith(t, fake)
+	if err := exec(newUpdateCmd(f), args...); cli.ExitCode(err) != cli.ExitMisuse {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Contains(strings.Join(fake.Calls, " "), "UpdateSecret:db") {
+		t.Fatal("over-limit selection was patched")
+	}
+}
+
+func TestInvalidSyncKeyUsesApprovedMessage(t *testing.T) {
+	f := factoryWith(t, clienttest.New())
+	err := exec(newCreateCmd(f), "db", "--path", "apps/shop/api", "--sync", "c:ns", "--sync-key", "c:ns:..key", "--wait=false")
+	const want = "invalid --sync-key for target \"c:ns\": keys use 1–253 letters, digits, '-', '_' or '.', and cannot be '.', '..' or start with '..'"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err=%v want%q", err, want)
 	}
 }

@@ -36,6 +36,7 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret get` | v1 |
 | `PATCH /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret delete` | v1 |
+| `POST /api/v1/tenants/{tenant}/secrets/{name}/refresh` | `kupe secret refresh` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
@@ -656,66 +657,103 @@ Prompts on TTY; requires `--yes` on non-TTY.
 
 ---
 
-## `kupe secret` — Managed secret lifecycle
+## `kupe secret` — Secret definitions and delivery
 
-Manages `ManagedSecret` resources. Values live in OpenBao; the CLI handles
-the metadata pointer (Vault path) and the list of clusters/namespaces the
-operator mirrors the secret into.
+A secret definition names a Vault path and the cluster namespaces that receive
+its values. Deleting the definition keeps the stored values.
 
 ### `kupe secret list`
 
-List every managed secret in the tenant.
+List every secret in the tenant. `DELIVERED` counts current targets reported as
+`Synced`; `PHASE` is the platform's aggregate phase.
 
-```
-NAME         PHASE    SYNCS  AGE
-mydb-pass    Active   1      3d
-api-key      Active   2      12d
+```text
+NAME         PHASE     DELIVERED  AGE
+mydb-pass    Active    1/1        3d
+api-key      Degraded  1/2        12d
 ```
 
-`-o wide` adds `PATH` (the Vault KV path) and `CLUSTERS` (deduped).
+`-o wide` adds `PATH` and the target `CLUSTERS`.
 
 ### `kupe secret get NAME`
 
-Show details of a single secret.
+Show the path, phase and each target's cluster, namespace, effective secret name,
+selected keys (`all` for the whole entry), phase and reason. A removed target
+stays visible as `Withdrawing` until the platform's copies are removed.
+The copy in the cluster is removed afterwards, and can remain while the cluster
+is unavailable. Unknown reasons are printed unchanged.
+
+Table output omits refresh tokens and delivery timestamps. `-o json` and `-o yaml`
+include the complete status.
 
 ### `kupe secret create NAME`
 
-Create a new managed secret.
-
-**Flags:**
+Register a secret definition. The values must already exist at its Vault path.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--path PATH` | — | Vault/OpenBao KV path where the secret value lives (required). |
-| `--sync cluster:namespace[:secretName]` | none | Repeatable. Each target becomes a Kubernetes Secret mirrored into the named vcluster+namespace. If `secretName` is omitted, it defaults to NAME. |
+| `--path PATH` | — | Vault path containing the values; required. |
+| `--sync CLUSTER:NAMESPACE[:SECRET_NAME]` | none | Target namespace; repeatable. The secret name defaults to NAME. |
+| `--sync-key CLUSTER:NAMESPACE:KEY` | all keys | Selected key for a target included with `--sync`; repeatable. |
+| `--wait` | `true` | Wait until the current definition is delivered. |
+| `--wait-timeout` | `5m` | Stop waiting after this duration. Delivery continues. |
 
 ```bash
-kupe secret create mydb-pass --path kv/acme/mydb-pass \
-  --sync prod:default \
-  --sync staging:default:upstream-db-pass
+kupe secret create api-key --path apps/shop/api \
+  --sync europe:production --sync-key europe:production:API_KEY
 ```
 
-Values themselves are not passed through the CLI — seed them into OpenBao
-out-of-band.
+Selected keys use 1–253 letters, digits, `-`, `_` or `.`. A key cannot be `.` or
+`..`, or start with `..`. A target accepts at most 64 distinct keys, and a
+secret accepts at most 1,024 selected keys across its targets.
 
 ### `kupe secret update NAME`
 
-Replace a secret's sync list. Uses ETag RMW internally; a 412 mismatch is
-retried once, then exits 5 on repeated contention.
+Replace the target list with `--sync`. A retained cluster and namespace keeps
+its current selected keys. Use `--sync-key` to replace that selection, or
+`--all-keys CLUSTER:NAMESPACE` to send the whole entry. The two flags cannot name
+the same target; both must name a target included with `--sync` in this command.
 
-At least one `--sync` is required. To clear all targets, delete and recreate
-the managed secret without `--sync`.
+The command reads the current definition and retries a version conflict once.
+Repeated contention exits 5. It waits for delivery by default, with the same
+`--wait` and `--wait-timeout` flags as create. At least one `--sync` is required;
+to clear every target, delete the definition and recreate it without `--sync`.
 
 ```bash
-kupe secret update mydb-pass --sync prod:default --sync staging:default
+kupe secret update api-key --sync europe:production --all-keys europe:production
 ```
+
+### `kupe secret refresh NAME`
+
+Request the current stored values and wait for delivery by default. `--wait`
+defaults to `true` and `--wait-timeout` to `5m`. A newer refresh replaces the
+requested one; the wait follows it and prints a notice once when it changes.
+
+`-o json` or `-o yaml` returns `secret`, `requestedAt` and `delivered`. If the API
+does not report refresh progress, the command prints `refresh requested` and
+returns without waiting.
+
+### `kupe secret wait NAME`
+
+Wait for `--for delivered` (the default) or `--for deleted`. `--timeout` defaults
+to `30m`. Delivery requires the current generation, phase `Active`, a `Synced`
+entry for every current target, and no `Withdrawing` entry. A `TargetConflict`
+on a current target stops the wait and names the target. Other failures,
+including `ProviderError`, are waited out: adding missing values or keys can
+resolve them. A definition entering `Deleting` ends a delivery or refresh wait.
+
+A timeout exits 8 and gives `kupe secret get NAME` as the status check. Waiting
+does not cancel delivery or withdrawal.
 
 ### `kupe secret delete NAME`
 
-Delete a managed secret. Only the `ManagedSecret` resource and its mirrored
-Kubernetes Secrets are removed — the underlying OpenBao value is untouched.
+Delete the definition and wait until the definition is gone. Stored
+values are kept. The platform withdraws its copies from each namespace.
 
-Prompts on TTY; requires `--yes` on non-TTY.
+`--wait` defaults to `true` and `--wait-timeout` to `5m`. A timeout exits 8;
+the platform keeps removing copies. With `--wait=false`, the command prints
+`secret/NAME delete requested`. It prints `secret/NAME deleted` after confirming
+removal. Prompts on TTY; pass `--yes` in non-interactive environments.
 
 ---
 

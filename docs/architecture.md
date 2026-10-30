@@ -100,7 +100,7 @@ internal/
 │   │                              delete-context, current-context.
 │   ├── cluster/                 — list, get, create, delete, update, kubeconfig, wait.
 │   ├── apikey/                  — list, create, delete.
-│   ├── secret/                  — list, get, create, update, delete.
+│   ├── secret/                  — list, get, create, update, delete, refresh, wait.
 │   ├── database/                — list, get, create, update, upgrade, delete,
 │   │                              rotate-credentials, wait, binding add/list/get/update/delete.
 │   ├── cmdutil/                 — Shared helpers: phase waits, wait-error mapping,
@@ -123,7 +123,7 @@ internal/
 │   ├── cluster_rmw.go           — UpdateClusterRMW helper with 412-retry.
 │   ├── apikey.go                — ListAPIKeys, CreateAPIKey, DeleteAPIKey.
 │   ├── secret.go                — ListSecrets, GetSecret, CreateSecret, UpdateSecret,
-│   │                              DeleteSecret, UpdateSecretRMW.
+│   │                              DeleteSecret, UpdateSecretRMW, RefreshSecret.
 │   ├── database.go              — Database + binding CRUD, UpdateDatabaseRMW,
 │   │                              UpdateDatabaseBindingRMW, RotateDatabaseCredentials.
 │   ├── rmw.go                   — Generic ETag read-modify-write loop behind every *RMW helper.

@@ -1,6 +1,8 @@
 package secret
 
 import (
+	"time"
+
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -9,9 +11,12 @@ import (
 )
 
 type createOpts struct {
-	path   string
-	sync   []string
-	output string
+	path        string
+	sync        []string
+	syncKeys    []string
+	wait        bool
+	waitTimeout time.Duration
+	output      string
 }
 
 func newCreateCmd(f *cli.Factory) *cobra.Command {
@@ -19,25 +24,24 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create NAME",
-		Short: "Create a new managed secret",
-		Long: `Register a managed secret. The CLI does NOT carry the secret value —
-it only registers a pointer to a path in the platform secret store, and
-optionally one or more sync targets (cluster + namespace pairs where the
-operator will mirror the secret into a Kubernetes Secret).
+		Short: "Create a secret definition",
+		Long: `Register a secret definition at a Vault path and choose the cluster
+namespaces that receive its values. Values must already exist at the path.
 
-Seed the value at the referenced path through the platform's secret-store
-UI before adding sync targets, otherwise the mirrored Secrets will sit in
-the Pending phase until the value exists.`,
+By default, wait until the current values reach every target namespace.
+Missing values or selected keys can be fixed while the command waits. A
+wait timeout leaves the definition in place and delivery continues.
+Pass --wait=false to return once the definition is created.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Path only, no sync targets (seed values later)
-  kupe secret create mydb-password --path kv/acme/mydb-password
+  kupe secret create mydb-password --path apps/shop/api
 
   # Sync to one cluster's default namespace
-  kupe secret create mydb-password --path kv/acme/mydb-password --sync prod:default
+  kupe secret create mydb-password --path apps/shop/api --sync prod:default
 
   # Sync to two clusters, custom target secret name in each
   kupe secret create api-key \
-    --path kv/acme/api-key \
+    --path apps/shop/api \
     --sync prod:default:upstream-api-key \
     --sync staging:default:upstream-api-key`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,6 +52,9 @@ the Pending phase until the value exists.`,
 			}
 			targets, err := parseSyncTargets(opts.sync)
 			if err != nil {
+				return cli.MisuseError(err.Error())
+			}
+			if _, err := selectKeys(targets, opts.syncKeys, nil); err != nil {
 				return cli.MisuseError(err.Error())
 			}
 			if opts.path == "" {
@@ -65,12 +72,22 @@ the Pending phase until the value exists.`,
 			if err != nil {
 				return err
 			}
+			if opts.wait {
+				final, werr := waitForDelivery(cmd.Context(), f.IOStreams, api, name, opts.waitTimeout)
+				if werr != nil {
+					return secretWaitErr(werr, name, false)
+				}
+				s = final
+			}
 			return renderOne(f.IOStreams.Out, f.IOStreams.ColorEnabled, format, s)
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.path, "path", "", "Path in the platform secret store where the value lives, e.g. kv/acme/db-password (required)")
+	cmd.Flags().StringVar(&opts.path, "path", "", "Vault path containing the values, e.g. apps/shop/api (required)")
 	cmd.Flags().StringArrayVar(&opts.sync, "sync", nil, "Sync target as cluster:namespace[:secretName]; repeatable")
+	cmd.Flags().StringArrayVar(&opts.syncKeys, "sync-key", nil, "Selected key as cluster:namespace:key; repeatable")
+	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until the secret is delivered before returning")
+	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 5*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
 }

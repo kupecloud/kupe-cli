@@ -54,7 +54,7 @@ test-coverage: ## Run tests with coverage report
 	GOCACHE="$(GOCACHE)" $(GO) tool cover -html=coverage.out -o coverage.html
 
 test-update: ## Update golden files
-	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) ./internal/... -update
+	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) ./internal/printer -update
 
 test-live: ## Run live tests against deployed kupe-api. Requires KUPE_API_TOKEN; KUPE_API_URL defaults to api.dev.int.kupe.cloud. See test/live/suite_test.go header.
 	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) -tags=live -timeout=20m -v ./test/live/...

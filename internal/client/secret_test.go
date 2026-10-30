@@ -106,3 +106,40 @@ func TestDeleteSecretNotFound(t *testing.T) {
 		t.Fatalf("want IsNotFound, got %v", err)
 	}
 }
+
+func TestRefreshSecretPostsAndDecodesToken(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/tenants/acme/secrets/db/refresh" {
+			t.Errorf("request=%s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		fmt.Fprintln(w, `{"name":"db","requestedAt":"opaque-token"}`)
+	})
+	got, err := c.RefreshSecret(context.Background(), "db")
+	if err != nil || got != "opaque-token" {
+		t.Fatalf("token=%q err=%v", got, err)
+	}
+}
+
+func TestSecretStatusDecode(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, `{"name":"db","generation":3,"sync":[{"cluster":"c","namespace":"ns","keys":["API_KEY"]}],"status":{"phase":"Active","observedGeneration":3,"observedRefresh":"token","refresh":{"requestedAt":"token","observedAt":"token","pending":false},"conditions":[{"type":"Ready","status":"True"}],"syncStatuses":[{"cluster":"c","namespace":"ns","secretName":"db","phase":"Synced","reason":"Delivered","deliveredRefresh":"token","lastDeliveredAt":"2026-10-30T12:00:00Z","message":"delivered"}]}}`)
+	})
+	s, _, err := c.GetSecret(context.Background(), "db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Generation != 3 || s.Sync[0].Keys[0] != "API_KEY" || s.Status.ObservedGeneration != 3 || s.Status.ObservedRefresh != "token" || s.Status.Refresh.ObservedAt != "token" || s.Status.Conditions[0].Status != "True" || s.Status.SyncStatuses[0].DeliveredRefresh != "token" || s.Status.SyncStatuses[0].LastDeliveredAt == "" || s.Status.SyncStatuses[0].Message != "delivered" {
+		t.Fatalf("decode=%+v", s)
+	}
+}
+
+func TestRefreshSecretReturnsTerminatingCode(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprintln(w, `{"code":"terminating","message":"secret is being deleted"}`)
+	})
+	if _, err := c.RefreshSecret(context.Background(), "db"); !IsConflict(err) || ErrorCode(err) != "terminating" {
+		t.Fatalf("err=%v", err)
+	}
+}

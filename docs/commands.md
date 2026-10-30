@@ -47,6 +47,11 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding get` (also `binding update`, before its `PATCH`) | v1 |
 | `PATCH /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/databases/{name}/backups` | — (`kupe database backup list DATABASE` reads `GET /backups?database=` so it includes deleted databases' backups) | v1 |
+| `POST /api/v1/tenants/{tenant}/databases/{name}/backups` | `kupe database backup create` | v1 |
+| `GET /api/v1/tenants/{tenant}/backups` | `kupe database backup list` (also `kupe tenant delete`, for its warning) | v1 |
+| `GET /api/v1/tenants/{tenant}/backups/{backup}` | `kupe database backup get` (also `backup create` while it waits, and `database create --from-backup` for the backup's storage) | v1 |
+| `DELETE /api/v1/tenants/{tenant}/backups/{backup}` | `kupe database backup delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/registries` | `kupe registry list` | v1 |
 | `POST /api/v1/tenants/{tenant}/registries` | `kupe registry create` | v1 |
 | `GET /api/v1/tenants/{tenant}/registries/{name}` | `kupe registry get` (also `wait`, `delete`, `connect` and `logout`, which read it) | v1 |
@@ -353,8 +358,8 @@ only the platform's sentence is matched on that sentence instead.
 | Refusal (`code`, HTTP status) | Exit | Hint |
 | --- | --- | --- |
 | Creation paused (`creation_paused`, 400) | `7` | retry later; status page link |
-| Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted, and their bindings deleted or narrowed |
-| Backups not offered on the platform (`backups_unavailable`, 400), for a database create or update that sets a backup flag | `7` | — |
+| Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted, their bindings deleted or narrowed, and manual backups listed and deleted |
+| Backups not offered on the platform (`backups_unavailable`, 400, or 404 while the platform cannot take manual backups or restore yet), for a database create or update that sets a backup flag, a manual backup or a restore | `7` | a platform setting: retrying will not help; existing manual backups can still be listed and deleted |
 | The cluster or database is being deleted (`terminating`, 409) | `5` | `kupe <noun> wait NAME --for deleted` |
 | The tenant is being deleted (`tenant_terminating`, 409) | `5` | — |
 | The tenant is suspended (`tenant_suspended`, 409) | `5` | contact support |
@@ -736,8 +741,9 @@ runs two instances, each with the requested resources.
 
 When databases are not enabled on the platform, `list`, `get`,
 `wait`, `delete`, `update NAME --deletion-protection=false`,
-`binding list/get/delete` and `binding update --remove-namespace` keep working
-so existing databases and bindings can still be cleaned up. Other
+`binding list/get/delete`, `binding update --remove-namespace` and
+`backup list/get/delete` keep working so existing databases, bindings and
+manual backups can still be cleaned up. Other
 `kupe database` commands, and a `binding update` that adds a namespace, exit
 `4` with the API's message, "databases are not available on this platform"
 (`404 databases_unavailable`), and a hint that existing databases can still be
@@ -796,14 +802,17 @@ Create a database and wait for `status.phase=Running` by default.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--engine ENGINE` | `postgres` | Database engine. Only `postgres` is supported. |
-| `--version MAJOR` | platform default | Engine major version (e.g. `18`). |
+| `--version MAJOR` | platform default; the source's with `--from-backup` or `--from` | Engine major version (e.g. `18`). A restore runs the source's major version: leave it out, or give that one. |
 | `--cpu QUANTITY` | required | CPU per instance, without a unit (`500m`, `2`, `0.5`). |
 | `--memory QUANTITY` | required | Memory per instance, with a unit (`1Gi`, `512Mi`). |
-| `--storage QUANTITY` | required | Storage per instance, with a unit (`10Gi`). Grows later, never shrinks. |
+| `--storage QUANTITY` | required; the source's with `--from-backup` or `--from` | Storage per instance, with a unit (`10Gi`). Grows later, never shrinks. A restore needs at least the source's. |
 | `--ha` | off | Two instances with a synchronous standby; resources are reserved and billed per instance. |
 | `--no-deletion-protection` | off | Create without deletion protection (it is on by default). |
 | `--backup-retention DAYS` | `7` | How far back backups reach, in days. The platform sets the range. |
 | `--backup-schedule SCHEDULE` | `Daily` | Full backups kept within the retention: `Daily` keeps one for every day, `DailyThenWeekly` one for each of the last 7 days and one a week before that. |
+| `--from-backup BACKUP` | — | Restore the new database from this manual backup. |
+| `--from DATABASE` | — | Restore the new database from this database, as it was at `--point-in-time`. |
+| `--point-in-time TIME` | the latest point | With `--from`: the moment to restore to, inside the database's restore window, in RFC 3339 (`2026-10-30T09:00:00Z`). |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
@@ -831,9 +840,56 @@ the API's message, "backups are not available on this platform"
 kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
 ```
 
-**Exit codes:** `0` success, `2` missing or malformed flags (no request made)
-or an API validation error, `5` name exists or a tenant or plan refusal
-([shared refusals](#refusals-shared-by-clusters-and-databases)), `7` creation
+#### Restoring into a new database
+
+`--from-backup BACKUP` restores the new database from a manual backup (see
+[`kupe database backup`](#kupe-database-backup--manual-backups)) instead of
+starting it empty: it holds the data as it was when the backup completed. The
+database the backup was taken of may have been deleted. `--from DATABASE`
+restores it from another database as it was at `--point-in-time`, a moment
+inside that database's restore window (the `Restore Window` row of
+`kupe database get`); without `--point-in-time`, the latest point. The request
+sends `source` (`backup`, or `database` and `pointInTime`) and no `version`
+unless `--version` is given.
+
+The new database runs the source's major version: leave out `--version`, or
+give that one. Its storage must be at least the source's. Without `--storage`,
+the command reads the source's storage first (the backup's, from
+`GET /backups/{backup}`; the database's, from `GET /databases/{name}`), sends
+it, and says so on stderr: `Using the source's storage, 10Gi; pass --storage
+to give the new database more.` `--cpu` and `--memory` stay required. The
+source is unchanged, and the new database counts against your plan's database
+limit like any other. The command waits for `Running` as for any create.
+
+`--from-backup` with `--from`, `--point-in-time` without `--from`, and a
+`--point-in-time` that is not RFC 3339 with a zone each exit `2` before any
+request is made. A backup that has not recorded its storage yet (not
+`Completed`) exits `5` unless `--storage` is given; a source that does not
+exist exits `4` when its storage is read.
+
+| Refusal (`code`) | Exit | Hint |
+| --- | --- | --- |
+| The source does not exist (`restore_source_not_found`, 400) | `2` | `kupe database backup list` or `kupe database list` |
+| The backup has not completed, or the database has no restore window yet (`restore_source_not_ready`, 409) | `5` | check the source with `kupe database backup get` or `kupe database get` |
+| `--point-in-time` outside the restore window (`restore_point_outside_window`, 400) | `2` | pick a moment inside the `Restore Window`, or leave the flag out |
+| `--version` other than the source's major (`restore_version_mismatch`, 400) | `2` | leave out `--version`, or give the source's |
+| `--storage` less than the source's (`restore_storage_too_small`, 400) | `2` | leave out `--storage`, or give at least the source's |
+| Backups not offered (`backups_unavailable`, 400; 404 while the platform cannot restore yet) | `7` | manual backups can still be listed and deleted |
+
+Each refusal shows the API's message. A kupe-api that predates restores
+refuses the `source` field; the command exits `7` with "this platform does not
+offer database restores yet".
+
+```bash
+kupe db create orders-db-copy --from-backup orders-db-before-migration --cpu 500m --memory 1Gi
+kupe db create orders-db-0900 --from orders-db --point-in-time 2026-10-30T09:00:00Z --cpu 500m --memory 1Gi
+```
+
+**Exit codes:** `0` success, `2` missing or malformed flags (no request made),
+an API validation error or a restore that does not fit its source, `4` a
+restore source not found, `5` name exists, a tenant or plan refusal
+([shared refusals](#refusals-shared-by-clusters-and-databases)) or a restore
+source not ready, `7` creation
 paused, backups not offered, a 503, or lost contact with kupe-api while waiting, `8` wait timeout,
 `130` Ctrl+C while waiting (creation continues), `1` when the database enters
 `Degraded` (`database "NAME" entered Degraded state`, hint: `kupe database
@@ -1119,6 +1175,84 @@ database is being deleted (`409 terminating`), the binding kept changing
 (`412` twice), or a listed namespace is `Failed` on a name conflict, `1`
 `Failed` for any other reason, `7` lost contact with kupe-api while waiting,
 `8` wait timeout, `130` Ctrl+C while waiting (the change was accepted).
+
+### `kupe database backup` — Manual backups
+
+A manual backup is kept until you delete it, even after the database is
+deleted, and a new database can be restored from it
+(`kupe database create NAME --from-backup BACKUP`). Manual backups are deleted
+with your account. A database can keep up to 20. Backup names are unique
+across the tenant, so `get` and `delete` take the backup name alone.
+
+| Command | Description |
+|---------|-------------|
+| `kupe db backup create DATABASE [--name NAME]` | Take a manual backup of a running database and wait until it is `Completed` (see below). |
+| `kupe db backup list [DATABASE]` | Newest first. Without `DATABASE`, every backup of the tenant; with it, the backups taken of databases with that name. Both include the backups of deleted databases. |
+| `kupe db backup get BACKUP` | Details, including the version and storage the database had when the backup was taken. |
+| `kupe db backup delete BACKUP` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `backup/NAME delete requested`. |
+
+`list` takes the list formats (`-o name`, `-o json`, `-o yaml`,
+`-o go-template=...`); `get` and `create` the single-resource formats.
+`-o json` and `-o yaml` print the backups as the API returns them.
+
+`backup create` flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--name NAME` | `DATABASE-YYYYMMDD-HHMMSS` | Backup name. Without it, the platform names the backup after the database and the time, in UTC. |
+| `--wait` | `true` | Wait until `status.phase` is `Completed`. `--wait=false` returns as soon as the request is accepted. |
+| `--wait-timeout DURATION` | `1h` | Give up after this long. Exits `8`. |
+| `-o, --output FORMAT` | table | Single-resource formats. |
+
+```
+$ kupe db backup create orders-db --name orders-db-before-migration
+✓ database backup orders-db-before-migration ready (01:12)
+Name:       orders-db-before-migration
+Database:   orders-db
+Reason:     Manual
+Phase:      Completed
+Message:
+Size:       1.5 GiB
+Version:    18
+Storage:    10Gi
+Completed:  2026-10-30T14:17:00Z (1s ago)
+Created:    2026-10-30T14:15:48Z (1m ago)
+
+$ kupe db backup list
+NAME                        DATABASE            REASON  PHASE      SIZE     COMPLETED  AGE
+orders-db-before-migration  orders-db           Manual  Completed  1.5 GiB  2m         3m
+users-db-20261029-020000    users-db (deleted)  Manual  Completed  640 MiB  1d         1d
+```
+
+`DATABASE` carries `(deleted)` once the database the backup was taken of is
+deleted or being deleted (`status.databaseDeleted`). `REASON` is `Manual` for
+a backup you took and `PreUpgrade` for one the platform took itself. `SIZE`
+is empty until measured; `COMPLETED` is the age of the completion time.
+`Version` and `Storage` are the database's when the backup was taken: a
+database restored from it runs that version and needs at least that storage.
+`Message` is the platform's note while the backup waits or after it fails.
+
+A `Failed` backup ends the wait at once with exit `1` and the platform's
+reason, for example `backup "orders-db-before-migration" failed: ...`, and a
+hint to delete it and take another; it cannot be restored from. A wait that
+times out says the backup is still being taken.
+
+Deleting a backup works while the platform has databases or backups switched
+off. It can no longer be restored from once deleted; a backup already being
+deleted is accepted again.
+
+**Exit codes (`backup create`):** `0` `Completed` (or accepted with
+`--wait=false`), `1` the backup `Failed`, `2` an invalid `--name`, `4` the
+database does not exist, `5` the name is taken, the database is not running
+(`409 database_not_ready`, hint: `kupe database wait DATABASE`) or already
+keeps 20 manual backups (`409 backup_limit_reached`, hint: list and delete
+one), or a shared refusal (being deleted, tenant refusals), `7` backups not
+offered, creation paused, a kupe-api that predates manual backups ("this
+platform does not offer database backups yet"), or lost contact with kupe-api
+while waiting, `8` wait timeout, `130` Ctrl+C while waiting (the backup was
+requested). `backup list`, `get` and `delete` exit `4` for a backup that does
+not exist (`get`, `delete`), `2` for `delete` without `--yes` in
+non-interactive mode, and `7` against a kupe-api that predates manual backups.
 
 ---
 
@@ -1468,6 +1602,14 @@ tenant name (mismatch or missing → exit `2`, no request made).
 |------|---------|-------------|
 | `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
 | `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. `--cascade` never deletes databases or the registry. |
+
+Manual database backups do not block deletion: they are deleted with the
+tenant and cannot be restored afterwards. Before the request, the command
+lists them on stderr (from `GET /backups`), with or without `--cascade`, as
+`NAME (DATABASE, completed TIME, SIZE)`; a backup not yet completed shows its
+phase instead of the time. If the list cannot be read, the warning says every
+manual backup is deleted and that the list could not be read, and the delete
+goes ahead. A platform without manual backups lists nothing.
 | `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
 | `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
@@ -1481,6 +1623,9 @@ Deleting tenant "acme" will:
       prod (Running)
       staging (Running)
   - Not delete databases: --cascade never does, and the tenant is refused while it has any.
+  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.
+  - Delete 1 manual database backup(s), which cannot be restored afterwards:
+      orders-db-before-migration (orders-db, completed 2026-10-30T14:17:00Z, 1.5 GiB)
 
 tenant/acme terminating
 ```

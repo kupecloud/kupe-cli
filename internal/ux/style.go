@@ -33,11 +33,11 @@ var DefaultPalette = Palette{
 // server-side phases don't break rendering.
 func PhaseStyle(phase string) lipgloss.Style {
 	switch phase {
-	case "Running", "Ready":
+	case "Running", "Ready", "Completed":
 		return DefaultPalette.Success
 	case "Provisioning", "Pending", "Upgrading":
 		return DefaultPalette.Warn
-	case "Degraded", "Terminating", "Failed":
+	case "Degraded", "Terminating", "Failed", "Deleting":
 		return DefaultPalette.Error
 	}
 	return DefaultPalette.Dim

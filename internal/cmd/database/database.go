@@ -49,6 +49,7 @@ storage for every hour its volume is bound.`,
 	cmd.AddCommand(newRotateCredentialsCmd(f))
 	cmd.AddCommand(newWaitCmd(f))
 	cmd.AddCommand(newBindingCmd(f))
+	cmd.AddCommand(newBackupCmd(f))
 	return cmd
 }
 

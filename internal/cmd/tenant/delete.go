@@ -12,6 +12,7 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
+	"github.com/kupecloud/kupe-cli/internal/printer"
 	"github.com/kupecloud/kupe-cli/internal/ux"
 )
 
@@ -41,6 +42,10 @@ databases: a tenant that still has any is refused until each one is deleted
 "kupe db delete NAME"). Nor does it delete the registry: a tenant that has one
 is refused until it is deleted ("kupe registry update
 --deletion-protection=false", then "kupe registry delete").
+
+Manual database backups do not block deletion: they are deleted with the
+tenant and cannot be restored afterwards. The warning lists them; list them
+first with "kupe database backup list".
 
 Deletion is asynchronous: the API answers 202 and "kupe tenant get" reports
 Phase Terminating until the tenant is gone (then exits 4). A tenant that was
@@ -102,7 +107,10 @@ func runDelete(ctx context.Context, f *cli.Factory, opts *deleteOpts) error {
 			return cli.Wrap(cli.ExitCode(err), "listing clusters for --cascade", err)
 		}
 	}
+	backups, backupsErr := tenantBackups(ctx, api)
 	printDeleteTenantWarning(io, name, opts.cascade, clusters)
+	printManualBackupsWarning(io, backups, backupsErr)
+	fmt.Fprintln(io.ErrOut)
 
 	if _, err := api.DeleteTenant(ctx, client.DeleteTenantRequest{Confirm: name, Cascade: opts.cascade}); err != nil {
 		return mapDeleteErr(err, name)
@@ -121,8 +129,8 @@ func runDelete(ctx context.Context, f *cli.Factory, opts *deleteOpts) error {
 // printDeleteTenantWarning writes the destructive-action summary to stderr
 // (same stream the cluster delete warning uses) so it never pollutes a
 // captured stdout. With --cascade it enumerates the clusters that go with
-// the tenant — the one piece of state the user can't get back — and says
-// that databases are never part of it.
+// the tenant and says that databases are never part of it. The manual
+// backups follow (printManualBackupsWarning), then a blank line.
 func printDeleteTenantWarning(io *cli.IOStreams, name string, cascade bool, clusters []client.Cluster) {
 	fmt.Fprintf(io.ErrOut, "\nDeleting tenant %q will:\n", name)
 	fmt.Fprintln(io.ErrOut, "  - Remove every member's access, all API keys, and all managed secrets.")
@@ -143,7 +151,57 @@ func printDeleteTenantWarning(io *cli.IOStreams, name string, cascade bool, clus
 		fmt.Fprintln(io.ErrOut, "  - Not delete databases: --cascade never does, and the tenant is refused while it has any.")
 		fmt.Fprintln(io.ErrOut, "  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.")
 	}
-	fmt.Fprintln(io.ErrOut)
+}
+
+// tenantBackups lists the tenant's manual database backups for the
+// warning. A platform without manual backups (an older kupe-api, or
+// backups never installed) has none, so that is an empty list, not an
+// error.
+func tenantBackups(ctx context.Context, api client.Interface) ([]client.Backup, error) {
+	backups, err := api.ListBackups(ctx, "")
+	if client.IsUnknownRoute(err) || client.ErrorCode(err) == client.DatabaseCodeBackupsUnavailable {
+		return nil, nil
+	}
+	return backups, err
+}
+
+// printManualBackupsWarning lists the manual database backups that go with
+// the tenant: they do not block deletion and cannot be restored afterwards
+// (D-10). A list that could not be read never blocks the delete; the
+// warning says so instead.
+func printManualBackupsWarning(io *cli.IOStreams, backups []client.Backup, err error) {
+	if err != nil {
+		fmt.Fprintf(io.ErrOut, "  - Delete every manual database backup, which cannot be restored afterwards. The list of them could not be read: %v\n", err)
+		return
+	}
+	if len(backups) == 0 {
+		return
+	}
+	fmt.Fprintf(io.ErrOut, "  - Delete %d manual database backup(s), which cannot be restored afterwards:\n", len(backups))
+	for i := range backups {
+		fmt.Fprintf(io.ErrOut, "      %s\n", backupLine(&backups[i]))
+	}
+}
+
+// backupLine is "NAME (DATABASE, completed TIME, SIZE)", with the phase in
+// place of the completion time until the backup completes and the size
+// left out until measured.
+func backupLine(b *client.Backup) string {
+	var st client.BackupStatus
+	if b.Status != nil {
+		st = *b.Status
+	}
+	parts := []string{b.Database}
+	switch {
+	case st.CompletedAt != "":
+		parts = append(parts, "completed "+st.CompletedAt)
+	case st.Phase != "":
+		parts = append(parts, st.Phase)
+	}
+	if st.SizeBytes > 0 {
+		parts = append(parts, printer.HumanBytes(st.SizeBytes))
+	}
+	return fmt.Sprintf("%s (%s)", b.Name, strings.Join(parts, ", "))
 }
 
 // mapDeleteErr translates the API's DELETE /tenants/{tenant} refusals into

@@ -1,7 +1,10 @@
 package tenant
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -255,5 +258,82 @@ func TestDeleteHelpSaysCascadeNeverDeletesDatabases(t *testing.T) {
 	}
 	if long := strings.Join(strings.Fields(cmd.Long), " "); !strings.Contains(long, "--cascade never deletes databases") {
 		t.Errorf("Long text should say --cascade never deletes databases:\n%s", cmd.Long)
+	}
+}
+
+func TestDeleteWarningListsManualBackups(t *testing.T) {
+	fake := clienttest.New()
+	fake.Backups["orders-db-before-migration"] = &client.Backup{Name: "orders-db-before-migration", Database: "orders-db",
+		Status: &client.BackupStatus{Phase: client.PhaseCompleted, CompletedAt: "2026-10-30T14:17:00Z", SizeBytes: 1610612736, DatabaseDeleted: true}}
+	fake.Backups["users-db-20261030-150000"] = &client.Backup{Name: "users-db-20261030-150000", Database: "users-db",
+		Status: &client.BackupStatus{Phase: "Running"}}
+	f := oidcFactory(t, fake)
+	if err := run(NewCmd(f), "delete", "--confirm", "acme"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	errOut := stderr(f)
+	for _, want := range []string{
+		"  - Delete 2 manual database backup(s), which cannot be restored afterwards:\n",
+		"      orders-db-before-migration (orders-db, completed 2026-10-30T14:17:00Z, 1.5 GiB)\n",
+		"      users-db-20261030-150000 (users-db, Running)\n",
+	} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr missing %q:\n%s", want, errOut)
+		}
+	}
+	if !hasCall(fake, "ListBackups:") || len(fake.DeleteTenantRequests) != 1 {
+		t.Fatalf("calls = %v; want the list, then the delete", fake.Calls)
+	}
+	if strings.Contains(stdout(f), "orders-db") {
+		t.Fatal("the backup list belongs on stderr, not stdout")
+	}
+}
+
+func TestDeleteWarningWithoutManualBackups(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	_, unknownRoute := client.New(srv.URL, "acme", "kupe_test", "kupe-cli-test/0.0.0").ListBackups(context.Background(), "")
+	if !client.IsUnknownRoute(unknownRoute) {
+		t.Fatalf("want an unknown-route error, got %v", unknownRoute)
+	}
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"none exist", nil},
+		{"the platform has no manual backups", &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable,
+			Message: "backups are not available on this platform"}},
+		{"a kupe-api without manual backups", unknownRoute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.ListBackupsErr = tt.err
+			f := oidcFactory(t, fake)
+			if err := run(NewCmd(f), "delete", "--confirm", "acme"); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+			if strings.Contains(stderr(f), "backup") {
+				t.Errorf("stderr mentions backups though there are none:\n%s", stderr(f))
+			}
+			if len(fake.DeleteTenantRequests) != 1 {
+				t.Fatal("the tenant must still be deleted")
+			}
+		})
+	}
+}
+
+func TestDeleteWarningWhenTheBackupListFails(t *testing.T) {
+	fake := clienttest.New()
+	fake.ListBackupsErr = &client.APIError{StatusCode: 500, Message: "internal server error"}
+	f := oidcFactory(t, fake)
+	if err := run(NewCmd(f), "delete", "--confirm", "acme"); err != nil {
+		t.Fatalf("a failed list must not block the delete: %v", err)
+	}
+	if want := "  - Delete every manual database backup, which cannot be restored afterwards. The list of them could not be read: "; !strings.Contains(stderr(f), want) {
+		t.Errorf("stderr missing %q:\n%s", want, stderr(f))
+	}
+	if len(fake.DeleteTenantRequests) != 1 {
+		t.Fatal("the tenant must still be deleted")
 	}
 }

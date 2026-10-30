@@ -1,5 +1,8 @@
 name: Main
 
+# Release and publish only, behind one gates job: there is no branch
+# protection, so `release: needs: gates` is the only guarantee that a
+# released tree passed every check (kupecloud/github-workflows#14).
 on:
   push:
     branches:
@@ -14,34 +17,20 @@ permissions:
   contents: read
 
 jobs:
-  go-lint:
-    uses: ./.github/workflows/go-lint.yaml
-
-  action-lint:
-    uses: ./.github/workflows/action-lint.yaml
-
-  unit-tests:
-    needs:
-      - go-lint
-      - action-lint
-    uses: ./.github/workflows/unit-tests.yaml
-
-  gosec:
-    needs:
-      - unit-tests
-    uses: ./.github/workflows/gosec.yaml
+  gates:
+    name: Gates
+    uses: ./.github/workflows/gates.yaml
+    with:
+      pre-commit-args: --all-files --show-diff-on-failure --hook-stage manual
 
   release:
     needs:
-      - gosec
-    uses: kupecloud/github-workflows/.github/workflows/semantic-release.yaml@98b8368020991c33bf4041bee6081d865ff4850a # v2.4.0
+      - gates
+    uses: ./.github/workflows/semantic-release.yaml
     permissions:
       contents: write
       issues: write
       pull-requests: write
-      packages: write
-      id-token: write
-    secrets: inherit
 
   # Goreleaser runs AFTER semantic-release and appends artifacts (archives,
   # checksums, SBOMs, Cosign signatures) to the release it just created.

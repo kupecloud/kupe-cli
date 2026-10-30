@@ -1,8 +1,0 @@
-name: Go Lint
-
-on:
-  workflow_call:
-
-jobs:
-  go-lint:
-    uses: kupecloud/github-workflows/.github/workflows/go-lint.yaml@272b0a352e04675afdcf79070fef1a97012417ba # v2.3.0

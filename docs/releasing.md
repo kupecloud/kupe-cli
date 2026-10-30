@@ -78,7 +78,7 @@ triggers the pipeline. No manual tagging.
 ### 1. Author a conventional commit
 
 The commit message drives the version bump via
-[conventional-changelog's ruleset](../github-workflows/.github/workflows/semantic-release.yaml):
+the `releaseRules` in [`.releaserc.json`](../.releaserc.json):
 
 | Prefix | Bump | Example |
 |--------|------|---------|
@@ -104,8 +104,11 @@ exactly what'll land in the tap/bucket.
 
 `.github/workflows/main.yaml` runs on every merge to `main`:
 
-1. `go-lint`, `action-lint`, `unit-tests`, `gosec` — the usual CI gate.
-2. `release` — delegates to `kupecloud/github-workflows/.github/workflows/semantic-release.yaml`, which:
+1. `gates` — [`gates.yaml`](../.github/workflows/gates.yaml) runs
+   `pre-commit run --all-files --hook-stage manual`: every hook in
+   `.pre-commit-config.yaml`, the same gate a PR runs. `release` needs it.
+2. `release` — local [`semantic-release.yaml`](../.github/workflows/semantic-release.yaml)
+   (semantic-release 24 with [`.releaserc.json`](../.releaserc.json)), which:
    - Analyses commits since the last tag.
    - If a release-worthy commit is present, creates tag `vX.Y.Z`, generates a
      Conventional-Changelog release body, and publishes a GitHub Release.

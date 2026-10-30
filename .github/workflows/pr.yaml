@@ -1,35 +1,48 @@
 name: PR
 
+# Every PR check runs as one pre-commit job (gates.yaml): the hooks in
+# .pre-commit-config.yaml, including the slow `manual` ones (golangci-lint,
+# unit tests, go mod tidy, live-suite vet, gosec). kupecloud/github-workflows#14.
 on:
   pull_request:
     branches:
       - main
+    # Every file a hook reads: Go code and modules, the vendor tree, workflows
+    # and hook scripts, configs the hooks use, and the text files that the
+    # whitespace, codespell, markdownlint and secret hooks check.
     paths:
       - "go.mod"
       - "go.sum"
       - "**.go"
-      - ".github/workflows/**"
+      - "vendor/**"
+      - "cmd/**"
+      - "internal/**"
+      - "test/**"
+      - "scripts/**"
+      - "docs/**"
+      - ".github/**"
+      - "**.md"
+      - "**.json"
+      - "**.yaml"
+      - "**.yml"
+      - ".pre-commit-config.yaml"
       - ".golangci.yaml"
       - ".goreleaser.yaml"
+      - ".markdownlint-cli2.yaml"
+      - ".codespellignore"
+      - ".releaserc.json"
       - "Makefile"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  go-lint:
-    uses: ./.github/workflows/go-lint.yaml
-
-  action-lint:
-    uses: ./.github/workflows/action-lint.yaml
-
-  unit-tests:
-    needs:
-      - go-lint
-      - action-lint
-    uses: ./.github/workflows/unit-tests.yaml
-
-  gosec:
-    needs:
-      - unit-tests
-    uses: ./.github/workflows/gosec.yaml
+  gates:
+    name: Gates
+    uses: ./.github/workflows/gates.yaml
+    with:
+      pre-commit-args: --all-files --show-diff-on-failure --hook-stage manual

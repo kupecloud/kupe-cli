@@ -147,7 +147,7 @@ Inspired by kubectl and gh. Stable across versions.
 | `8` | Timeout | `--wait-timeout` elapsed before the resource reached the target phase |
 | `130` | Interrupt | User pressed Ctrl+C (standard Unix convention, `128 + SIGINT`) |
 
-Mapping happens in `internal/cli/exit.go` from the typed error helpers on the client (`IsUnauthorized`, `IsNotFound`, etc.) matching the error classification in [kupe-api/internal/errors/errors.go](../../kupe-api/internal/errors/errors.go).
+Mapping happens in `internal/cli/exit.go` from the typed error helpers on the client (`IsUnauthorized`, `IsNotFound`, etc.) matching the error classification in [kupe-api/internal/errors/errors.go](https://github.com/kupecloud/kupe-api/blob/main/internal/errors/errors.go).
 
 ## Error output
 

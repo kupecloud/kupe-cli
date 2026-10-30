@@ -9,7 +9,7 @@ sidebar:
 
 This is the v1 command reference. Every command follows the grammar in [design.md](./design.md): `kupe <noun> <verb> [NAME] [--flags]`. Every command inherits the auth/config global flags described there. Output flags are local to commands because supported formats differ by command.
 
-Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.json](../../kupe-api/api/swagger.json), plus the one self-service endpoint owned by the signup service (`kupe user delete`). Any endpoint not listed here is either in Phase 2 or intentionally not exposed via CLI.
+Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.json](https://github.com/kupecloud/kupe-api/blob/main/api/swagger.json), plus the one self-service endpoint owned by the signup service (`kupe user delete`). Any endpoint not listed here is either in Phase 2 or intentionally not exposed via CLI.
 
 ## Coverage vs. kupe-api endpoints
 
@@ -436,7 +436,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`, `jsonpath=...` (`jsonpath` currently returns a not-implemented error). |
 
-Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](../../kupe-control-operator/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
+Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
 
 Chain with `kupe cluster kubeconfig NAME --merge` to land a usable kubectl
 context after the Running wait completes:

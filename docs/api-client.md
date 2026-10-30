@@ -13,7 +13,7 @@ The CLI ships with a hand-written Go client for `kupe-api`. This doc explains wh
 
 We evaluated three options:
 
-1. **Generate from [kupe-api/api/swagger.json](../../kupe-api/api/swagger.json)** via `oapi-codegen` or `swagger-codegen`.
+1. **Generate from [kupe-api/api/swagger.json](https://github.com/kupecloud/kupe-api/blob/main/api/swagger.json)** via `oapi-codegen` or `swagger-codegen`.
 2. **Hand-write** — copy the existing working client from `terraform-provider-kupe` and extend it.
 3. **Consume the `terraform-provider-kupe/internal/client/` package directly** — impossible because it's under `internal/`.
 
@@ -29,7 +29,7 @@ The swagger spec is used as a **coverage checklist**, not as codegen input. [com
 
 ### Step 1 — copy
 
-Copy these files from [terraform-provider-kupe/internal/client/](../../terraform-provider-kupe/internal/client/) into `kupe-cli/internal/client/`:
+Copy these files from [terraform-provider-kupe/internal/client/](https://github.com/kupecloud/terraform-provider-kupe/tree/main/internal/client) into `kupe-cli/internal/client/`:
 
 | File | Contents |
 |------|----------|
@@ -190,7 +190,7 @@ Commands call `UpdateClusterRMW`. The explicit form (`--if-match <ETAG>`) bypass
 
 ## Error classification
 
-`kupe-api` emits classified errors with stable HTTP status codes (see [kupe-api/internal/errors/errors.go](../../kupe-api/internal/errors/errors.go)):
+`kupe-api` emits classified errors with stable HTTP status codes (see [kupe-api/internal/errors/errors.go](https://github.com/kupecloud/kupe-api/blob/main/internal/errors/errors.go)):
 
 | kupe-api type | HTTP | CLI helper | CLI exit code |
 |---------------|------|------------|---------------|
@@ -279,9 +279,9 @@ Timing: target around the v1.0 CLI release. Until then, the two consumers each o
 
 ## Reference
 
-- [terraform-provider-kupe/internal/client/client.go](../../terraform-provider-kupe/internal/client/client.go) — base HTTP client to lift.
-- [terraform-provider-kupe/internal/client/cluster.go](../../terraform-provider-kupe/internal/client/cluster.go) — reference cluster resource shape.
-- [kupe-api/internal/errors/errors.go](../../kupe-api/internal/errors/errors.go) — error taxonomy.
-- [kupe-api/api/swagger.json](../../kupe-api/api/swagger.json) — authoritative endpoint list.
-- [kupe-api/internal/server/handler_cluster.go](../../kupe-api/internal/server/handler_cluster.go) — request/response shapes for cluster endpoints.
-- [kupe-control-operator/api/v1alpha1/managedcluster_types.go](../../kupe-control-operator/api/v1alpha1/managedcluster_types.go) — field validation regexes (CPU/memory/storage quantity formats).
+- [terraform-provider-kupe/internal/client/client.go](https://github.com/kupecloud/terraform-provider-kupe/blob/main/internal/client/client.go) — base HTTP client to lift.
+- [terraform-provider-kupe/internal/client/cluster.go](https://github.com/kupecloud/terraform-provider-kupe/blob/main/internal/client/cluster.go) — reference cluster resource shape.
+- [kupe-api/internal/errors/errors.go](https://github.com/kupecloud/kupe-api/blob/main/internal/errors/errors.go) — error taxonomy.
+- [kupe-api/api/swagger.json](https://github.com/kupecloud/kupe-api/blob/main/api/swagger.json) — authoritative endpoint list.
+- [kupe-api/internal/server/handler_cluster.go](https://github.com/kupecloud/kupe-api/blob/main/internal/server/handler_cluster.go) — request/response shapes for cluster endpoints.
+- [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) — field validation regexes (CPU/memory/storage quantity formats).

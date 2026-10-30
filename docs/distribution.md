@@ -185,7 +185,7 @@ cosign verify-blob \
   kupe_0.1.0_checksums.txt
 ```
 
-Documented on the release page and in [docs-public](../../docs-public/) install guide.
+Documented on the release page and in [docs-public](https://github.com/kupecloud/docs-public) install guide.
 
 ## SBOMs
 

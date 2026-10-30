@@ -177,12 +177,12 @@ internal/
 
 | Component | Relationship |
 |-----------|--------------|
-| **[kupe-api](../../kupe-api/)** | The only remote endpoint the CLI talks to. `api/swagger.json` is the authoritative endpoint list. |
-| **[terraform-provider-kupe](../../terraform-provider-kupe/)** | Sibling client. The CLI's `internal/client/` starts as a copy of the tf provider's `internal/client/`, extended with retry/backoff and typed error helpers. Phase 2 extracts this into a shared module (`kupe-go-client`) consumed by both. |
-| **[kupe-control-operator](../../kupe-control-operator/)** | Owns the CRD types in `api/v1alpha1/`. The CLI never reads CRDs directly, but field shapes (e.g., `ClusterResources.CPU` format regex) are inherited through the API and surfaced in validation errors. |
-| **[console](../../console/)** | Parallel access path. Both hit the same `kupe-api` endpoints and the same auth model. Config created by one is visible to the other (API keys are tenant-scoped, not path-scoped). |
-| **[docs-public](../../docs-public/)** | User-facing quickstart and CLI reference live there. Written with the CLI installed — docs are verified against real binary output. |
-| **[docs-internal](../../docs-internal/)** | Starlight site. Consumes this repo's `docs/` directory alongside every other kupe repo's `docs/`. |
+| **[kupe-api](https://github.com/kupecloud/kupe-api)** | The only remote endpoint the CLI talks to. `api/swagger.json` is the authoritative endpoint list. |
+| **[terraform-provider-kupe](https://github.com/kupecloud/terraform-provider-kupe)** | Sibling client. The CLI's `internal/client/` starts as a copy of the tf provider's `internal/client/`, extended with retry/backoff and typed error helpers. Phase 2 extracts this into a shared module (`kupe-go-client`) consumed by both. |
+| **[kupe-control-operator](https://github.com/kupecloud/kupe-control-operator)** | Owns the CRD types in `api/v1alpha1/`. The CLI never reads CRDs directly, but field shapes (e.g., `ClusterResources.CPU` format regex) are inherited through the API and surfaced in validation errors. |
+| **[console](https://github.com/kupecloud/console)** | Parallel access path. Both hit the same `kupe-api` endpoints and the same auth model. Config created by one is visible to the other (API keys are tenant-scoped, not path-scoped). |
+| **[docs-public](https://github.com/kupecloud/docs-public)** | User-facing quickstart and CLI reference live there. Written with the CLI installed — docs are verified against real binary output. |
+| **[docs-internal](/)** | Starlight site. Consumes this repo's `docs/` directory alongside every other kupe repo's `docs/`. |
 
 ## Adding a managed service
 

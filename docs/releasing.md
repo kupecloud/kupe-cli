@@ -113,7 +113,7 @@ exactly what'll land in the tap/bucket.
    - If a release-worthy commit is present, creates tag `vX.Y.Z`, generates a
      Conventional-Changelog release body, and publishes a GitHub Release.
    - Emits `new_release_published=true` + `new_release_version=X.Y.Z`.
-3. `publish` — local [`publish.yaml`](./.github/workflows/publish.yaml),
+3. `publish` — local [`publish.yaml`](../.github/workflows/publish.yaml),
    conditional on `new_release_published=='true'`. Checks out `vX.Y.Z`,
    runs `goreleaser release --clean`. With `release.mode: append` in the
    goreleaser config, goreleaser:
@@ -174,7 +174,7 @@ date — all populated by `-ldflags` during the release build.
 ### 4. Announce
 
 - Post the release link in the internal Slack.
-- Update [docs-public](../docs-public/) install guide if anything about
+- Update [docs-public](https://github.com/kupecloud/docs-public) install guide if anything about
   the UX changed.
 
 ---

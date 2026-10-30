@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"net/http"
+	"net/url"
 )
 
 // Database is the API response shape for a managed database. Field names
@@ -19,6 +20,9 @@ type Database struct {
 	// Backup is nil while the database has never set its backup settings:
 	// it keeps the platform defaults.
 	Backup *DatabaseBackup `json:"backup,omitempty" yaml:"backup,omitempty"`
+	// Source is what the database was restored from; nil for a database
+	// that was not restored.
+	Source *DatabaseSource `json:"source,omitempty" yaml:"source,omitempty"`
 	Status *DatabaseStatus `json:"status,omitempty" yaml:"status,omitempty"`
 	// Generation bumps on every spec change; compare with
 	// status.observedGeneration to know when a change has been applied.
@@ -138,6 +142,20 @@ type CreateDatabaseRequest struct {
 	DeletionProtection *bool              `json:"deletionProtection,omitempty"`
 	// Backup nil takes the platform's backup defaults.
 	Backup *DatabaseBackup `json:"backup,omitempty"`
+	// Source, when set, restores the new database instead of starting it
+	// empty. Version may then be empty: the platform runs the source's
+	// major.
+	Source *DatabaseSource `json:"source,omitempty"`
+}
+
+// DatabaseSource is what a new database is restored from: a manual backup
+// (Backup), or another database (Database) at PointInTime inside its
+// restore window, the latest point when empty. Exactly one of Backup and
+// Database is set; PointInTime only with Database (RFC 3339).
+type DatabaseSource struct {
+	Backup      string `json:"backup,omitempty" yaml:"backup,omitempty"`
+	Database    string `json:"database,omitempty" yaml:"database,omitempty"`
+	PointInTime string `json:"pointInTime,omitempty" yaml:"pointInTime,omitempty"`
 }
 
 // PatchDatabaseRequest is the PATCH (JSON merge-patch) body. Nil fields are
@@ -194,6 +212,32 @@ const (
 	// request sets backup settings and the platform does not offer backups
 	// (field spec.backup).
 	DatabaseCodeBackupsUnavailable = "backups_unavailable"
+)
+
+// Error codes of manual backups and restores (kupe-api MDB2-1v). Compare
+// via ErrorCode.
+const (
+	// BackupCodeDatabaseNotReady: 409 from a backup of a database that is
+	// not running.
+	BackupCodeDatabaseNotReady = "database_not_ready"
+	// BackupCodeLimitReached: 409 from a backup of a database that already
+	// keeps the most manual backups a database may (20).
+	BackupCodeLimitReached = "backup_limit_reached"
+	// RestoreCodeSourceNotFound: 400 from a restore whose backup or
+	// database does not exist (field spec.source).
+	RestoreCodeSourceNotFound = "restore_source_not_found"
+	// RestoreCodeSourceNotReady: 409 from a restore of a backup that has
+	// not completed, or of a database with no restore window yet.
+	RestoreCodeSourceNotReady = "restore_source_not_ready"
+	// RestoreCodePointOutsideWindow: 400 from a restore point outside the
+	// source database's restore window (field spec.source.pointInTime).
+	RestoreCodePointOutsideWindow = "restore_point_outside_window"
+	// RestoreCodeVersionMismatch: 400 from a restore asking for a major
+	// version other than the source's (field spec.version).
+	RestoreCodeVersionMismatch = "restore_version_mismatch"
+	// RestoreCodeStorageTooSmall: 400 from a restore with less storage
+	// than the source had (field spec.resources.storage).
+	RestoreCodeStorageTooSmall = "restore_storage_too_small"
 )
 
 // Backup schedules: how many full backups are kept within the retention.
@@ -428,4 +472,127 @@ func (c *Client) UpdateDatabaseBindingRMW(ctx context.Context, database, name st
 // changed; rotate it to revoke what the namespace already knows.
 func (c *Client) DeleteDatabaseBinding(ctx context.Context, database, name string) error {
 	return c.bindings(database).Delete(ctx, name)
+}
+
+// Backup is a manual database backup: one the tenant took, or one the
+// platform took before a major version change (Reason PreUpgrade). It
+// outlives the database it was taken of and goes with the tenant. Not to
+// be confused with DatabaseBackup, a database's automatic backup settings.
+type Backup struct {
+	Name string `json:"name" yaml:"name"`
+	// Database is the name of the database the backup was taken of; it may
+	// have been deleted since (Status.DatabaseDeleted).
+	Database string `json:"database" yaml:"database"`
+	// Reason is Manual or PreUpgrade.
+	Reason          string        `json:"reason" yaml:"reason"`
+	Status          *BackupStatus `json:"status,omitempty" yaml:"status,omitempty"`
+	ResourceVersion string        `json:"resourceVersion" yaml:"resourceVersion"`
+	CreatedAt       string        `json:"createdAt" yaml:"createdAt"`
+}
+
+// BackupStatus is a backup's observed state. Phase: Pending | Running |
+// Completed | Failed | Deleting; a backup can be restored once Completed.
+type BackupStatus struct {
+	Phase string `json:"phase,omitempty" yaml:"phase,omitempty"`
+	// CompletedAt is when the backup finished (RFC 3339); empty until then.
+	CompletedAt string `json:"completedAt,omitempty" yaml:"completedAt,omitempty"`
+	// SizeBytes is the backup's size; 0 until measured.
+	SizeBytes int64 `json:"sizeBytes,omitempty" yaml:"sizeBytes,omitempty"`
+	// Source is the database as it was when the backup started; nil until
+	// it starts.
+	Source *BackupSource `json:"source,omitempty" yaml:"source,omitempty"`
+	// DatabaseDeleted is true once the database the backup was taken of is
+	// deleted or being deleted.
+	DatabaseDeleted bool        `json:"databaseDeleted" yaml:"databaseDeleted"`
+	Conditions      []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+}
+
+// BackupSource is the database a backup was taken of. A database restored
+// from the backup runs Version and needs at least Storage.
+type BackupSource struct {
+	Name    string `json:"name" yaml:"name"`
+	Version string `json:"version" yaml:"version"`
+	Storage string `json:"storage" yaml:"storage"`
+}
+
+// conditionMessage is the message of the condition of type t, "" when
+// there is none.
+func conditionMessage(conditions []Condition, t string) string {
+	for _, c := range conditions {
+		if c.Type == t {
+			return c.Message
+		}
+	}
+	return ""
+}
+
+// Message is the backup's Ready condition message: what it is waiting for
+// or why it failed. "" when there is none.
+func (s *BackupStatus) Message() string {
+	if s == nil {
+		return ""
+	}
+	return conditionMessage(s.Conditions, conditionReady)
+}
+
+// CreateBackupRequest is the optional POST body of a manual backup. An
+// empty Name is not sent: the platform names the backup after the database
+// and the time, in UTC.
+type CreateBackupRequest struct {
+	Name string `json:"name,omitempty"`
+}
+
+// ListDatabaseBackups returns the manual backups of one database, newest
+// first. A missing database is a 404, not an empty list; the backups of an
+// earlier database of the same name are not listed (ListBackups lists
+// them).
+func (c *Client) ListDatabaseBackups(ctx context.Context, database string) ([]Backup, error) {
+	return c.listBackups(ctx, c.tenantPath("databases", database, "backups"))
+}
+
+// CreateDatabaseBackup takes a manual backup of a running database. The
+// backup is taken asynchronously: poll GetBackup until Completed.
+func (c *Client) CreateDatabaseBackup(ctx context.Context, database string, req CreateBackupRequest) (*Backup, error) {
+	var b Backup
+	if _, err := c.request(ctx, http.MethodPost, c.tenantPath("databases", database, "backups"), req, &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// ListBackups returns every manual backup of the tenant, newest first,
+// deleted databases' included. A non-empty database lists only the
+// backups taken of databases with that name.
+func (c *Client) ListBackups(ctx context.Context, database string) ([]Backup, error) {
+	q := url.Values{}
+	if database != "" {
+		q.Set("database", database)
+	}
+	return c.listBackups(ctx, withQuery(c.tenantPath("backups"), q))
+}
+
+func (c *Client) listBackups(ctx context.Context, path string) ([]Backup, error) {
+	var resp struct {
+		Items []Backup `json:"items"`
+	}
+	if _, err := c.request(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Items, nil
+}
+
+// GetBackup returns one manual backup.
+func (c *Client) GetBackup(ctx context.Context, name string) (*Backup, error) {
+	var b Backup
+	if _, err := c.request(ctx, http.MethodGet, c.tenantPath("backups", name), nil, &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// DeleteBackup deletes a manual backup; it can no longer be restored from.
+// A backup already being deleted answers 204 as well.
+func (c *Client) DeleteBackup(ctx context.Context, name string) error {
+	_, err := c.request(ctx, http.MethodDelete, c.tenantPath("backups", name), nil, nil)
+	return err
 }

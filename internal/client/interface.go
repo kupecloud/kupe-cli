@@ -83,6 +83,23 @@ type Interface interface {
 	// DeleteDatabaseBinding removes a binding.
 	DeleteDatabaseBinding(ctx context.Context, database, name string) error
 
+	// ListDatabaseBackups lists the manual backups of one database.
+	ListDatabaseBackups(ctx context.Context, database string) ([]Backup, error)
+
+	// CreateDatabaseBackup takes a manual backup of a database.
+	CreateDatabaseBackup(ctx context.Context, database string, req CreateBackupRequest) (*Backup, error)
+
+	// ListBackups lists every manual backup of the tenant, deleted
+	// databases' included; a non-empty database narrows it to the backups
+	// of databases with that name.
+	ListBackups(ctx context.Context, database string) ([]Backup, error)
+
+	// GetBackup returns one manual backup.
+	GetBackup(ctx context.Context, name string) (*Backup, error)
+
+	// DeleteBackup deletes a manual backup.
+	DeleteBackup(ctx context.Context, name string) error
+
 	// Registries is the tenant's registry collection: at most one, always
 	// named RegistryName (Delete is refused with 409
 	// RegistryCodeDeletionProtected while deletion protection is on).

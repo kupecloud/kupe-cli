@@ -9,6 +9,7 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -218,6 +219,15 @@ func IsCreationPaused(err error) bool {
 	e := asAPI(err)
 	return e != nil && e.StatusCode == http.StatusBadRequest &&
 		strings.Contains(strings.ToLower(e.Message), creationPausedText)
+}
+
+// IsUnknownRoute reports whether err is a 404 that kupe-api's handlers did
+// not answer: they always send a JSON error body, so a 404 whose body is
+// something else (Go's "404 page not found") means the route does not exist
+// on this kupe-api, a release that predates the endpoint.
+func IsUnknownRoute(err error) bool {
+	e := asAPI(err)
+	return e != nil && e.StatusCode == http.StatusNotFound && len(e.body) > 0 && !json.Valid(e.body)
 }
 
 // IsAPIError reports whether err is (or wraps) an *APIError — i.e. the server

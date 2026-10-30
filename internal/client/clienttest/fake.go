@@ -6,6 +6,7 @@ package clienttest
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -106,6 +107,21 @@ type Fake struct {
 	// GetDatabaseBindingSeq scripts successive GetDatabaseBinding results
 	// per binding name, with the same semantics as GetClusterSeq.
 	GetDatabaseBindingSeq map[string][]*client.DatabaseBinding
+
+	// Backups (manual database backups) keyed by name. CreateDatabaseBackup
+	// stores a Pending backup of a database in DatabasesByName, named
+	// "<database>-backup" when the request names none; BackupCreates
+	// records every body sent. GetBackupSeq scripts successive GetBackup
+	// results per name, with the same semantics as GetClusterSeq. Lists
+	// return backups sorted by name.
+	Backups                 map[string]*client.Backup
+	GetBackupSeq            map[string][]*client.Backup
+	ListDatabaseBackupsErr  error
+	CreateDatabaseBackupErr error
+	ListBackupsErr          error
+	GetBackupErr            error
+	DeleteBackupErr         error
+	BackupCreates           []client.CreateBackupRequest
 
 	// Registries keyed by name (a tenant has at most one, "registry").
 	// Create stores the request with the API's defaults applied (deletion
@@ -224,6 +240,9 @@ func New() *Fake {
 		Plans:                  map[string]*client.Plan{},
 
 		GetDatabaseBindingSeq: map[string][]*client.DatabaseBinding{},
+
+		Backups:      map[string]*client.Backup{},
+		GetBackupSeq: map[string][]*client.Backup{},
 	}
 }
 
@@ -520,6 +539,16 @@ func copyDatabaseBackup(b *client.DatabaseBackup) *client.DatabaseBackup {
 	return out
 }
 
+// copyDatabaseSource copies a restore source so the stored database does not
+// alias the request.
+func copyDatabaseSource(s *client.DatabaseSource) *client.DatabaseSource {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	return &out
+}
+
 // RotateDatabaseCredentials implements client.Interface. The call is
 // recorded as "RotateDatabaseCredentials:<name>:<role>".
 func (f *Fake) RotateDatabaseCredentials(_ context.Context, name, role string) (*client.CredentialRotation, error) {
@@ -642,6 +671,110 @@ func (f *Fake) DeleteDatabaseBinding(_ context.Context, database, name string) e
 	}
 	delete(f.DatabaseBindings, name)
 	return nil
+}
+
+// ListDatabaseBackups implements client.Interface: the backups whose
+// Database is database, sorted by name. A missing database is a 404.
+func (f *Fake) ListDatabaseBackups(_ context.Context, database string) ([]client.Backup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("ListDatabaseBackups:" + database)
+	if f.ListDatabaseBackupsErr != nil {
+		return nil, f.ListDatabaseBackupsErr
+	}
+	if _, ok := f.DatabasesByName[database]; !ok {
+		return nil, databaseNotFound()
+	}
+	return f.backupsOf(database), nil
+}
+
+// CreateDatabaseBackup implements client.Interface.
+func (f *Fake) CreateDatabaseBackup(_ context.Context, database string, req client.CreateBackupRequest) (*client.Backup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("CreateDatabaseBackup:" + database + "/" + req.Name)
+	f.BackupCreates = append(f.BackupCreates, req)
+	if f.CreateDatabaseBackupErr != nil {
+		return nil, f.CreateDatabaseBackupErr
+	}
+	if _, ok := f.DatabasesByName[database]; !ok {
+		return nil, databaseNotFound()
+	}
+	name := req.Name
+	if name == "" {
+		name = database + "-backup"
+	}
+	if _, exists := f.Backups[name]; exists {
+		return nil, &client.APIError{StatusCode: 409, Message: fmt.Sprintf("database backup %q already exists", name)}
+	}
+	b := &client.Backup{Name: name, Database: database, Reason: "Manual",
+		Status: &client.BackupStatus{Phase: client.PhasePending}}
+	f.Backups[name] = b
+	created := *b
+	return &created, nil
+}
+
+// ListBackups implements client.Interface: every backup, or those whose
+// Database is database, sorted by name.
+func (f *Fake) ListBackups(_ context.Context, database string) ([]client.Backup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("ListBackups:" + database)
+	if f.ListBackupsErr != nil {
+		return nil, f.ListBackupsErr
+	}
+	return f.backupsOf(database), nil
+}
+
+// backupsOf is the stored backups of database (every backup when ""),
+// sorted by name.
+func (f *Fake) backupsOf(database string) []client.Backup {
+	out := make([]client.Backup, 0, len(f.Backups))
+	for _, b := range f.Backups {
+		if database == "" || b.Database == database {
+			out = append(out, *b)
+		}
+	}
+	slices.SortFunc(out, func(a, b client.Backup) int { return strings.Compare(a.Name, b.Name) })
+	return out
+}
+
+// GetBackup implements client.Interface. Honours GetBackupSeq.
+func (f *Fake) GetBackup(_ context.Context, name string) (*client.Backup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("GetBackup:" + name)
+	if f.GetBackupErr != nil {
+		return nil, f.GetBackupErr
+	}
+	b, ok := popSeq(f.GetBackupSeq, name)
+	if !ok {
+		b = f.Backups[name]
+	}
+	if b == nil {
+		return nil, backupNotFound(name)
+	}
+	got := *b
+	return &got, nil
+}
+
+// DeleteBackup implements client.Interface.
+func (f *Fake) DeleteBackup(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("DeleteBackup:" + name)
+	if f.DeleteBackupErr != nil {
+		return f.DeleteBackupErr
+	}
+	if _, ok := f.Backups[name]; !ok {
+		return backupNotFound(name)
+	}
+	delete(f.Backups, name)
+	return nil
+}
+
+func backupNotFound(name string) error {
+	return &client.APIError{StatusCode: 404, Message: fmt.Sprintf("database backup %q not found", name)}
 }
 
 func databaseNotFound() error {

@@ -351,7 +351,7 @@ func TestCommands_DatabasesUnavailableSaysSo(t *testing.T) {
 	if err.Error() != "databases are not enabled" {
 		t.Fatalf("message = %q; want the API's message alone", err.Error())
 	}
-	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace)") {
+	if !strings.Contains(ce.Hint, "existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace); manual backups can still be listed and deleted (kupe database backup delete)") {
 		t.Fatalf("hint should name the clean-up that still works: %v", err)
 	}
 }
@@ -688,7 +688,8 @@ func TestUpdate_BackupChangeRefusedByThePlatform(t *testing.T) {
 		{"databases off", &client.APIError{StatusCode: 404, Code: client.DatabaseCodeUnavailable,
 			Message: "databases are not available on this platform"}, cli.ExitNotFound, "existing databases can still be listed"},
 		{"backups not offered", &client.APIError{StatusCode: 400, Code: client.DatabaseCodeBackupsUnavailable,
-			Field: "spec.backup", Message: "backups are not available on this platform"}, cli.ExitUnavailable, ""},
+			Field: "spec.backup", Message: "backups are not available on this platform"}, cli.ExitUnavailable,
+			"manual backups can still be listed and deleted"},
 		{"retention outside the range", &client.APIError{StatusCode: 400, Code: "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE",
 			Field: "spec.backup.retention", Message: "backup.retention must be between 7 and 35 days"}, cli.ExitMisuse, ""},
 	}
@@ -1763,6 +1764,7 @@ func TestNewCmd_RegistersAliasAndSubcommands(t *testing.T) {
 	for _, path := range [][]string{
 		{"list"}, {"get"}, {"create"}, {"update"}, {"upgrade"}, {"delete"}, {"rotate-credentials"}, {"wait"},
 		{"binding", "add"}, {"binding", "list"}, {"binding", "get"}, {"binding", "update"}, {"binding", "delete"},
+		{"backup", "create"}, {"backup", "list"}, {"backup", "get"}, {"backup", "delete"},
 	} {
 		if found, _, err := cmd.Find(path); err != nil || found == cmd {
 			t.Errorf("subcommand %v not registered", path)

@@ -16,7 +16,10 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 	const name = "orders-db"
 	const (
 		unavailableHint = "this is a platform setting, not an outage, so retrying will not help; " +
-			"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace)"
+			"existing databases can still be listed, unprotected (--deletion-protection=false) and deleted, and their bindings deleted or narrowed (binding update --remove-namespace); " +
+			"manual backups can still be listed and deleted (kupe database backup delete)"
+		backupsHint = "this is a platform setting, not an outage, so retrying will not help; " +
+			"existing manual backups can still be listed and deleted (kupe database backup delete)"
 		pausedHint      = "retry later; status updates are posted at https://status.kupe.cloud"
 		shrinkHint      = "pass a --storage at least the current size, shown by:  kupe db get orders-db"
 		protectedHint   = "turn it off first:  kupe db update orders-db --deletion-protection=false"
@@ -99,11 +102,11 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 			"maximum database limit reached: your plan allows 1 database(s) (request-id: req-1)",
 			`delete a database ("kupe database delete <name>") or upgrade your plan`, cli.ExitConflict},
 		{"backups not offered on create", create, 400, client.DatabaseCodeBackupsUnavailable, backupsMessage,
-			backupsMessage + " (request-id: req-1)", "", cli.ExitUnavailable},
+			backupsMessage + " (request-id: req-1)", backupsHint, cli.ExitUnavailable},
 		{"backups not offered on update", update, 400, client.DatabaseCodeBackupsUnavailable, backupsMessage,
-			backupsMessage + " (request-id: req-1)", "", cli.ExitUnavailable},
+			backupsMessage + " (request-id: req-1)", backupsHint, cli.ExitUnavailable},
 		{"backups not offered without a message", update, 400, client.DatabaseCodeBackupsUnavailable, "",
-			"backups are not available on this platform: Bad Request (request-id: req-1)", "", cli.ExitUnavailable},
+			"backups are not available on this platform: Bad Request (request-id: req-1)", backupsHint, cli.ExitUnavailable},
 		{"retention outside the range on create", create, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", retentionMessage,
 			retentionMessage + " (request-id: req-1)", "", cli.ExitMisuse},
 		{"retention outside the range on update, from the webhook", update, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", webhookRetention,

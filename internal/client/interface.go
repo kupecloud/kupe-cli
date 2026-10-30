@@ -83,9 +83,6 @@ type Interface interface {
 	// DeleteDatabaseBinding removes a binding.
 	DeleteDatabaseBinding(ctx context.Context, database, name string) error
 
-	// ListDatabaseBackups lists the manual backups of one database.
-	ListDatabaseBackups(ctx context.Context, database string) ([]Backup, error)
-
 	// CreateDatabaseBackup takes a manual backup of a database.
 	CreateDatabaseBackup(ctx context.Context, database string, req CreateBackupRequest) (*Backup, error)
 

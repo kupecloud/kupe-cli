@@ -342,3 +342,24 @@ func TestWaitForConverged_TimesOutWhenNeverApplied(t *testing.T) {
 		t.Fatalf("err = %v; want ux.ErrWaitTimeout", err)
 	}
 }
+
+// TestWaitForPhaseDone_OnlyChangesItsOwnSuccessLine pins that a wait given
+// a done verb ends with it, and a plain WaitForPhase keeps "ready".
+func TestWaitForPhaseDone_OnlyChangesItsOwnSuccessLine(t *testing.T) {
+	io, _, errOut := cli.Test()
+	if _, err := WaitForPhaseDone(context.Background(), io, "database backup", "b1", client.PhaseCompleted, "completed",
+		scriptedGetter(client.PhaseCompleted), 5*time.Second); err != nil {
+		t.Fatalf("WaitForPhaseDone: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "database backup b1 completed\n") {
+		t.Errorf("stderr = %q; want the done verb", errOut.String())
+	}
+	io, _, errOut = cli.Test()
+	if _, err := WaitForPhase(context.Background(), io, "database", "orders-db", client.PhaseRunning,
+		scriptedGetter(client.PhaseRunning), 5*time.Second); err != nil {
+		t.Fatalf("WaitForPhase: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "database orders-db ready\n") {
+		t.Errorf("stderr = %q; want the default verb", errOut.String())
+	}
+}

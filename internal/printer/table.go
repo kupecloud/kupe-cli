@@ -16,7 +16,10 @@ import (
 type Column struct {
 	Name string
 	Wide bool // only rendered when PrintTable is called with wide=true
-	Get  func(any) string
+	// OmitEmpty leaves the row out of a detail view (PrintDetails) when
+	// its value is empty.
+	OmitEmpty bool
+	Get       func(any) string
 }
 
 // Columns is a list of columns. Filter returns the subset visible at the
@@ -149,8 +152,12 @@ func PrintDetails(w io.Writer, item any, cols Columns) error {
 		if c.Wide {
 			continue
 		}
+		value := c.Get(item)
+		if c.OmitEmpty && value == "" {
+			continue
+		}
 		pad := maxName - len(c.Name)
-		fmt.Fprintf(w, "%s:%s  %s\n", c.Name, spaces(pad), c.Get(item))
+		fmt.Fprintf(w, "%s:%s  %s\n", c.Name, spaces(pad), value)
 	}
 	return nil
 }

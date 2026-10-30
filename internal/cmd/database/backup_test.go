@@ -59,15 +59,21 @@ func TestBackupCreate_SendsTheNameAndWaitsForCompleted(t *testing.T) {
 			inProgress.Status = &client.BackupStatus{Phase: "Running"}
 			fake.GetBackupSeq[tt.wantName] = []*client.Backup{inProgress, completedBackup(tt.wantName, "orders-db")}
 			f := factoryWith(t, fake)
-			out, _, err := run(f, newBackupCreateCmd(f), append(tt.args, "--wait-timeout", "30s")...)
+			out, stderr, err := run(f, newBackupCreateCmd(f), append(tt.args, "--wait-timeout", "30s")...)
 			if err != nil {
 				t.Fatalf("backup create: %v", err)
+			}
+			if want := "database backup " + tt.wantName + " completed\n"; !strings.Contains(stderr, want) {
+				t.Errorf("stderr should end the wait with %q:\n%s", want, stderr)
 			}
 			if !reflect.DeepEqual(fake.BackupCreates, []client.CreateBackupRequest{tt.wantSent}) {
 				t.Fatalf("sent %+v; want %+v", fake.BackupCreates, tt.wantSent)
 			}
 			if v, _ := detailValue(out, "Phase"); v != "Completed" {
 				t.Fatalf("final render should be the Completed backup:\n%s", out)
+			}
+			if _, shown := detailValue(out, "Message"); shown {
+				t.Errorf("an empty Message row is shown:\n%s", out)
 			}
 		})
 	}
@@ -106,6 +112,42 @@ func TestBackupCreate_FailedExits1WithThePlatformsReason(t *testing.T) {
 	}
 	if h := hint(err); !strings.Contains(h, "kupe database backup delete before-migration") {
 		t.Errorf("hint = %q; want the delete command", h)
+	}
+}
+
+func TestBackupGet_ShowsTheMessageOnlyWhenThereIsOne(t *testing.T) {
+	fake := seedBackups()
+	failed := completedBackup("b-failed", "orders-db")
+	failed.Status = &client.BackupStatus{Phase: client.PhaseFailed,
+		Conditions: []client.Condition{{Type: "Ready", Status: "False", Message: "the backup could not be written"}}}
+	fake.Backups["b-failed"] = failed
+	for name, want := range map[string]string{"b-failed": "the backup could not be written", "orders-db-before-migration": ""} {
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newBackupGetCmd(f), name)
+		if err != nil {
+			t.Fatalf("get %s: %v", name, err)
+		}
+		got, shown := detailValue(out, "Message")
+		if shown != (want != "") || got != want {
+			t.Errorf("%s: Message = %q (shown %v); want %q\n%s", name, got, shown, want, out)
+		}
+	}
+}
+
+func TestBackupCreate_ADeletedBackupEndsTheWait(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = running("orders-db")
+	deleting := completedBackup("before-migration", "orders-db")
+	deleting.Status = &client.BackupStatus{Phase: client.PhaseDeleting}
+	fake.GetBackupSeq["before-migration"] = []*client.Backup{deleting}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newBackupCreateCmd(f), "orders-db", "--name", "before-migration", "--wait-timeout", "30s")
+	assertExit(t, err, cli.ExitGeneral)
+	if want := `backup "before-migration" is being deleted`; err.Error() != want {
+		t.Fatalf("message = %q; want %q", err.Error(), want)
+	}
+	if h := hint(err); !strings.Contains(h, "kupe database backup create orders-db") {
+		t.Errorf("hint = %q", h)
 	}
 }
 
@@ -152,6 +194,9 @@ func TestBackupCreate_Refusals(t *testing.T) {
 		}, cli.ExitConflict, `database "orders-db" is being deleted`, "kupe database wait orders-db --for deleted"},
 		{"a kupe-api without manual backups", unknownRouteErr,
 			cli.ExitUnavailable, "this platform does not offer database backups yet", ""},
+		{"a platform that cannot take manual backups", func(*testing.T) error {
+			return &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable, Message: "backups are not available on this platform"}
+		}, cli.ExitUnavailable, "this platform does not offer database backups yet", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -236,16 +281,23 @@ func TestBackupList(t *testing.T) {
 			t.Errorf("calls = %v; want ListBackups for users-db", fake.Calls)
 		}
 	})
-	t.Run("a kupe-api without manual backups exits 7", func(t *testing.T) {
-		fake := clienttest.New()
-		fake.ListBackupsErr = unknownRouteErr(t)
-		f := factoryWith(t, fake)
-		_, _, err := run(f, newBackupListCmd(f))
-		assertExit(t, err, cli.ExitUnavailable)
-		if err.Error() != "this platform does not offer database backups yet" {
-			t.Fatalf("message = %q", err.Error())
-		}
-	})
+	for name, listErr := range map[string]func(*testing.T) error{
+		"a kupe-api without manual backups": unknownRouteErr,
+		"a platform that cannot take manual backups": func(*testing.T) error {
+			return &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable, Message: "backups are not available on this platform"}
+		},
+	} {
+		t.Run(name+" exits 7 without promising a list", func(t *testing.T) {
+			fake := clienttest.New()
+			fake.ListBackupsErr = listErr(t)
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newBackupListCmd(f))
+			assertExit(t, err, cli.ExitUnavailable)
+			if err.Error() != "this platform does not offer database backups yet" || hint(err) != "" {
+				t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
+			}
+		})
+	}
 	t.Run("more than one database is a misuse", func(t *testing.T) {
 		f := factoryWith(t, seedBackups())
 		_, _, err := run(f, newBackupListCmd(f), "orders-db", "users-db")

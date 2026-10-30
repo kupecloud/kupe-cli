@@ -110,7 +110,7 @@ func (s Service[T, C, P]) Getter(api client.Interface, name string) PhaseGetter[
 
 // WaitForPhase waits for name to reach target (see the package function).
 func (s Service[T, C, P]) WaitForPhase(ctx context.Context, streams *cli.IOStreams, api client.Interface, name, target string, timeout time.Duration) (*T, error) {
-	return waitForPhase(ctx, streams, s.subject(name), target, s.Getter(api, name), timeout)
+	return waitForPhase(ctx, streams, s.subject(name), target, "", s.Getter(api, name), timeout)
 }
 
 // WaitForGone waits until name is gone (see the package function).

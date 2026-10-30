@@ -58,6 +58,8 @@ func TestTranslateCommon(t *testing.T) {
 			cli.ExitNotFound, "", "a platform setting, not an outage"},
 		{"backups not offered", 400, client.DatabaseCodeBackupsUnavailable, "backups are not available on this platform",
 			cli.ExitUnavailable, "", "existing manual backups can still be listed and deleted (kupe database backup delete)"},
+		{"backup kind missing: no promise that backups can be listed", 404, client.DatabaseCodeBackupsUnavailable,
+			"backups are not available on this platform", cli.ExitUnavailable, "", ""},
 		{"backups not offered without a message", 400, client.DatabaseCodeBackupsUnavailable, "",
 			cli.ExitUnavailable, "backups are not available on this platform: Bad Request", "a platform setting, not an outage"},
 		{"backups sentence without a code", 400, "", "backups are not available on this platform; remove spec.backup",

@@ -207,13 +207,26 @@ func restoreSource(opts *createOpts) *client.DatabaseSource {
 	return &client.DatabaseSource{Backup: opts.fromBackup, Database: opts.from, PointInTime: opts.pointInTime}
 }
 
+// sourceReadErr maps an error reading the restore source: a source that
+// does not exist exits as the API's restore_source_not_found does, and a
+// platform without manual backups as a restore it refuses.
+func sourceReadErr(err error, source *client.DatabaseSource) error {
+	switch {
+	case backupsMissing(err):
+		return noRestoresYet()
+	case client.IsNotFound(err) && client.ErrorCode(err) == "":
+		return sourceNotFound(err, source)
+	}
+	return translateErr(err, source.Database)
+}
+
 // sourceStorage is the storage a restore of source needs at least: the
 // backup's database's when it was taken, or the source database's.
 func sourceStorage(ctx context.Context, api client.Interface, source *client.DatabaseSource) (string, error) {
 	if source.Backup != "" {
 		b, err := api.GetBackup(ctx, source.Backup)
 		if err != nil {
-			return "", translateBackupErr(err)
+			return "", sourceReadErr(err, source)
 		}
 		if b.Status == nil || b.Status.Source == nil || b.Status.Source.Storage == "" {
 			return "", cli.ConflictError(fmt.Sprintf("backup %q has not recorded its storage yet", source.Backup)).
@@ -223,7 +236,7 @@ func sourceStorage(ctx context.Context, api client.Interface, source *client.Dat
 	}
 	db, _, err := api.Databases().Get(ctx, source.Database)
 	if err != nil {
-		return "", translateErr(err, source.Database)
+		return "", sourceReadErr(err, source)
 	}
 	if db.Resources == nil || db.Resources.Storage == "" {
 		return "", cli.MisuseError(fmt.Sprintf("database %q reports no storage", source.Database)).

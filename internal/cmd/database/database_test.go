@@ -1895,13 +1895,64 @@ func TestCreate_RestoreOfABackupWithoutStorageYet(t *testing.T) {
 	assertNoCall(t, fake, "CreateDatabase")
 }
 
-func TestCreate_RestoreOfAMissingSourceExits4(t *testing.T) {
-	for _, flag := range []string{"--from-backup", "--from"} {
-		t.Run(flag, func(t *testing.T) {
+// TestCreate_RestoreOfAMissingSourceExits2 pins that a missing source
+// exits 2 with the same hint whether the CLI found out by reading its
+// storage or the API refused the restore (restore_source_not_found).
+func TestCreate_RestoreOfAMissingSourceExits2(t *testing.T) {
+	tests := []struct {
+		flag, wantHint string
+		storage        []string
+		apiRefuses     bool
+	}{
+		{"--from-backup", "kupe database backup list", nil, false},
+		{"--from", "kupe database list", nil, false},
+		{"--from-backup", "kupe database backup list", []string{"--storage", "10Gi"}, true},
+		{"--from", "kupe database list", []string{"--storage", "10Gi"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s storage given %v", tt.flag, tt.storage != nil), func(t *testing.T) {
 			fake := clienttest.New()
+			if tt.apiRefuses {
+				fake.CreateDatabaseErr = &client.APIError{StatusCode: 400, Code: client.RestoreCodeSourceNotFound,
+					Field: "spec.source", Message: "the restore source ghost does not exist"}
+			}
 			f := factoryWith(t, fake)
-			_, _, err := run(f, newCreateCmd(f), "orders-copy", flag, "ghost", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
-			assertExit(t, err, cli.ExitNotFound)
+			args := append([]string{"orders-copy", tt.flag, "ghost", "--cpu", "500m", "--memory", "1Gi", "--wait=false"}, tt.storage...)
+			_, _, err := run(f, newCreateCmd(f), args...)
+			assertExit(t, err, cli.ExitMisuse)
+			if h := hint(err); !strings.Contains(h, tt.wantHint) {
+				t.Errorf("hint = %q; want %q", h, tt.wantHint)
+			}
+			if !tt.apiRefuses {
+				assertNoCall(t, fake, "CreateDatabase")
+			}
+		})
+	}
+}
+
+// TestCreate_RestoreAgainstAPlatformWithoutBackups: --from-backup without
+// --storage reads the backup first; a kupe-api without the backup routes,
+// or a platform without the backup kind, exits 7 there.
+func TestCreate_RestoreAgainstAPlatformWithoutBackups(t *testing.T) {
+	tests := []struct {
+		name string
+		err  func(*testing.T) error
+	}{
+		{"a kupe-api without manual backups", unknownRouteErr},
+		{"a platform that cannot take manual backups", func(*testing.T) error {
+			return &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable, Message: "backups are not available on this platform"}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.GetBackupErr = tt.err(t)
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from-backup", "b1", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+			assertExit(t, err, cli.ExitUnavailable)
+			if err.Error() != "this platform does not offer database restores yet" || hint(err) != "" {
+				t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
+			}
 			assertNoCall(t, fake, "CreateDatabase")
 		})
 	}
@@ -1939,9 +1990,6 @@ func TestCreate_RestoreRefusals(t *testing.T) {
 		{"backups switched off", []string{"--from", "orders-db"},
 			&client.APIError{StatusCode: 400, Code: client.DatabaseCodeBackupsUnavailable, Field: "spec.source", Message: "backups are not available on this platform"},
 			cli.ExitUnavailable, "manual backups can still be listed and deleted"},
-		{"the platform cannot restore yet", []string{"--from", "orders-db"},
-			&client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable, Message: "backups are not available on this platform"},
-			cli.ExitUnavailable, "manual backups can still be listed and deleted"},
 		{"plan limit", []string{"--from", "orders-db"},
 			&client.APIError{StatusCode: 400, Code: client.CodePlanLimitReached, Message: "maximum database limit reached: your plan allows 1 database(s)"},
 			cli.ExitConflict, "upgrade your plan"},
@@ -1967,14 +2015,27 @@ func TestCreate_RestoreRefusals(t *testing.T) {
 }
 
 func TestCreate_RestoreAgainstAKupeAPIWithoutRestores(t *testing.T) {
-	fake := clienttest.New()
-	fake.DatabasesByName["orders-db"] = running("orders-db")
-	fake.CreateDatabaseErr = &client.APIError{StatusCode: 400, Message: `invalid request body: json: unknown field "source"`}
-	f := factoryWith(t, fake)
-	_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from", "orders-db", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
-	assertExit(t, err, cli.ExitUnavailable)
-	if err.Error() != "this platform does not offer database restores yet" {
-		t.Fatalf("message = %q", err.Error())
+	tests := []struct {
+		name string
+		err  *client.APIError
+	}{
+		{"an older kupe-api refuses the field", &client.APIError{StatusCode: 400, Message: `invalid request body: json: unknown field "source"`}},
+		// No list or delete promise: the platform has no manual backups.
+		{"the platform cannot restore yet", &client.APIError{StatusCode: 404, Code: client.DatabaseCodeBackupsUnavailable,
+			Message: "backups are not available on this platform"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.DatabasesByName["orders-db"] = running("orders-db")
+			fake.CreateDatabaseErr = tt.err
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newCreateCmd(f), "orders-copy", "--from", "orders-db", "--cpu", "500m", "--memory", "1Gi", "--wait=false")
+			assertExit(t, err, cli.ExitUnavailable)
+			if err.Error() != "this platform does not offer database restores yet" || hint(err) != "" {
+				t.Fatalf("err = %q, hint %q", err.Error(), hint(err))
+			}
+		})
 	}
 }
 

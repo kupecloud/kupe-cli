@@ -116,7 +116,6 @@ type Fake struct {
 	// return backups sorted by name.
 	Backups                 map[string]*client.Backup
 	GetBackupSeq            map[string][]*client.Backup
-	ListDatabaseBackupsErr  error
 	CreateDatabaseBackupErr error
 	ListBackupsErr          error
 	GetBackupErr            error
@@ -671,21 +670,6 @@ func (f *Fake) DeleteDatabaseBinding(_ context.Context, database, name string) e
 	}
 	delete(f.DatabaseBindings, name)
 	return nil
-}
-
-// ListDatabaseBackups implements client.Interface: the backups whose
-// Database is database, sorted by name. A missing database is a 404.
-func (f *Fake) ListDatabaseBackups(_ context.Context, database string) ([]client.Backup, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.record("ListDatabaseBackups:" + database)
-	if f.ListDatabaseBackupsErr != nil {
-		return nil, f.ListDatabaseBackupsErr
-	}
-	if _, ok := f.DatabasesByName[database]; !ok {
-		return nil, databaseNotFound()
-	}
-	return f.backupsOf(database), nil
 }
 
 // CreateDatabaseBackup implements client.Interface.

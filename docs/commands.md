@@ -359,7 +359,8 @@ only the platform's sentence is matched on that sentence instead.
 | --- | --- | --- |
 | Creation paused (`creation_paused`, 400) | `7` | retry later; status page link |
 | Databases switched off on the platform (`databases_unavailable`, 404) | `4` | a platform setting: retrying will not help; existing databases can still be listed, unprotected and deleted, their bindings deleted or narrowed, and manual backups listed and deleted |
-| Backups not offered on the platform (`backups_unavailable`, 400, or 404 while the platform cannot take manual backups or restore yet), for a database create or update that sets a backup flag, a manual backup or a restore | `7` | a platform setting: retrying will not help; existing manual backups can still be listed and deleted |
+| Backups switched off on the platform (`backups_unavailable`, 400), for a database create or update that sets a backup flag, a manual backup or a restore | `7` | a platform setting: retrying will not help; existing manual backups can still be listed and deleted |
+| The platform cannot take manual backups or restore yet (`backups_unavailable`, 404), or a kupe-api that predates them | `7` | — (the message is "this platform does not offer database backups yet", or "...database restores yet" for a restore) |
 | The cluster or database is being deleted (`terminating`, 409) | `5` | `kupe <noun> wait NAME --for deleted` |
 | The tenant is being deleted (`tenant_terminating`, 409) | `5` | — |
 | The tenant is suspended (`tenant_suspended`, 409) | `5` | contact support |
@@ -864,8 +865,9 @@ limit like any other. The command waits for `Running` as for any create.
 `--from-backup` with `--from`, `--point-in-time` without `--from`, and a
 `--point-in-time` that is not RFC 3339 with a zone each exit `2` before any
 request is made. A backup that has not recorded its storage yet (not
-`Completed`) exits `5` unless `--storage` is given; a source that does not
-exist exits `4` when its storage is read.
+`Completed`) exits `5` unless `--storage` is given. A source that does not
+exist exits `2` with the "list your" hint below, whether the command finds out
+while reading its storage or the API refuses the restore.
 
 | Refusal (`code`) | Exit | Hint |
 | --- | --- | --- |
@@ -874,11 +876,13 @@ exist exits `4` when its storage is read.
 | `--point-in-time` outside the restore window (`restore_point_outside_window`, 400) | `2` | pick a moment inside the `Restore Window`, or leave the flag out |
 | `--version` other than the source's major (`restore_version_mismatch`, 400) | `2` | leave out `--version`, or give the source's |
 | `--storage` less than the source's (`restore_storage_too_small`, 400) | `2` | leave out `--storage`, or give at least the source's |
-| Backups not offered (`backups_unavailable`, 400; 404 while the platform cannot restore yet) | `7` | manual backups can still be listed and deleted |
+| Backups switched off (`backups_unavailable`, 400) | `7` | manual backups can still be listed and deleted |
 
-Each refusal shows the API's message. A kupe-api that predates restores
-refuses the `source` field; the command exits `7` with "this platform does not
-offer database restores yet".
+Each refusal shows the API's message. A platform that cannot restore yet
+(`404 backups_unavailable`) and a kupe-api that predates restores (it refuses
+the `source` field, or the backup routes when `--from-backup` reads the
+backup's storage) exit `7` with "this platform does not offer database
+restores yet" and no hint.
 
 ```bash
 kupe db create orders-db-copy --from-backup orders-db-before-migration --cpu 500m --memory 1Gi
@@ -1191,8 +1195,9 @@ across the tenant, so `get` and `delete` take the backup name alone.
 | `kupe db backup get BACKUP` | Details, including the version and storage the database had when the backup was taken. |
 | `kupe db backup delete BACKUP` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `backup/NAME delete requested`. |
 
-`list` takes the list formats (`-o name`, `-o json`, `-o yaml`,
-`-o go-template=...`); `get` and `create` the single-resource formats.
+`list` takes the list formats (`-o wide`, which shows the same columns,
+`-o name`, `-o json`, `-o yaml`, `-o go-template=...`); `get` and `create`
+the single-resource formats.
 `-o json` and `-o yaml` print the backups as the API returns them.
 
 `backup create` flags:
@@ -1206,12 +1211,11 @@ across the tenant, so `get` and `delete` take the backup name alone.
 
 ```
 $ kupe db backup create orders-db --name orders-db-before-migration
-✓ database backup orders-db-before-migration ready (01:12)
+✓ database backup orders-db-before-migration completed (01:12)
 Name:       orders-db-before-migration
 Database:   orders-db
 Reason:     Manual
 Phase:      Completed
-Message:
 Size:       1.5 GiB
 Version:    18
 Storage:    10Gi
@@ -1230,29 +1234,34 @@ a backup you took and `PreUpgrade` for one the platform took itself. `SIZE`
 is empty until measured; `COMPLETED` is the age of the completion time.
 `Version` and `Storage` are the database's when the backup was taken: a
 database restored from it runs that version and needs at least that storage.
-`Message` is the platform's note while the backup waits or after it fails.
+`Message`, shown only when there is one, is the platform's note while the
+backup waits or after it fails.
 
 A `Failed` backup ends the wait at once with exit `1` and the platform's
 reason, for example `backup "orders-db-before-migration" failed: ...`, and a
-hint to delete it and take another; it cannot be restored from. A wait that
-times out says the backup is still being taken.
+hint to delete it and take another; it cannot be restored from. A backup that
+starts being deleted while the command waits (`Deleting`) ends the wait with
+exit `1` and `backup "NAME" is being deleted`. A wait that times out says the
+backup is still being taken.
 
 Deleting a backup works while the platform has databases or backups switched
 off. It can no longer be restored from once deleted; a backup already being
 deleted is accepted again.
 
 **Exit codes (`backup create`):** `0` `Completed` (or accepted with
-`--wait=false`), `1` the backup `Failed`, `2` an invalid `--name`, `4` the
+`--wait=false`), `1` the backup `Failed` or is being deleted, `2` an invalid `--name`, `4` the
 database does not exist, `5` the name is taken, the database is not running
 (`409 database_not_ready`, hint: `kupe database wait DATABASE`) or already
 keeps 20 manual backups (`409 backup_limit_reached`, hint: list and delete
-one), or a shared refusal (being deleted, tenant refusals), `7` backups not
-offered, creation paused, a kupe-api that predates manual backups ("this
-platform does not offer database backups yet"), or lost contact with kupe-api
+one), or a shared refusal (being deleted, tenant refusals), `7` backups
+switched off, creation paused, a platform that cannot take manual backups or a
+kupe-api that predates them ("this platform does not offer database backups
+yet"), or lost contact with kupe-api
 while waiting, `8` wait timeout, `130` Ctrl+C while waiting (the backup was
 requested). `backup list`, `get` and `delete` exit `4` for a backup that does
 not exist (`get`, `delete`), `2` for `delete` without `--yes` in
-non-interactive mode, and `7` against a kupe-api that predates manual backups.
+non-interactive mode, and `7` on a platform that cannot take manual backups or
+a kupe-api that predates them.
 
 ---
 
@@ -1602,6 +1611,8 @@ tenant name (mismatch or missing → exit `2`, no request made).
 |------|---------|-------------|
 | `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
 | `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. `--cascade` never deletes databases or the registry. |
+| `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
+| `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
 Manual database backups do not block deletion: they are deleted with the
 tenant and cannot be restored afterwards. Before the request, the command
@@ -1610,8 +1621,6 @@ lists them on stderr (from `GET /backups`), with or without `--cascade`, as
 phase instead of the time. If the list cannot be read, the warning says every
 manual backup is deleted and that the list could not be read, and the delete
 goes ahead. A platform without manual backups lists nothing.
-| `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
-| `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
 ```bash
 $ kupe tenant delete --confirm acme --cascade

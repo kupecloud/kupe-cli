@@ -125,6 +125,14 @@ func asAPI(err error) *APIError {
 	return nil
 }
 
+// StatusCode is the HTTP status of err's APIError, 0 when err is not one.
+func StatusCode(err error) int {
+	if e := asAPI(err); e != nil {
+		return e.StatusCode
+	}
+	return 0
+}
+
 // IsUnauthorized reports whether err is a 401 from kupe-api.
 func IsUnauthorized(err error) bool {
 	e := asAPI(err)

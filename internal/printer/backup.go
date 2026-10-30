@@ -38,7 +38,7 @@ func backupDetailColumns(colorEnabled bool) Columns {
 		{Name: "Database", Get: func(v any) string { return backupDatabase(backup(v)) }},
 		{Name: "Reason", Get: func(v any) string { return backup(v).Reason }},
 		{Name: "Phase", Get: func(v any) string { return ux.ColorPhase(backupStatus(backup(v)).Phase, colorEnabled) }},
-		{Name: "Message", Get: func(v any) string { return backup(v).Status.Message() }},
+		{Name: "Message", OmitEmpty: true, Get: func(v any) string { return backup(v).Status.Message() }},
 		{Name: "Size", Get: func(v any) string { return backupBytes(backup(v)) }},
 		{Name: "Version", Get: func(v any) string { return backupSource(backup(v)).Version }},
 		{Name: "Storage", Get: func(v any) string { return backupSource(backup(v)).Storage }},

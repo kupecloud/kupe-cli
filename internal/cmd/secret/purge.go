@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/kupecloud/kupe-cli/internal/client"
 )
 
 func newPurgeCmd(f *cli.Factory) *cobra.Command {
@@ -29,6 +30,9 @@ func newPurgeCmd(f *cli.Factory) *cobra.Command {
 		}
 		entry, err := api.GetVaultEntry(cmd.Context(), path)
 		if err != nil {
+			if client.IsNotFound(err) && client.ErrorCode(err) != "vault_not_configured" {
+				return boundedVaultError(cli.ExitNotFound, "no values at "+path+"; nothing to purge", err)
+			}
 			return translateVaultErr(err, path, version, false)
 		}
 		if len(entry.References) > 0 {
@@ -42,7 +46,7 @@ func newPurgeCmd(f *cli.Factory) *cobra.Command {
 			return err
 		}
 		if err := api.PurgeVaultEntry(cmd.Context(), path, version); err != nil {
-			return translateVaultErr(err, path, version, true)
+			return translateVaultWriteErr(err, path, version, true)
 		}
 		fmt.Fprintf(f.IOStreams.Out, "secret values at %s permanently deleted\n", path)
 		return nil

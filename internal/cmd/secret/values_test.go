@@ -1,13 +1,19 @@
 package secret
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -111,7 +117,7 @@ func TestValuesErrorMapping(t *testing.T) {
 			f.IOStreams.In = strings.NewReader(`{"A":"` + valueSentinel + `"}`)
 			err := exec(newValuesSetCmd(f), "--path", "team/db", "--expected-version", "3", "--stdin")
 			var ce *cli.Error
-			if cli.ExitCode(err) != test.exit || !errors.As(err, &ce) || !strings.Contains(ce.Msg, test.text) || !strings.Contains(ce.Hint, test.hint) {
+			if cli.ExitCode(err) != test.exit || !errors.As(err, &ce) || !strings.Contains(err.Error(), test.text) || !strings.Contains(ce.Hint, test.hint) {
 				t.Fatalf("%#v", err)
 			}
 			out := f.IOStreams.Out.(interface{ String() string }).String() + f.IOStreams.ErrOut.(interface{ String() string }).String() + err.Error()
@@ -155,7 +161,7 @@ func TestPurgeGuardsAndConfirmation(t *testing.T) {
 			if test.wantDelete && fake.VaultVersions[0] != 6 {
 				t.Fatal("wrong version")
 			}
-			if test.name == "conflict" && !strings.Contains(err.Error(), "changed after it was read; run purge again") {
+			if test.name == "conflict" && !strings.Contains(err.Error(), "is no longer at the version being purged; run purge again") {
 				t.Fatal(err)
 			}
 			if test.name == "server-refs" && !strings.Contains(err.Error(), "orders") {
@@ -215,7 +221,7 @@ func TestPurgeExpectedVersionAndNoPrompt(t *testing.T) {
 }
 
 func TestValuesGoldens(t *testing.T) {
-	for _, name := range []string{"values-get", "values-set", "values-conflict", "values-unconfirmed", "purge"} {
+	for _, name := range []string{"values-get", "values-set", "values-conflict", "values-unconfirmed", "purge", "values-create-conflict", "purge-conflict", "purge-absent", "purge-unknown"} {
 		t.Run(name, func(t *testing.T) {
 			fake := clienttest.New()
 			fake.VaultEntries = map[string]*client.VaultEntry{"team/db": {Path: "team/db", Version: 3, CreatedAt: "2026-10-29T12:00:00Z", UpdatedAt: "2026-10-29T12:00:00Z", References: []string{}}}
@@ -226,7 +232,15 @@ func TestValuesGoldens(t *testing.T) {
 			switch name {
 			case "values-get":
 				err = exec(newValuesGetCmd(f), "--path", "team/db", "-o", "json")
-			case "purge":
+			case "purge", "purge-conflict", "purge-absent", "purge-unknown":
+				switch name {
+				case "purge-conflict":
+					fake.PurgeVaultEntryErr = &client.APIError{StatusCode: 412, Code: "secret_version_conflict"}
+				case "purge-absent":
+					delete(fake.VaultEntries, "team/db")
+				case "purge-unknown":
+					fake.PurgeVaultEntryErr = fmt.Errorf("executing request: %s", valueSentinel)
+				}
 				err = exec(newPurgeCmd(f), "--path", "team/db", "--yes")
 			default:
 				if name == "values-conflict" {
@@ -235,7 +249,12 @@ func TestValuesGoldens(t *testing.T) {
 				if name == "values-unconfirmed" {
 					fake.PutVaultValuesErr = &client.APIError{StatusCode: 503, Code: "secret_write_unconfirmed"}
 				}
-				err = exec(newValuesSetCmd(f), "--path", "team/db", "--expected-version", "3", "--stdin", "-o", "json")
+				version := "3"
+				if name == "values-create-conflict" {
+					version = "0"
+					fake.PutVaultValuesErr = &client.APIError{StatusCode: 412, Code: "secret_version_conflict"}
+				}
+				err = exec(newValuesSetCmd(f), "--path", "team/db", "--expected-version", version, "--stdin", "-o", "json")
 			}
 			stdout := f.IOStreams.Out.(interface{ String() string }).String()
 			stderr := f.IOStreams.ErrOut.(interface{ String() string }).String()
@@ -260,5 +279,227 @@ func TestValuesGoldens(t *testing.T) {
 				t.Fatalf("golden mismatch\nwant:\n%s\ngot:\n%s", expected, result)
 			}
 		})
+	}
+}
+
+func TestValuesCreateConflictReviewCopy(t *testing.T) {
+	fake := clienttest.New()
+	fake.PutVaultValuesErr = &client.APIError{StatusCode: 412, Code: "secret_version_conflict"}
+	f := factoryWith(t, fake)
+	f.IOStreams.In = strings.NewReader(`{"A":"` + valueSentinel + `"}`)
+	err := exec(newValuesSetCmd(f), "--path", "team/db", "--expected-version", "0", "--stdin")
+	var ce *cli.Error
+	if cli.ExitCode(err) != 5 || err.Error() != "values already exist at team/db" || !errors.As(err, &ce) || ce.Hint != "`kupe secret values get` shows the current version; review it, then pass it as --expected-version" {
+		t.Fatalf("err=%v %#v", err, ce)
+	}
+}
+
+func TestVaultSentWriteUnknownOutcomes(t *testing.T) {
+	for _, operation := range []string{"set", "purge"} {
+		for _, failure := range []string{"reset", "attempt-timeout", "context-timeout", "cancel", "502", "504", "503", "unknown-code", "unconfirmed", "vault-unavailable"} {
+			t.Run(operation+"/"+failure, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if failure == "context-timeout" {
+					var deadlineCancel context.CancelFunc
+					ctx, deadlineCancel = context.WithTimeout(ctx, time.Second)
+					defer deadlineCancel()
+				}
+				var writes atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == http.MethodGet {
+						fmt.Fprint(w, `{"path":"team/db","version":3,"references":[]}`)
+						return
+					}
+					writes.Add(1)
+					_, _ = io.Copy(io.Discard, r.Body)
+					switch failure {
+					case "reset":
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						_ = conn.Close()
+					case "attempt-timeout", "context-timeout":
+						<-r.Context().Done()
+					case "cancel":
+						cancel()
+						<-r.Context().Done()
+					default:
+						status := 503
+						if failure == "502" {
+							status = 502
+						}
+						if failure == "504" {
+							status = 504
+						}
+						w.WriteHeader(status)
+						switch failure {
+						case "vault-unavailable":
+							fmt.Fprint(w, `{"code":"vault_unavailable","message":"Vault unavailable"}`)
+						case "unconfirmed", "unknown-code":
+							code := "secret_write_unconfirmed"
+							if failure == "unknown-code" {
+								code = "unrecognised_failure"
+							}
+							fmt.Fprintf(w, `{"code":%q,"message":%q}`, code, valueSentinel)
+						default:
+							fmt.Fprintf(w, "<html>%s</html>", valueSentinel)
+						}
+					}
+				}))
+				defer server.Close()
+				httpClient := server.Client()
+				httpClient.Timeout = 4 * time.Second
+				if failure == "attempt-timeout" {
+					httpClient.Timeout = time.Second
+				}
+				api := client.New(server.URL, "acme", "", "cli-test", client.WithHTTPClient(httpClient))
+				f := factoryWith(t, clienttest.New())
+				f.Client = func() (client.Interface, error) { return api, nil }
+				f.IOStreams.In = strings.NewReader(`{"A":"` + valueSentinel + `"}`)
+				cmd := newValuesSetCmd(f)
+				args := []string{"--path", "team/db", "--expected-version", "3", "--stdin"}
+				want := "the write may or may not have been saved"
+				if failure == "vault-unavailable" {
+					want = "Vault is unavailable: service unavailable: Vault unavailable"
+				}
+				if operation == "purge" {
+					cmd = newPurgeCmd(f)
+					args = []string{"--path", "team/db", "--yes"}
+					want = "repeat the command to confirm"
+				}
+				cmd.SetArgs(args)
+				cmd.SetErr(f.IOStreams.ErrOut)
+				cmd.SetOut(f.IOStreams.Out)
+				err := cmd.ExecuteContext(ctx)
+				if cli.ExitCode(err) != 7 || err.Error() != want || writes.Load() != 1 {
+					t.Fatalf("writes=%d err=%v exit=%d", writes.Load(), err, cli.ExitCode(err))
+				}
+				var ce *cli.Error
+				if !errors.As(err, &ce) {
+					t.Fatal("missing CLI error")
+				}
+				if operation == "set" && failure != "vault-unavailable" && !strings.Contains(ce.Hint, "compare the version") {
+					t.Fatal(ce.Hint)
+				}
+				output := f.IOStreams.Out.(interface{ String() string }).String() + f.IOStreams.ErrOut.(interface{ String() string }).String() + err.Error() + ce.Hint
+				for _, forbidden := range []string{valueSentinel, "<html>", "executing request", "context canceled", "context deadline exceeded"} {
+					if strings.Contains(output, forbidden) {
+						t.Fatalf("unsafe output contains %q", forbidden)
+					}
+				}
+				if failure == "cancel" && !errors.Is(err, context.Canceled) {
+					t.Fatal("cause lost")
+				}
+				if failure == "context-timeout" && !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatal("cause lost")
+				}
+			})
+		}
+	}
+}
+
+func TestPurgeConflictReadAndPinnedCopy(t *testing.T) {
+	for _, pin := range []bool{false, true} {
+		t.Run(fmt.Sprint(pin), func(t *testing.T) {
+			fake := clienttest.New()
+			fake.VaultEntries = map[string]*client.VaultEntry{"team/db": {Version: 6}}
+			fake.PurgeVaultEntryErr = &client.APIError{StatusCode: 412, Code: "secret_version_conflict"}
+			f := factoryWith(t, fake)
+			args := []string{"--path", "team/db", "--yes"}
+			if pin {
+				args = append(args, "--expected-version", "4")
+			}
+			err := exec(newPurgeCmd(f), args...)
+			if cli.ExitCode(err) != 5 || err.Error() != "team/db is no longer at the version being purged; run purge again" {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestPurgeRepeatConfirmsAbsent(t *testing.T) {
+	var writes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			writes.Add(1)
+			w.WriteHeader(503)
+			fmt.Fprint(w, "<html>unknown</html>")
+			return
+		}
+		if writes.Load() > 0 {
+			w.WriteHeader(404)
+			fmt.Fprint(w, `{"code":"not_found","message":"not found"}`)
+			return
+		}
+		fmt.Fprint(w, `{"path":"team/db","version":3,"references":[]}`)
+	}))
+	defer server.Close()
+	api := client.New(server.URL, "acme", "", "cli-test")
+	for i, want := range []string{"repeat the command to confirm", "no values at team/db; nothing to purge"} {
+		f := factoryWith(t, clienttest.New())
+		f.Client = func() (client.Interface, error) { return api, nil }
+		err := exec(newPurgeCmd(f), "--path", "team/db", "--yes")
+		exit := 7
+		if i == 1 {
+			exit = 4
+		}
+		if cli.ExitCode(err) != exit || err.Error() != want || writes.Load() != 1 {
+			t.Fatalf("err=%v writes=%d", err, writes.Load())
+		}
+	}
+}
+
+func TestVaultFailuresBeforeWriteStayKnown(t *testing.T) {
+	fake := clienttest.New()
+	fake.GetVaultEntryErr = &client.APIError{StatusCode: 404, Code: "vault_not_configured"}
+	f := factoryWith(t, fake)
+	if err := exec(newPurgeCmd(f), "--path", "team/db", "--yes"); cli.ExitCode(err) != 7 || !strings.Contains(err.Error(), "Vault is not available on this platform") || len(fake.VaultVersions) != 0 {
+		t.Fatalf("%v", err)
+	}
+	fake = clienttest.New()
+	fake.GetSecretErr = context.Canceled
+	f = factoryWith(t, fake)
+	f.IOStreams.In = strings.NewReader(`{"A":"synthetic"}`)
+	if err := exec(newValuesSetCmd(f), "orders", "--expected-version", "3", "--stdin"); cli.ExitCode(err) != 130 || len(fake.VaultVersions) != 0 {
+		t.Fatal(err)
+	}
+	fake = clienttest.New()
+	fake.GetVaultEntryErr = context.DeadlineExceeded
+	f = factoryWith(t, fake)
+	if err := exec(newPurgeCmd(f), "--path", "team/db", "--yes"); cli.ExitCode(err) != 8 || len(fake.VaultVersions) != 0 {
+		t.Fatal(err)
+	}
+}
+
+func TestVaultWriteAuthenticationSetupStaysKnown(t *testing.T) {
+	for _, operation := range []string{"set", "purge"} {
+		t.Run(operation, func(t *testing.T) {
+			fake := clienttest.New()
+			f := factoryWith(t, fake)
+			authErr := cli.AuthError("sign in before writing values")
+			f.Client = func() (client.Interface, error) { return nil, authErr }
+			f.IOStreams.In = strings.NewReader(`{"A":"synthetic"}`)
+			var err error
+			if operation == "set" {
+				err = exec(newValuesSetCmd(f), "--path", "team/db", "--expected-version", "3", "--stdin")
+			} else {
+				err = exec(newPurgeCmd(f), "--path", "team/db", "--yes")
+			}
+			if cli.ExitCode(err) != 3 || !errors.Is(err, authErr) || len(fake.Calls) != 0 {
+				t.Fatalf("err=%v calls=%v", err, fake.Calls)
+			}
+		})
+	}
+}
+
+func TestVaultBoundedWriteErrorRetainsRequestIDAndCause(t *testing.T) {
+	cause := &client.APIError{StatusCode: 502, Message: "<html>" + valueSentinel + "</html>", RequestID: "vault-request"}
+	err := translateVaultWriteErr(cause, "team/db", 3, false)
+	var api *client.APIError
+	if err.Error() != "the write may or may not have been saved (request-id: vault-request)" || !errors.As(err, &api) || !errors.Is(err, cause) {
+		t.Fatalf("err=%v cause=%#v", err, api)
 	}
 }

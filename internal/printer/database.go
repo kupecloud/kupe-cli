@@ -134,7 +134,7 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Deletion Protection", Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
 		{Name: "Backups", Get: func(v any) string { return backupSettings(database(v)) }},
 		{Name: "Last Backup", Get: func(v any) string { return lastBackup(database(v)) }},
-		{Name: "Recovery Window", Get: func(v any) string { return recoveryWindow(database(v)) }},
+		{Name: "Restore Window", Get: func(v any) string { return recoveryWindow(database(v)) }},
 		{Name: "Backup Size", Get: func(v any) string { return backupSize(database(v)) }},
 		{Name: "Created", Get: func(v any) string { return createdWithAge(database(v).CreatedAt) }},
 	}

@@ -775,7 +775,7 @@ Storage:              10Gi
 Deletion Protection:  on
 Backups:              14 days, DailyThenWeekly
 Last Backup:          2026-10-12T02:14:07Z (8h ago)
-Recovery Window:      2026-10-09T10:02:41Z to 2026-10-12T10:41:33Z
+Restore Window:       2026-10-09T10:02:41Z to 2026-10-12T10:41:33Z
 Backup Size:          3.2 GiB
 Created:              2026-10-09T10:00:00Z (3d ago)
 ```
@@ -783,8 +783,8 @@ Created:              2026-10-09T10:00:00Z (3d ago)
 `Backups` is the retention and schedule the database set; the row shows
 `defaults` while the database keeps the platform defaults (7 days, `Daily`).
 `Last Backup` is when the newest full backup finished (`never` until the first
-one completes), `Recovery Window` the oldest and newest points the database can
-be recovered to, and `Backup Size` the storage every full backup and the WAL
+one completes), `Restore Window` the oldest and newest points the database can
+be restored to, and `Backup Size` the storage every full backup and the WAL
 kept take up, manual backups included, in binary units (empty until measured).
 
 Exits `4` if the database doesn't exist.

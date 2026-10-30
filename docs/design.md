@@ -143,7 +143,7 @@ Inspired by kubectl and gh. Stable across versions.
 | `4` | Not found | 404 on the requested resource |
 | `5` | Conflict | 409 (already exists, concurrent modification) or 412 (ETag mismatch) |
 | `6` | Rate limited | 429; rare because the client retries once internally |
-| `7` | Platform refused: paused or unavailable | 503 (e.g., cluster kubeconfig requested before provisioning completes); cluster or database creation paused (`creation_paused`); major version upgrade not offered (`major_upgrade_unavailable`); backups not offered (`backups_unavailable`); kupe-api unreachable for 90 seconds while a command waits ("lost contact") |
+| `7` | Platform refused: paused or unavailable | 503 (e.g., cluster kubeconfig requested before provisioning completes); cluster or database creation paused (`creation_paused`); major version upgrade not offered (`major_upgrade_unavailable`); backups not offered (`backups_unavailable`), or a kupe-api that predates manual backups or restores; kupe-api unreachable for 90 seconds while a command waits ("lost contact") |
 | `8` | Timeout | `--wait-timeout` elapsed before the resource reached the target phase |
 | `130` | Interrupt | User pressed Ctrl+C (standard Unix convention, `128 + SIGINT`) |
 

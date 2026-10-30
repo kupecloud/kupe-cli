@@ -1,0 +1,68 @@
+name: Semantic Release
+
+# Repository-owned copy of kupecloud/github-workflows semantic-release.yaml at
+# 98b8368 (v2.4.0). That repository is private, so this public repository can
+# no longer call it (kupecloud/github-workflows#14). Steps, action pins,
+# semantic-release 24 and the plugin list are unchanged. The one difference:
+# the shared default release config it downloaded is now committed as
+# .releaserc.json (byte-identical to releaserc-default.json at 98b8368).
+
+on:
+  workflow_call:
+    outputs:
+      new_release_published:
+        description: Whether a new release was published
+        value: ${{ jobs.release.outputs.new_release_published }}
+      new_release_version:
+        description: New release version
+        value: ${{ jobs.release.outputs.new_release_version }}
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    outputs:
+      new_release_published: ${{ steps.semantic.outputs.new_release_published }}
+      new_release_version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+          # `persist-credentials: true` puts GITHUB_TOKEN in the git
+          # remote URL so semantic-release plugins can push back to main.
+          # Pushes from GITHUB_TOKEN don't trigger CI.
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v6.0.0
+        with:
+          node-version: "22"
+
+      - name: Check repository release configuration
+        run: test -f .releaserc.json
+
+      - name: Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90 # v6.0.0
+        with:
+          semantic_version: 24
+          # conventional-changelog-conventionalcommits is PINNED: 10.4.0 needs
+          # conventional-changelog-writer@9, which semantic-release 24 lacks.
+          # extra_plugins takes no comments; every line is a package name.
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@10.3.0
+            @semantic-release/exec
+            @semantic-release/git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release info
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: |
+          echo "New release published: v${{ steps.semantic.outputs.new_release_version }}"

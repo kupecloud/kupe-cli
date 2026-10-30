@@ -791,9 +791,17 @@ contains `path`, `version` and `refreshRequested`. A hint names the definitions
 requested to refresh and points at `kupe secret wait NAME --for delivered`;
 the write command does not wait for delivery.
 
-A version conflict exits 5. An unconfirmed write exits 7 and says
-"the write may or may not have been saved". Run `values get` and compare the
-version before deciding whether to write again. PUT is not retried after a
+A version conflict exits 5. With `--expected-version 0`, the message is
+"values already exist at PATH", with the hint "`kupe secret values get` shows
+the current version; review it, then pass it as --expected-version". For a
+positive expected version, the message stays "the values at PATH changed since
+version N".
+
+An unconfirmed write exits 7 and says "the write may or may not have been saved".
+Run `values get` and compare the version before deciding whether to write again.
+This also covers a transport error or reset after sending the write, an attempt
+timeout, a context error, or a 5xx without a known code. These errors never show
+raw transport text or an ingress HTML body. PUT is not retried after a
 server error, connection reset or attempt timeout. A limiter refusal (429)
 allows one retry because it happens before the handler runs.
 
@@ -807,15 +815,19 @@ The warning says `permanently deletes every version of PATH; this cannot be
 undone`. Type the path to confirm, or pass `--yes` in scripts. The server
 checks the version just read before purging; the check and purge are separate.
 Optional `--expected-version N` supplies the script's reviewed version instead.
-A changed version exits 5: run purge again.
+A changed version exits 5: "PATH is no longer at the version being purged;
+run purge again". This applies to both the read and the pinned version.
 
 ```bash
 kupe secret purge --path team/orders
 kupe secret purge --path team/orders --expected-version 4 --yes
 ```
 
-A delete whose outcome is unknown is not retried automatically. If Vault is
-unavailable after the delete was sent, repeat the command to confirm.
+A delete whose outcome is unknown is not retried automatically. A transport or
+context error, a 5xx without a known code, or `vault_unavailable` after sending
+the delete exits 7: "repeat the command to confirm". If that repeat reads a 404,
+it exits 4: "no values at PATH; nothing to purge". `vault_not_configured` remains
+unavailable; it does not mean the entry is absent.
 
 Reserved platform paths are refused locally, including literal `.` and `..`
 segments. When Vault is switched off, all three commands exit 7 with

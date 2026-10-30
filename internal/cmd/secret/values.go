@@ -93,7 +93,7 @@ Use version 0 to create an entry only if it does not exist. No values are shown.
 		}
 		result, err := api.PutVaultValues(cmd.Context(), resolved, values, version)
 		if err != nil {
-			return translateVaultErr(err, resolved, version, false)
+			return translateVaultWriteErr(err, resolved, version, false)
 		}
 		if len(result.RefreshRequested) > 0 {
 			fmt.Fprintf(f.IOStreams.ErrOut, "Refresh requested for %s. Check delivery with:\n", strings.Join(result.RefreshRequested, ", "))

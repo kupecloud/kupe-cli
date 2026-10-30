@@ -13,7 +13,7 @@ The CLI authenticates against `kupe-api` using bearer credentials scoped to a te
 
 The default login path is OIDC. `kupe auth login --method oidc` runs an OAuth 2.0 Device Authorization Grant ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)) against the Authentik `kupe-cli` public client. The CLI stores the resulting access, refresh, and ID token set, then refreshes it transparently on later commands.
 
-The non-interactive path is an API key minted against a specific tenant. Format: `kupe_<keyID>_<secret>` (prefix `kupe_` for routing on the server side, ID for auditability, secret for auth). The API validates via constant-time HMAC-SHA256 comparison against a stored hash (see [kupe-api/internal/auth/auth.go](../../kupe-api/internal/auth/auth.go)).
+The non-interactive path is an API key minted against a specific tenant. Format: `kupe_<keyID>_<secret>` (prefix `kupe_` for routing on the server side, ID for auditability, secret for auth). The API validates via constant-time HMAC-SHA256 comparison against a stored hash (see [kupe-api/internal/auth/auth.go](https://github.com/kupecloud/kupe-api/blob/main/internal/auth/auth.go)).
 
 Two roles exist: `admin` (read-write) and `readonly`. The role is a property of the key, not the user — a tenant member can create keys in either role as long as their own role allows it.
 

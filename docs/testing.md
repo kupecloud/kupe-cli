@@ -112,7 +112,7 @@ Several client tests started as copies of terraform-provider-kupe tests. Keep ex
 
 ## Layer 4 — live `kupe-api` (`make test-live`)
 
-Lives at [`test/live/`](../test/live/). Mirrors the [kupe-api `test/live/` convention](../../kupe-api/test/live/) so engineers can move between repos without re-learning the layout. Go tests with the `//go:build live` tag, run by exec'ing the freshly-compiled `kupe` binary against a deployed API.
+Lives at [`test/live/`](../test/live/). Mirrors the [kupe-api `test/live/` convention](https://github.com/kupecloud/kupe-api/tree/main/test/live) so engineers can move between repos without re-learning the layout. Go tests with the `//go:build live` tag, run by exec'ing the freshly-compiled `kupe` binary against a deployed API.
 
 ```bash
 # Required:
@@ -204,7 +204,7 @@ A new managed service also edits the shared files listed in [Adding a managed se
 
 ## Lint and vuln
 
-Mirror [kupe-api](../../kupe-api/) and [terraform-provider-kupe](../../terraform-provider-kupe/):
+Mirror [kupe-api](https://github.com/kupecloud/kupe-api) and [terraform-provider-kupe](https://github.com/kupecloud/terraform-provider-kupe):
 
 ```bash
 make lint        # golangci-lint run

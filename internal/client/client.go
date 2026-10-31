@@ -125,6 +125,18 @@ func (c *Client) request(ctx context.Context, method, path string, body, result 
 // requestWithETag is the workhorse: marshal body, execute with retry,
 // decode into result, surface typed errors.
 func (c *Client) requestWithETag(ctx context.Context, method, path, etag string, body, result any) (string, error) {
+	return c.requestWithOptions(ctx, method, path, etag, body, result, requestOptions{})
+}
+
+// requestOptions keeps destructive subresources from inheriting ordinary
+// DELETE retries. A limiter refusal (429) still permits one safe retry.
+type requestOptions struct {
+	ifNoneMatch string
+	noReplay    bool
+	noRedirect  bool
+}
+
+func (c *Client) requestWithOptions(ctx context.Context, method, path, etag string, body, result any, opts requestOptions) (string, error) {
 	var bodyBytes []byte
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -134,12 +146,18 @@ func (c *Client) requestWithETag(ctx context.Context, method, path, etag string,
 		bodyBytes = data
 	}
 
-	resp, respBody, err := c.doWithRetry(ctx, method, path, etag, bodyBytes)
+	resp, respBody, err := c.doWithRetry(ctx, method, path, etag, bodyBytes, opts)
 	if err != nil {
 		return "", err
 	}
 
 	requestID := resp.Header.Get("X-Request-Id")
+
+	// A refused redirect is not a successful write. Do not parse or retain its
+	// body or Location: either may echo values from the original request.
+	if opts.noRedirect && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return "", &APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode), RequestID: requestID, Method: method, Path: path}
+	}
 
 	if resp.StatusCode >= 400 {
 		apiErr := &APIError{
@@ -199,7 +217,19 @@ func (c *Client) requestWithETag(ctx context.Context, method, path, etag string,
 // doWithRetry executes a request with retry + 429 handling. The response
 // body is fully read and closed before return; the caller receives both
 // the *http.Response (for headers/status) and the body bytes.
-func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bodyBytes []byte) (*http.Response, []byte, error) {
+func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bodyBytes []byte, options ...requestOptions) (*http.Response, []byte, error) {
+	var opts requestOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	// Clone only this operation's client: a 307/308 would otherwise replay
+	// the body inside Do, before the outer retry policy can refuse it.
+	httpClient := c.httpClient
+	if opts.noRedirect {
+		clone := *httpClient
+		clone.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+		httpClient = &clone
+	}
 	var (
 		lastResp   *http.Response
 		lastBody   []byte
@@ -208,13 +238,13 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 	)
 
 	for attempt := 0; attempt < c.retry.maxAttempts; attempt++ {
-		req, err := c.newRequest(ctx, method, path, etag, bodyBytes)
+		req, err := c.newRequest(ctx, method, path, etag, bodyBytes, opts)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		start := time.Now()
-		resp, err := c.httpClient.Do(req)
+		resp, err := httpClient.Do(req)
 		var body []byte
 		if resp != nil {
 			var readErr error
@@ -262,7 +292,7 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 		}
 
 		// Classic retry eligibility (5xx, network errors, idempotent only).
-		if !c.retry.shouldRetry(method, resp, err) {
+		if opts.noReplay || !c.retry.shouldRetry(method, resp, err) {
 			break
 		}
 		if attempt+1 >= c.retry.maxAttempts {
@@ -287,7 +317,7 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 
 // newRequest builds a fresh *http.Request — called once per attempt so
 // retries get an unconsumed body reader.
-func (c *Client) newRequest(ctx context.Context, method, path, etag string, bodyBytes []byte) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, method, path, etag string, bodyBytes []byte, options ...requestOptions) (*http.Request, error) {
 	var bodyReader io.Reader
 	if bodyBytes != nil {
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -323,6 +353,9 @@ func (c *Client) newRequest(ctx context.Context, method, path, etag string, body
 	}
 	if etag != "" {
 		req.Header.Set("If-Match", etag)
+	}
+	if len(options) > 0 && options[0].ifNoneMatch != "" {
+		req.Header.Set("If-None-Match", options[0].ifNoneMatch)
 	}
 	return req, nil
 }

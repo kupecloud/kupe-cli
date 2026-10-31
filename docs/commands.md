@@ -37,6 +37,16 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `PATCH /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret delete` | v1 |
 | `POST /api/v1/tenants/{tenant}/secrets/{name}/refresh` | `kupe secret refresh` | v1 |
+| `GET /api/v1/tenants/{tenant}/apps` | `kupe app list` | v1 |
+| `POST /api/v1/tenants/{tenant}/apps` | `kupe app create` | v1 |
+| `GET /api/v1/tenants/{tenant}/apps/{app}` | `kupe app get` | v1 |
+| `PATCH /api/v1/tenants/{tenant}/apps/{app}` | `kupe app update` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/apps/{app}` | `kupe app delete` | v1 |
+| `GET /api/v1/tenants/{tenant}/apps/{app}/environments` | `kupe app env list` | v1 |
+| `POST /api/v1/tenants/{tenant}/apps/{app}/environments` | `kupe app env create` | v1 |
+| `GET /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app env get` | v1 |
+| `PATCH /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app env update` | v1 |
+| `DELETE /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app env delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
@@ -754,6 +764,88 @@ values are kept. The platform withdraws its copies from each namespace.
 the platform keeps removing copies. With `--wait=false`, the command prints
 `secret/NAME delete requested`. It prints `secret/NAME deleted` after confirming
 removal. Prompts on TTY; pass `--yes` in non-interactive environments.
+
+---
+
+## `kupe app` — Apps
+
+An app is one stateless web service deployed from an existing image into one or
+more environments. Each environment runs on a cluster you choose. Deleting an
+app never deletes a cluster. `apps` is an alias for `app`.
+
+- `kupe app list` lists apps; `kupe app get NAME` includes each environment's name,
+  phase and address. Both support `-o json|yaml`.
+- `kupe app create NAME` creates an app with deletion protection on. Pass
+  `--no-deletion-protection` to create it unprotected.
+- `kupe app update NAME --deletion-protection=false` turns protection off.
+- `kupe app delete NAME` deletes every environment first, with its namespace and
+  everything in it. Clusters and Vault entries are kept. Turn protection off on
+  the app and every environment first. Type the app name to confirm, or pass
+  `--yes` (required without a TTY). The command waits until the app is gone;
+  `--wait=false` returns when deletion is accepted.
+
+### `kupe app env`
+
+`environment` is an alias for `env`.
+
+```bash
+kupe app env list shop
+kupe app env get shop production -o json
+kupe app env create shop production -f environment.yaml
+kupe app env create shop staging -f - < environment.yaml
+kupe app env update shop production --env LOG_LEVEL=info
+kupe app env update shop production --unset-env OLD_SETTING
+```
+
+Create and update accept a YAML or JSON specification with `-f FILE`; `-f -`
+reads stdin. Unknown fields, duplicate fields and multiple documents are refused.
+The file uses the API fields `environment` (create only), `cluster` (create only),
+`deletionProtection`, `web`, `secrets` and `domains`. Flags override file values.
+Files are bounded to 1 MiB.
+
+| Flag | Meaning |
+| --- | --- |
+| `--cluster NAME` | Destination cluster; create only. |
+| `--image DIGEST` | Immutable image digest reference. Tags are refused. |
+| `--port N`, `--replicas N` | Web port and replica count (1–10). |
+| `--cpu`, `--memory` | CPU and memory requests per replica. |
+| `--cpu-limit`, `--memory-limit` | CPU and memory limits per replica. |
+| `--env NAME=VALUE` | Set or replace a literal variable; repeatable. |
+| `--secret NAME=VAULT_PATH` | Declare a Vault reference; repeatable. |
+| `--secret-env VAR=SECRET:KEY` | Use a declared secret key; repeatable. |
+| `--domain HOST` | Add an exact hostname; repeatable. |
+| `--readiness tcp\|http:/path` | Set the readiness check. |
+| `--unset-env NAME`, `--remove-secret NAME`, `--remove-domain HOST` | Remove one entry on update. |
+| `--no-deletion-protection` | Turn deletion protection off. |
+| `--deletion-protection=BOOL` | Turn protection on or off on update. |
+| `--wait`, `--wait-timeout` | Wait by default; timeout defaults to 30m. |
+
+On create, unset resources default to requests `250m`/`256Mi` and limits `1`/`512Mi`.
+On update, unset fields keep their current values. A request cannot exceed its
+limit: for example, raising `--cpu` above the current limit also needs a higher
+`--cpu-limit`. The command sends all four effective resource values together.
+
+Updates preserve existing list entries when flags edit one entry. Lists supplied
+in a file replace the whole list. Command and argument order and variable order
+are kept. Cluster, environment name and deployment revision cannot be changed by
+update. A version conflict is re-read once; a concurrent change to a field being
+edited is refused instead of overwritten.
+
+Create and update wait until the operator observes the new generation and the
+phase settles. `--wait=false` returns at once. When an update requests a different
+release, stderr prints `deploying release <n>`. Desired configuration, requested
+release outcome, active release and recovery are shown separately by `env get`.
+Domain status includes the DNS record to create. Secret status shows names and
+missing keys; the CLI never fetches Vault values.
+
+`kupe app env delete APP ENV` deletes the namespace and everything in it, keeping
+the cluster and Vault entries. Turn protection off first, remove independent
+secret deliveries or service bindings into its namespace, then type the environment
+name or pass `--yes`. It waits until the environment is gone; `--wait=false` returns
+at acceptance. Both deletes use `--wait-timeout` (default 30m).
+
+When an API operation answers `apps_unavailable`, the CLI preserves the API message
+and exits 7. A plain missing app or environment exits 4.
 
 ---
 

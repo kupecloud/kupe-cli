@@ -384,3 +384,12 @@ A future `--pager` flag could opt in; not scoped for v1.
 ## Internationalization
 
 All user-facing strings are English in v1. No `i18n` package, no message catalogs. If we localize later, the stdout data format stays English (scripts depend on it); only stderr status/prompts are translated.
+
+## App output
+
+App detail includes its environment summary. Environment detail keeps desired
+web configuration, phase, requested deployment outcome, requested/active/last
+successful releases and recovery in separate rows. Domains include their DNS
+records and secret status includes missing key names. Literal variables are
+configuration; Vault references remain references and no Vault values are fetched.
+Structured output preserves the API objects. Deployment notices go to stderr.

@@ -99,6 +99,7 @@ internal/
 │   ├── config/                  — view, get, set, use-context, set-context,
 │   │                              delete-context, current-context.
 │   ├── cluster/                 — list, get, create, delete, update, kubeconfig, wait.
+│   ├── app/                     — app and environment CRUD, strict file input.
 │   ├── apikey/                  — list, create, delete.
 │   ├── secret/                  — list, get, create, update, delete, refresh, wait.
 │   ├── database/                — list, get, create, update, upgrade, delete,

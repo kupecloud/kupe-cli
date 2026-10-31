@@ -138,3 +138,50 @@ func TestTranslateCommon_FallbackPluralOfRegistry(t *testing.T) {
 		t.Fatalf("plural(database) = %q", got)
 	}
 }
+
+func TestAppRefusalRowDoesNotCaptureUnrelatedLegacyErrors(t *testing.T) {
+	for _, tc := range []struct {
+		code, message string
+		status, want  int
+	}{
+		{"apps_unavailable", "apps are not available on this platform", 404, 7},
+		{"", "apps are not available on this platform", 404, 7},
+		{"", "cluster not found", 404, 4},
+		{"", "cluster already exists", 409, 5},
+		{"", "invalid cluster name", 400, 2},
+	} {
+		err := TranslateCommon("app", "shop", &client.APIError{StatusCode: tc.status, Code: tc.code, Message: tc.message})
+		if cli.ExitCode(err) != tc.want {
+			t.Errorf("%s: exit=%d want=%d err=%v", tc.message, cli.ExitCode(err), tc.want, err)
+		}
+	}
+}
+
+func TestAppsUnavailableFallbackPreservesAPIError(t *testing.T) {
+	for _, message := range []string{"apps are temporarily unavailable for this tenant", "", " \t "} {
+		err := apiRefusal(t, 404, "apps_unavailable", message)
+		var original *client.APIError
+		if !errors.As(err, &original) {
+			t.Fatal("missing API error")
+		}
+		original.RequestID = "app-request-123"
+		original.Field = "app"
+		beforeBody := string(original.Body())
+		beforeMessage := original.Message
+		got := TranslateCommon("app", "shop", err)
+		want := message
+		if strings.TrimSpace(message) == "" {
+			want = "apps are not available on this platform"
+		}
+		if cli.ExitCode(got) != 7 || got.Error() != want+" (request-id: app-request-123)" {
+			t.Fatalf("message=%q got=%v", message, got)
+		}
+		var api *client.APIError
+		if !errors.As(got, &api) || api.StatusCode != 404 || api.Code != "apps_unavailable" || api.RequestID != original.RequestID || api.Field != original.Field || api.Method != original.Method || api.Path != original.Path || string(api.Body()) != beforeBody {
+			t.Fatalf("API fields lost: %+v", api)
+		}
+		if original.Message != beforeMessage || string(original.Body()) != beforeBody {
+			t.Fatal("original API error mutated")
+		}
+	}
+}

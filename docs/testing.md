@@ -264,3 +264,16 @@ Not blocking, informational:
 - Layer 4 (live): cover happy paths for every command that can run safely against the shared testing tenant
 
 Coverage is available through `make test-coverage`; it is not currently a hard CI gate.
+
+## App command coverage
+
+App tests cover strict YAML/JSON/stdin input, resource requests and limits,
+ordered list edits, confirmed deletion, switched-off refusals and generation
+convergence. HTTP tests pin nested collection paths, opaque ETags and delete
+bodies. Fake and HTTP clients share the RMW retry policy; tests distinguish
+merging unrelated edits from refusing an edited field that changed.
+
+`test/live/app_test.go` is compile-checked with `make vet-live`. The engineer
+runs it only with an explicit `KUPE_LIVE_APP_CLUSTER` and the committed hello-kupe digest fixture;
+without the cluster variable it skips with a reason. Local gates never execute
+that fixture.

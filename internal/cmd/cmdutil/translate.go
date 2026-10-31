@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -24,6 +25,10 @@ type refusal struct {
 // refusals is tried in order; the first row whose code, or failing that
 // whose phrase, matches wins.
 var refusals = []refusal{
+	{
+		code: "apps_unavailable", phrase: "apps are not available on this platform", exit: cli.ExitUnavailable,
+		fallback: func(string, string) string { return "apps are not available on this platform" },
+	},
 	{
 		code: client.CodeCreationPaused, phrase: "creation is temporarily paused", exit: cli.ExitUnavailable,
 		fallback: func(noun, _ string) string { return noun + " creation is paused" },
@@ -103,7 +108,18 @@ func TranslateCommon(noun, name string, err error) error {
 		return nil
 	}
 	if r, ok := matchRefusal(err); ok {
-		out := cli.WrapAPI(r.exit, r.fallback(noun, name), err)
+		fallback := r.fallback(noun, name)
+		if r.code == "apps_unavailable" {
+			var api *client.APIError
+			if errors.As(err, &api) && strings.TrimSpace(api.Message) == "" {
+				// Fill this refusal's missing message without mutating the original
+				// API error or changing fallback behaviour for other services.
+				withMessage := *api
+				withMessage.Message = fallback
+				err = &withMessage
+			}
+		}
+		out := cli.WrapAPI(r.exit, fallback, err)
 		if r.hint != nil {
 			if hint := r.hint(noun, name); hint != "" {
 				out = out.WithHint(hint)

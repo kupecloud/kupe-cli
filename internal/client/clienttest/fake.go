@@ -25,6 +25,19 @@ import (
 type Fake struct {
 	mu sync.Mutex
 
+	AppsByName                                                                                                              map[string]*client.App
+	AppEnvironmentsByApp                                                                                                    map[string]map[string]*client.AppEnvironment
+	GetAppSeq                                                                                                               map[string][]*client.App
+	GetAppEnvironmentSeq                                                                                                    map[string]map[string][]*client.AppEnvironment
+	ListAppsErr, GetAppErr, CreateAppErr, UpdateAppErr, DeleteAppErr                                                        error
+	ListAppEnvironmentsErr, GetAppEnvironmentErr, CreateAppEnvironmentErr, UpdateAppEnvironmentErr, DeleteAppEnvironmentErr error
+	UpdateAppErrors, UpdateAppEnvironmentErrors                                                                             []error
+	AppCreates                                                                                                              []client.CreateAppRequest
+	AppPatches                                                                                                              []client.PatchAppRequest
+	AppEnvironmentCreates                                                                                                   []client.CreateAppEnvironmentRequest
+	AppEnvironmentPatches                                                                                                   []client.PatchAppEnvironmentRequest
+	AppDeleteConfirms, AppEnvironmentDeleteConfirms                                                                         []string
+
 	TenantName     string
 	TenantResponse *client.Tenant
 	TenantETag     string
@@ -209,17 +222,21 @@ type Fake struct {
 // New returns a Fake with sensible zero values.
 func New() *Fake {
 	return &Fake{
-		TenantName:       "acme",
-		ClustersByName:   map[string]*client.Cluster{},
-		GetClusterSeq:    map[string][]*client.Cluster{},
-		Kubeconfigs:      map[string]*client.ClusterKubeconfig{},
-		APIKeys:          map[string]*client.APIKey{},
-		Secrets:          map[string]*client.Secret{},
-		GetSecretSeq:     map[string][]*client.Secret{},
-		DatabasesByName:  map[string]*client.Database{},
-		GetDatabaseSeq:   map[string][]*client.Database{},
-		DatabaseBindings: map[string]*client.DatabaseBinding{},
-		Members:          map[string]*client.Member{},
+		AppsByName:           map[string]*client.App{},
+		AppEnvironmentsByApp: map[string]map[string]*client.AppEnvironment{},
+		GetAppSeq:            map[string][]*client.App{},
+		GetAppEnvironmentSeq: map[string]map[string][]*client.AppEnvironment{},
+		TenantName:           "acme",
+		ClustersByName:       map[string]*client.Cluster{},
+		GetClusterSeq:        map[string][]*client.Cluster{},
+		Kubeconfigs:          map[string]*client.ClusterKubeconfig{},
+		APIKeys:              map[string]*client.APIKey{},
+		Secrets:              map[string]*client.Secret{},
+		GetSecretSeq:         map[string][]*client.Secret{},
+		DatabasesByName:      map[string]*client.Database{},
+		GetDatabaseSeq:       map[string][]*client.Database{},
+		DatabaseBindings:     map[string]*client.DatabaseBinding{},
+		Members:              map[string]*client.Member{},
 
 		RegistriesByName:       map[string]*client.Registry{},
 		GetRegistrySeq:         map[string][]*client.Registry{},

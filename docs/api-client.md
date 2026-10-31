@@ -285,3 +285,12 @@ Timing: target around the v1.0 CLI release. Until then, the two consumers each o
 - [kupe-api/api/swagger.json](https://github.com/kupecloud/kupe-api/blob/main/api/swagger.json) — authoritative endpoint list.
 - [kupe-api/internal/server/handler_cluster.go](https://github.com/kupecloud/kupe-api/blob/main/internal/server/handler_cluster.go) — request/response shapes for cluster endpoints.
 - [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) — field validation regexes (CPU/memory/storage quantity formats).
+
+## App collections
+
+App and nested environment clients reuse `ResourceAPI`. They return opaque
+UID/spec-generation ETags unchanged in `If-Match`. Confirmed delete reads the
+current ETag and sends `{confirm}` through an App-only adapter; generic resource
+deletes keep their existing body. Command updates use the shared RMW policy,
+merge unrelated changes after one conflict, and refuse overwriting changed
+reviewed fields. Fakes call that same policy.

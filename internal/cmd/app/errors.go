@@ -20,8 +20,6 @@ func translateErr(err error, parent, name string) error {
 		noun = "environment"
 	}
 	switch client.ErrorCode(err) {
-	case "apps_unavailable":
-		return cli.WrapAPI(cli.ExitUnavailable, "apps are not available on this platform", err)
 	case "deletion_protected":
 		return cli.WrapAPI(cli.ExitConflict, "deletion protection is on", err).WithHint(command + " --deletion-protection=false; turn off protection on every environment before deleting an app")
 	case "namespace_in_use":

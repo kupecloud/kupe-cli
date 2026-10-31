@@ -44,7 +44,7 @@ and every environment before deleting. Type the app name to confirm, or use
 }
 func validateName(name, field string, maximum int) error {
 	if len(name) > maximum || len(validation.IsDNS1123Label(name)) > 0 || stringsContainDelimiter(name) {
-		return cli.MisuseError(fmt.Sprintf("%s must be an RFC 1123 label of at most %d characters without --", field, maximum))
+		return cli.MisuseError(fmt.Sprintf("%s must be 1–%d lowercase letters or digits, with single hyphens between them", field, maximum))
 	}
 	return nil
 }

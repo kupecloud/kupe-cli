@@ -72,7 +72,7 @@ func readEnvironmentFile(path string, in io.Reader, update bool) (map[string]any
 	strict.DisallowUnknownFields()
 	if err := strict.Decode(&typed); err != nil {
 		if strings.HasPrefix(err.Error(), "json: unknown field ") {
-			return nil, cli.MisuseError(err.Error())
+			return nil, cli.MisuseError("environment file has an unknown field " + strings.TrimPrefix(err.Error(), "json: unknown field "))
 		}
 		return nil, cli.MisuseError("environment file has an invalid field type")
 	}
@@ -328,8 +328,8 @@ func replaceEnv(entries *[]client.AppEnvVar, next client.AppEnvVar) {
 	*entries = append(*entries, next)
 }
 func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
-	if len(validation.IsDNS1123Label(req.Cluster)) > 0 {
-		return cli.MisuseError("cluster must be an RFC 1123 label")
+	if len(validation.IsDNS1123Label(req.Cluster)) > 0 || strings.Contains(req.Cluster, "--") {
+		return cli.MisuseError("cluster must be lowercase letters or digits, with single hyphens between them")
 	}
 	w := req.Web
 	if len(w.Image) > 512 || !digestImage.MatchString(w.Image) {
@@ -376,7 +376,7 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 	declared := map[string]bool{}
 	for _, s := range req.Secrets {
 		if len(validation.IsDNS1123Label(s.Name)) > 0 || declared[s.Name] {
-			return cli.MisuseError("secret names must be unique RFC 1123 labels")
+			return cli.MisuseError("secret names must be unique, with at most 63 lowercase letters, digits and hyphens")
 		}
 		if s.Path == "" || len(s.Path) > 512 || strings.Contains(s.Path, "..") || !vaultReferencePath.MatchString(s.Path) {
 			return cli.MisuseError("invalid Vault path in secrets")

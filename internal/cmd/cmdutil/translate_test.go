@@ -156,3 +156,32 @@ func TestAppRefusalRowDoesNotCaptureUnrelatedLegacyErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestAppsUnavailableFallbackPreservesAPIError(t *testing.T) {
+	for _, message := range []string{"apps are temporarily unavailable for this tenant", "", " \t "} {
+		err := apiRefusal(t, 404, "apps_unavailable", message)
+		var original *client.APIError
+		if !errors.As(err, &original) {
+			t.Fatal("missing API error")
+		}
+		original.RequestID = "app-request-123"
+		original.Field = "app"
+		beforeBody := string(original.Body())
+		beforeMessage := original.Message
+		got := TranslateCommon("app", "shop", err)
+		want := message
+		if strings.TrimSpace(message) == "" {
+			want = "apps are not available on this platform"
+		}
+		if cli.ExitCode(got) != 7 || got.Error() != want+" (request-id: app-request-123)" {
+			t.Fatalf("message=%q got=%v", message, got)
+		}
+		var api *client.APIError
+		if !errors.As(got, &api) || api.StatusCode != 404 || api.Code != "apps_unavailable" || api.RequestID != original.RequestID || api.Field != original.Field || api.Method != original.Method || api.Path != original.Path || string(api.Body()) != beforeBody {
+			t.Fatalf("API fields lost: %+v", api)
+		}
+		if original.Message != beforeMessage || string(original.Body()) != beforeBody {
+			t.Fatal("original API error mutated")
+		}
+	}
+}

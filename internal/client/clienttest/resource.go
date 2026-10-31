@@ -116,16 +116,12 @@ func (s *store[T, C, P]) Update(_ context.Context, name, _ string, req P) (*T, s
 // UpdateRMW delegates to the store's own Get and Update, so tests get the
 // real read-modify-write control flow without a server.
 func (s *store[T, C, P]) UpdateRMW(ctx context.Context, name string, mutate func(*T) *P) (*T, error) {
-	current, _, err := s.Get(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	patch := mutate(current)
-	if patch == nil {
-		return current, nil
-	}
-	updated, _, err := s.Update(ctx, name, "", *patch)
-	return updated, err
+	return client.UpdateResourceRMW(ctx,
+		func(ctx context.Context) (*T, string, error) { return s.Get(ctx, name) },
+		func(ctx context.Context, etag string, req P) (*T, string, error) {
+			return s.Update(ctx, name, etag, req)
+		},
+		mutate, client.ErrRMWContention)
 }
 
 func (s *store[T, C, P]) Delete(_ context.Context, name string) error {

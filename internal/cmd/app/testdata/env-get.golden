@@ -1,0 +1,17 @@
+NAME:                     production
+CLUSTER:                  europe
+PHASE:                    Degraded
+ADDRESS:                  https://shop.example.com
+App:                      shop
+Deletion protection:      off
+Desired web:              {"image":"ghcr.io/kupecloud/hello-kupe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","port":8080,"replicas":1,"resources":{"requests":{"cpu":"500m","memory":"256Mi"},"limits":{"cpu":"2","memory":"512Mi"}},"command":null,"args":null,"env":[{"name":"A","value":"old"},{"name":"B","value":"kept"}],"healthChecks":null}
+Vault references:         null
+Desired domains:          shop.example.com
+Namespace:                app-shop-production
+Deployment:               shop-production-2 Failed HealthCheckFailed
+Requested release:        shop-production-2
+Active release:           shop-production-1
+Last successful release:  shop-production-1
+Recovery:                 Recovered shop-production-1
+Domain records:           -
+Secret status:            -

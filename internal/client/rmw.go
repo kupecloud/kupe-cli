@@ -25,6 +25,18 @@ func updateRMW[T, P any](
 	mutate func(*T) *P,
 	contention error,
 ) (*T, error) {
+	return UpdateResourceRMW(ctx, get, patch, mutate, contention)
+}
+
+// UpdateResourceRMW is the shared read/patch policy, also used by in-memory
+// resource clients so tests exercise the same conflict handling as HTTP clients.
+func UpdateResourceRMW[T, P any](
+	ctx context.Context,
+	get func(context.Context) (*T, string, error),
+	patch func(context.Context, string, P) (*T, string, error),
+	mutate func(*T) *P,
+	contention error,
+) (*T, error) {
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		current, etag, err := get(ctx)

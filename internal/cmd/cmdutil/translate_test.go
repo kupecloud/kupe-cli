@@ -138,3 +138,21 @@ func TestTranslateCommon_FallbackPluralOfRegistry(t *testing.T) {
 		t.Fatalf("plural(database) = %q", got)
 	}
 }
+
+func TestAppRefusalRowDoesNotCaptureUnrelatedLegacyErrors(t *testing.T) {
+	for _, tc := range []struct {
+		code, message string
+		status, want  int
+	}{
+		{"apps_unavailable", "apps are not available on this platform", 404, 7},
+		{"", "apps are not available on this platform", 404, 7},
+		{"", "cluster not found", 404, 4},
+		{"", "cluster already exists", 409, 5},
+		{"", "invalid cluster name", 400, 2},
+	} {
+		err := TranslateCommon("app", "shop", &client.APIError{StatusCode: tc.status, Code: tc.code, Message: tc.message})
+		if cli.ExitCode(err) != tc.want {
+			t.Errorf("%s: exit=%d want=%d err=%v", tc.message, cli.ExitCode(err), tc.want, err)
+		}
+	}
+}

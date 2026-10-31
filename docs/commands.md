@@ -890,8 +890,8 @@ kupe db create orders-db-0900 --from orders-db --point-in-time 2026-10-30T09:00:
 ```
 
 **Exit codes:** `0` success, `2` missing or malformed flags (no request made),
-an API validation error or a restore that does not fit its source, `4` a
-restore source not found, `5` name exists, a tenant or plan refusal
+an API validation error, or a restore source that does not exist or does not
+fit, `5` name exists, a tenant or plan refusal
 ([shared refusals](#refusals-shared-by-clusters-and-databases)) or a restore
 source not ready, `7` creation
 paused, backups not offered, a 503, or lost contact with kupe-api while waiting, `8` wait timeout,

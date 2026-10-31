@@ -57,7 +57,7 @@ func TestDeliveryTerminalOnlyCurrentConflictOrDeleting(t *testing.T) {
 		{name: "provider can recover", phase: "Failed", reason: "ProviderError"},
 		{name: "unknown can recover", phase: "Failed", reason: "FutureReason"},
 		{name: "current conflict", phase: "Failed", reason: "TargetConflict", want: true},
-		{name: "current conflict with older observed generation", phase: "Failed", reason: "TargetConflict", stale: true, want: true},
+		{name: "stale conflict can recover", phase: "Failed", reason: "TargetConflict", stale: true},
 		{name: "removed conflict", phase: "Failed", reason: "TargetConflict", removed: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -218,7 +218,6 @@ func TestWaitForDeliveryReturnsTerminalType(t *testing.T) {
 func TestCurrentTargetConflictExplainsHowToChooseAnotherName(t *testing.T) {
 	fake := clienttest.New()
 	s := deliveredSecret()
-	s.Status.ObservedGeneration = 1
 	s.Status.SyncStatuses[0].Phase = "Failed"
 	s.Status.SyncStatuses[0].Reason = "TargetConflict"
 	fake.Secrets["db"] = s
@@ -231,5 +230,36 @@ func TestCurrentTargetConflictExplainsHowToChooseAnotherName(t *testing.T) {
 	const hint = "A secret with this name already exists in the namespace and was not created by Kupe. Choose another name with --sync CLUSTER:NAMESPACE:SECRET_NAME."
 	if !strings.Contains(ce.Hint, hint) {
 		t.Fatalf("hint=%q", ce.Hint)
+	}
+	const message = `secret "db" target "c/ns" entered Failed (TargetConflict) state`
+	if err.Error() != message {
+		t.Fatalf("error sentence duplicated or changed: %q", err.Error())
+	}
+}
+
+func TestDeliveryWaitContinuesAfterRenamingConflictingSecret(t *testing.T) {
+	stale := deliveredSecret()
+	stale.Generation = 3
+	stale.Status.ObservedGeneration = 2
+	stale.Sync[0].SecretName = "new-name"
+	stale.Status.SyncStatuses[0].SecretName = "old-name"
+	stale.Status.SyncStatuses[0].Phase = "Failed"
+	stale.Status.SyncStatuses[0].Reason = "TargetConflict"
+	delivered := deliveredSecret()
+	delivered.Generation = 3
+	delivered.Status.ObservedGeneration = 3
+	delivered.Sync[0].SecretName = "new-name"
+	delivered.Status.SyncStatuses[0].SecretName = "new-name"
+	fake := clienttest.New()
+	fake.GetSecretSeq["db"] = []*client.Secret{stale, delivered}
+	f := factoryWith(t, fake)
+	if err := exec(newWaitCmd(f), "db", "--timeout=5s"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.IOStreams.Out.(*bytes.Buffer).String(); got != "secret/db delivered\n" {
+		t.Fatalf("output=%q", got)
+	}
+	if len(fake.Calls) != 2 {
+		t.Fatalf("read calls=%v", fake.Calls)
 	}
 }

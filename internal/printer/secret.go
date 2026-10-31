@@ -118,5 +118,9 @@ func renderSync(s *client.Secret) string {
 }
 
 func syncLine(cluster, namespace, name, keys, phase, reason string) string {
-	return fmt.Sprintf("%s/%s as %s (keys: %s; %s; %s)", cluster, namespace, name, keys, phase, reason)
+	line := fmt.Sprintf("%s/%s as %s (keys: %s; %s", cluster, namespace, name, keys, phase)
+	if reason != "" {
+		line += "; " + reason
+	}
+	return line + ")"
 }

@@ -71,3 +71,16 @@ func TestSecretDeliveryGoldens(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretTargetReasonFormatting(t *testing.T) {
+	for _, tt := range []struct{ name, reason, want string }{
+		{name: "empty reason", want: "c/ns as api (keys: all; Pending)"},
+		{name: "reported reason", reason: "AwaitingCopy", want: "c/ns as api (keys: all; Pending; AwaitingCopy)"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := syncLine("c", "ns", "api", "all", "Pending", tt.reason); got != tt.want {
+				t.Fatalf("target=%q want%q", got, tt.want)
+			}
+		})
+	}
+}

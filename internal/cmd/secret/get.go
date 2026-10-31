@@ -12,7 +12,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "get NAME",
-		Short: "Show details of a single managed secret",
+		Short: "Show details of a single secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := printer.Resolve(f, output)

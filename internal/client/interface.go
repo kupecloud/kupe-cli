@@ -8,6 +8,8 @@ import "context"
 // interface; each new method is a separate commit so the minimal surface
 // stays visible in history.
 type Interface interface {
+	Apps() AppAPI
+	AppEnvironments(app string) AppEnvironmentAPI
 	// Tenant returns the tenant name the client is scoped to. Used by
 	// commands that want to display "acting as tenant X" without issuing a
 	// network call.

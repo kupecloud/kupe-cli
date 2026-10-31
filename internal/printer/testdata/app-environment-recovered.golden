@@ -1,0 +1,17 @@
+NAME:                     production
+CLUSTER:                  europe
+PHASE:                    Degraded
+ADDRESS:                  https://shop.example.com
+App:                      shop
+Deletion protection:      off
+Desired web:              null
+Vault references:         null
+Desired domains:          shop.example.com
+Namespace:                app-shop-production
+Deployment:               shop-production-2 Failed HealthCheckFailed
+Requested release:        shop-production-2
+Active release:           shop-production-1
+Last successful release:  shop-production-1
+Recovery:                 Recovered shop-production-1
+Domain records:           shop.example.com Pending  CNAME shop.example.com target.example.com
+Secret status:            payments Pending (missing: API_KEY)

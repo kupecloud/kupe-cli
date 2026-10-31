@@ -25,6 +25,10 @@ type refusal struct {
 // whose phrase, matches wins.
 var refusals = []refusal{
 	{
+		code: "apps_unavailable", phrase: "apps are not available on this platform", exit: cli.ExitUnavailable,
+		fallback: func(string, string) string { return "apps are not available on this platform" },
+	},
+	{
 		code: client.CodeCreationPaused, phrase: "creation is temporarily paused", exit: cli.ExitUnavailable,
 		fallback: func(noun, _ string) string { return noun + " creation is paused" },
 		hint: func(string, string) string {

@@ -12,7 +12,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List managed secrets in the tenant",
+		Short: "List secrets in the tenant",
 		Example: `  kupe secret list
   kupe secret list -o wide
   kupe secret list -o json`,

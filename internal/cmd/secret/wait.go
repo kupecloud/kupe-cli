@@ -56,6 +56,10 @@ func secretTerminal(s *client.Secret) error {
 	if s.Status.Phase == "Deleting" {
 		return &cmdutil.TerminalPhaseError{Noun: "secret", Name: s.Name, Phase: "Deleting"}
 	}
+	// A retained target may still report the conflict from its old secret name.
+	if s.Status.ObservedGeneration != s.Generation {
+		return nil
+	}
 	for _, target := range s.Sync {
 		for _, state := range s.Status.SyncStatuses {
 			if state.Cluster == target.Cluster && state.Namespace == target.Namespace && state.Phase == "Failed" && state.Reason == "TargetConflict" {
@@ -90,7 +94,7 @@ func secretWaitErr(err error, name string, deleting bool) error {
 	}
 	var terminal *cmdutil.TerminalPhaseError
 	if errors.As(err, &terminal) && terminal.Phase == "Failed (TargetConflict)" {
-		return cli.Wrap(cli.ExitGeneral, terminal.Error(), err).WithHint("A secret with this name already exists in the namespace and was not created by Kupe. Choose another name with --sync CLUSTER:NAMESPACE:SECRET_NAME." + "\n" + check)
+		return cli.New(cli.ExitGeneral, terminal.Error()).WithHint("A secret with this name already exists in the namespace and was not created by Kupe. Choose another name with --sync CLUSTER:NAMESPACE:SECRET_NAME." + "\n" + check)
 	}
 	verb := "wait"
 	if deleting {

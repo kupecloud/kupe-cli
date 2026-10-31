@@ -33,7 +33,7 @@ Missing values or selected keys can be fixed while the command waits. A
 wait timeout leaves the definition in place and delivery continues.
 Pass --wait=false to return once the definition is created.`,
 		Args: cobra.ExactArgs(1),
-		Example: `  # Path only, no sync targets (seed values later)
+		Example: `  # Path only, no sync targets
   kupe secret create mydb-password --path apps/shop/api
 
   # Sync to one cluster's default namespace

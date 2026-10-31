@@ -37,7 +37,6 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `PATCH /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/secrets/{name}` | `kupe secret delete` | v1 |
 | `POST /api/v1/tenants/{tenant}/secrets/{name}/refresh` | `kupe secret refresh` | v1 |
-
 | `GET /api/v1/tenants/{tenant}/vault/{path...}` | `kupe secret values get` (metadata only) | v1 |
 | `PUT /api/v1/tenants/{tenant}/vault/{path...}` | `kupe secret values set` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/vault/{path...}` | `kupe secret purge` | v1 |

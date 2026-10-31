@@ -386,3 +386,35 @@ func TestEnvironmentFileLocalPathForms(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvironmentClusterRefusesDoubleHyphensLocally(t *testing.T) {
+	fake := clienttest.New()
+	_, _, err := run(factoryWith(fake), "env", "create", "shop", "production", "--cluster", "eu--west", "--image", digest, "--port", "8080", "--wait=false")
+	want := "cluster must be lowercase letters or digits, with single hyphens between them"
+	if cli.ExitCode(err) != 2 || err.Error() != want || len(fake.Calls) != 0 {
+		t.Fatalf("err=%v calls=%v", err, fake.Calls)
+	}
+}
+
+func TestEnvironmentApprovedValidationMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		args        []string
+		input, want string
+	}{
+		{"app", []string{"create", "a--b"}, "", "app must be 1–32 lowercase letters or digits, with single hyphens between them"},
+		{"environment", []string{"env", "create", "shop", "a--b"}, "", "environment must be 1–20 lowercase letters or digits, with single hyphens between them"},
+		{"secret", []string{"env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080", "--secret", "Bad=apps/shop"}, "", "secret names must be unique, with at most 63 lowercase letters, digits and hyphens"},
+		{"unknown-field", []string{"env", "create", "shop", "production", "-f", "-"}, `{"surprise":1}`, `environment file has an unknown field "surprise"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := clienttest.New()
+			f := factoryWith(fake)
+			f.IOStreams.In = strings.NewReader(tc.input)
+			_, _, err := run(f, tc.args...)
+			if cli.ExitCode(err) != 2 || err.Error() != tc.want || len(fake.Calls) != 0 {
+				t.Fatalf("err=%v calls=%v", err, fake.Calls)
+			}
+		})
+	}
+}

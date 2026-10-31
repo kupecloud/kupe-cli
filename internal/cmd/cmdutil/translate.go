@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -107,7 +108,18 @@ func TranslateCommon(noun, name string, err error) error {
 		return nil
 	}
 	if r, ok := matchRefusal(err); ok {
-		out := cli.WrapAPI(r.exit, r.fallback(noun, name), err)
+		fallback := r.fallback(noun, name)
+		if r.code == "apps_unavailable" {
+			var api *client.APIError
+			if errors.As(err, &api) && strings.TrimSpace(api.Message) == "" {
+				// Fill this refusal's missing message without mutating the original
+				// API error or changing fallback behaviour for other services.
+				withMessage := *api
+				withMessage.Message = fallback
+				err = &withMessage
+			}
+		}
+		out := cli.WrapAPI(r.exit, fallback, err)
 		if r.hint != nil {
 			if hint := r.hint(noun, name); hint != "" {
 				out = out.WithHint(hint)

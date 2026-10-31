@@ -306,3 +306,11 @@ available through `errors.Is` and `errors.As`. An earlier possibly executed
 attempt prevents this classification; a complete 429 refusal does not. Vault
 write calls keep normal setup exit codes and credential guidance. Errors after
 submission, including response reads, keep the unknown-write guidance.
+## App collections
+
+App and nested environment clients reuse `ResourceAPI`. They return opaque
+UID/spec-generation ETags unchanged in `If-Match`. Confirmed delete reads the
+current ETag and sends `{confirm}` through an App-only adapter; generic resource
+deletes keep their existing body. Command updates use the shared RMW policy,
+merge unrelated changes after one conflict, and refuse overwriting changed
+reviewed fields. Fakes call that same policy.

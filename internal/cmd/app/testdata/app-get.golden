@@ -1,0 +1,5 @@
+NAME:                 shop
+PHASE:                Degraded
+ENVIRONMENTS:         1
+Deletion protection:  on
+Environment summary:  production Degraded https://shop.example.com

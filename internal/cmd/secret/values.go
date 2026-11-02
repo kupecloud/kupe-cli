@@ -2,7 +2,6 @@ package secret
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -72,14 +71,17 @@ Use version 0 to create an entry only if it does not exist. No values are shown.
 		}
 		input := f.IOStreams.In
 		if file != "" {
-			handle, openErr := os.Open(file) // #nosec G304 -- the user explicitly selects this local input file
+			handle, openErr := cli.OpenInputFile(cmd.Context(), file)
 			if openErr != nil {
+				if cmd.Context().Err() != nil {
+					return cmd.Context().Err()
+				}
 				return cli.MisuseError("could not open values file")
 			}
 			defer func() { _ = handle.Close() }() // Read-only input; all read errors are handled below.
 			input = handle
 		}
-		values, err := decodeVaultValues(input)
+		values, err := decodeVaultValues(cmd.Context(), input)
 		if err != nil {
 			return err
 		}

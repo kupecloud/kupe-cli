@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -59,6 +60,14 @@ func translateVaultErr(err error, path string, version int64, purge bool) error 
 func translateVaultWriteErr(err error, path string, version int64, purge bool) error {
 	if err == nil {
 		return nil
+	}
+	var setup *client.RequestNotSentError
+	if errors.As(err, &setup) {
+		var known *cli.Error
+		if !setup.TokenResolution || errors.As(err, &known) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return cli.TokenResolutionError(err)
 	}
 	var api *client.APIError
 	code := client.ErrorCode(err)

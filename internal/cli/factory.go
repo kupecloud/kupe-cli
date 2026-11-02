@@ -382,11 +382,22 @@ func NewFactory(io *IOStreams, flags *GlobalFlags) *Factory {
 func TokenResolutionError(err error) error {
 	switch {
 	case errors.Is(err, auth.ErrNotFound):
-		return AuthError("not logged in (or your session expired); run \"kupe auth login\"")
+		return Wrap(ExitAuth, "", &credentialError{message: "not logged in (or your session expired); run \"kupe auth login\"", cause: err})
 	case errors.Is(err, auth.ErrKeyringUnavailable):
-		return AuthError("could not read credentials from the OS keyring").
+		return Wrap(ExitAuth, "", &credentialError{message: "could not read credentials from the OS keyring", cause: err}).
 			WithHint("set KUPE_STORAGE=plaintext to use the file-based credential store, or export KUPE_API_TOKEN")
 	default:
 		return Wrap(ExitAuth, "resolving credentials", err)
 	}
 }
+
+// credentialError keeps existing guidance while retaining the original cause.
+// Credential storage errors must not be rendered as part of that guidance.
+type credentialError struct {
+	message string
+	cause   error
+}
+
+func (e *credentialError) Error() string { return e.message }
+
+func (e *credentialError) Unwrap() error { return e.cause }

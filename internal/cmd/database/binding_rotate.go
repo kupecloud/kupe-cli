@@ -94,6 +94,9 @@ func waitForBindingRotation(ctx context.Context, io *cli.IOStreams, api client.I
 		if phase == client.PhaseTerminating {
 			return false, &cmdutil.TerminalPhaseError{Noun: bindingNoun, Name: name, Phase: phase}
 		}
+		if phase == client.PhaseFailed {
+			return false, bindingFailedErr(b, fmt.Sprintf("check status:  kupe database binding get %s %s", database, name))
+		}
 		if b.Status == nil || b.Status.Rotation == nil {
 			return false, nil
 		}

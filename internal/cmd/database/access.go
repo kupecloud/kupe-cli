@@ -26,5 +26,5 @@ func bindingCredentials(dedicated bool) *client.BindingCredentials {
 	return &client.BindingCredentials{Dedicated: true}
 }
 func dedicatedIrreversible(err error) error {
-	return cli.WrapAPI(cli.ExitMisuse, "dedicated credentials cannot be turned off", err).WithHint("keep dedicated credentials, or delete the binding and add another")
+	return cli.WrapAPI(cli.ExitMisuse, "dedicated credentials cannot be turned off once enabled", err).WithHint("keep dedicated credentials, or delete the binding and add another")
 }

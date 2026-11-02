@@ -198,9 +198,6 @@ func bindingPhase(b *client.DatabaseBinding) string {
 	if b.Status.Phase == client.PhaseTerminating {
 		return client.PhaseTerminating
 	}
-	if b.Status.ObservedGeneration < b.Generation {
-		return client.PhasePending
-	}
 	phase := b.Status.Phase
 	if len(b.Status.Namespaces) == 0 && phase == client.PhaseFailed {
 		return client.PhaseFailed
@@ -215,7 +212,7 @@ func bindingPhase(b *client.DatabaseBinding) string {
 		}
 	}
 	switch {
-	case phase == client.PhaseReady && settled:
+	case phase == client.PhaseReady && settled && b.Status.ObservedGeneration >= b.Generation:
 		return client.PhaseReady
 	case phase == client.PhaseReady || phase == client.PhaseFailed:
 		return client.PhasePending
@@ -616,7 +613,7 @@ environments).`,
 				return translateErr(err, database)
 			}
 			fmt.Fprintf(io.Out, "binding/%s delete requested\n", name)
-			fmt.Fprintf(io.ErrOut, "The role's password is unchanged; to revoke it too: kupe database rotate-credentials %s --role ROLE\n", database)
+			fmt.Fprintf(io.ErrOut, "With shared credentials, the role's password is unchanged; to revoke it too: kupe database rotate-credentials %s --role ROLE\nDedicated logins are revoked when the binding is removed.\n", database)
 			return nil
 		},
 	}

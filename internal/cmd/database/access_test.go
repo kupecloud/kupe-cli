@@ -261,3 +261,39 @@ func TestAccessBindingRotateAcknowledgementAndPrompt(t *testing.T) {
 		t.Fatalf("noninteractive prompt issued rotation: err=%v calls=%v", err, fake.Calls)
 	}
 }
+
+func TestAccessDedicatedRefusalParity(t *testing.T) {
+	const message = "dedicated credentials cannot be turned off once enabled"
+	local := dedicatedIrreversible(nil)
+	remote := translateErr(&client.APIError{StatusCode: 400, Code: client.DatabaseCodeDedicatedCredentialsIrreversible, Message: message}, "orders-db")
+	if local.Error() != message || remote.Error() != message || cli.ExitCode(local) != cli.ExitMisuse || cli.ExitCode(remote) != cli.ExitMisuse {
+		t.Fatalf("local=%v remote=%v", local, remote)
+	}
+}
+
+func TestAccessStaleGenerationDoesNotHideBindingFailure(t *testing.T) {
+	b := &client.DatabaseBinding{Name: "b", Database: "orders-db", Generation: 3, Namespaces: []string{"api"}, Status: &client.DatabaseBindingStatus{ObservedGeneration: 2, Phase: client.PhaseFailed, Message: "namespace has a conflicting Secret", Conditions: []client.Condition{{Type: "Conflict", Status: "True"}}, Namespaces: []client.DatabaseBindingNamespaceStatus{{Name: "api", Phase: client.PhaseFailed}}}}
+	if bindingPhase(b) != client.PhaseFailed {
+		t.Fatal("failed delivery hidden by generation wait")
+	}
+	fake := clienttest.New()
+	fake.DatabaseBindings["b"] = b
+	io, _, _ := cli.Test()
+	err := waitForBindingRotation(context.Background(), io, fake, "orders-db", "b", &bindingRotation{BindingCredentialRotation: client.BindingCredentialRotation{RequestedAt: "opaque"}}, time.Second)
+	if cli.ExitCode(err) != cli.ExitConflict || !strings.Contains(err.Error(), "conflicting Secret") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestAccessDeleteHintSeparatesCredentials(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabaseBindings["b"] = &client.DatabaseBinding{Name: "b", Database: "orders-db", Credentials: bindingCredentials(true)}
+	f := factoryWith(t, fake)
+	_, stderr, err := run(f, newBindingDeleteCmd(f), "orders-db", "b", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "With shared credentials") || !strings.Contains(stderr, "Dedicated logins are revoked") {
+		t.Fatalf("hint=%s", stderr)
+	}
+}

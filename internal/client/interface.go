@@ -10,6 +10,9 @@ import "context"
 type Interface interface {
 	Apps() AppAPI
 	AppEnvironments(app string) AppEnvironmentAPI
+	RetryAppEnvironment(ctx context.Context, app, env, etag string) (*AppRetry, string, error)
+	ListAppReleases(ctx context.Context, app, env string) ([]AppRelease, error)
+	ResolveAppImage(ctx context.Context, image string) (*ImageResolution, error)
 	// Tenant returns the tenant name the client is scoped to. Used by
 	// commands that want to display "acting as tenant X" without issuing a
 	// network call.

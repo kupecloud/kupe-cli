@@ -6,6 +6,87 @@ import (
 	"net/http"
 )
 
+// AppRetry is the accepted retry, before the operator creates its release.
+type AppRetry struct {
+	App                string `json:"app" yaml:"app"`
+	Environment        string `json:"environment" yaml:"environment"`
+	DeploymentRevision int64  `json:"deploymentRevision" yaml:"deploymentRevision"`
+	Generation         int64  `json:"generation" yaml:"generation"`
+}
+type AppRelease struct {
+	Name               string            `json:"name" yaml:"name"`
+	Number             int64             `json:"number" yaml:"number"`
+	DeploymentRevision int64             `json:"deploymentRevision" yaml:"deploymentRevision"`
+	Trigger            string            `json:"trigger" yaml:"trigger"`
+	Runtime            AppReleaseRuntime `json:"runtime" yaml:"runtime"`
+	Chart              AppReleaseChart   `json:"chart" yaml:"chart"`
+	Status             AppReleaseStatus  `json:"status" yaml:"status"`
+}
+
+// Runtime is flat on the wire: image is runtime.image, with no web wrapper.
+type AppReleaseRuntime struct {
+	AppWeb  `yaml:",inline"`
+	Secrets []AppReleaseSecret `json:"secrets" yaml:"secrets"`
+}
+type AppReleaseSecret struct {
+	Name string   `json:"name" yaml:"name"`
+	Path string   `json:"path" yaml:"path"`
+	Keys []string `json:"keys" yaml:"keys"`
+}
+type AppReleaseChart struct {
+	Revision string `json:"revision" yaml:"revision"`
+}
+type AppReleaseStatus struct {
+	Phase       string              `json:"phase" yaml:"phase"`
+	Reason      string              `json:"reason" yaml:"reason"`
+	Message     string              `json:"message" yaml:"message"`
+	StartedAt   string              `json:"startedAt" yaml:"startedAt"`
+	DeadlineAt  string              `json:"deadlineAt" yaml:"deadlineAt"`
+	CompletedAt string              `json:"completedAt" yaml:"completedAt"`
+	ImageDigest string              `json:"imageDigest" yaml:"imageDigest"`
+	Recovery    *AppReleaseRecovery `json:"recovery,omitempty" yaml:"recovery,omitempty"`
+}
+type AppReleaseRecovery struct {
+	Phase       string               `json:"phase" yaml:"phase"`
+	Release     *AppReleaseReference `json:"release" yaml:"release"`
+	Reason      string               `json:"reason" yaml:"reason"`
+	StartedAt   string               `json:"startedAt" yaml:"startedAt"`
+	DeadlineAt  string               `json:"deadlineAt" yaml:"deadlineAt"`
+	CompletedAt string               `json:"completedAt" yaml:"completedAt"`
+}
+type ImageResolution struct {
+	Reference    string          `json:"reference" yaml:"reference"`
+	Platforms    []ImagePlatform `json:"platforms" yaml:"platforms"`
+	User         string          `json:"user" yaml:"user"`
+	ExposedPorts []int32         `json:"exposedPorts" yaml:"exposedPorts"`
+}
+
+func (c *Client) RetryAppEnvironment(ctx context.Context, app, env, etag string) (*AppRetry, string, error) {
+	var result AppRetry
+	next, err := c.requestWithOptions(ctx, http.MethodPost, c.tenantPath("apps", app, "environments", env, "retry"), etag, nil, &result, requestOptions{noReplay: true, noRedirect: true})
+	if err != nil {
+		return nil, "", err
+	}
+	return &result, next, nil
+}
+func (c *Client) ListAppReleases(ctx context.Context, app, env string) ([]AppRelease, error) {
+	var result struct {
+		Items []AppRelease `json:"items"`
+	}
+	_, err := c.request(ctx, http.MethodGet, c.tenantPath("apps", app, "environments", env, "releases"), nil, &result)
+	return result.Items, err
+}
+func (c *Client) ResolveAppImage(ctx context.Context, image string) (*ImageResolution, error) {
+	var result ImageResolution
+	_, err := c.request(ctx, http.MethodPost, c.tenantPath("app-images", "resolve"), struct {
+		Image string `json:"image"`
+	}{image}, &result)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // App is one stateless service and the summary of its environments.
 type App struct {
 	Name               string     `json:"name" yaml:"name"`

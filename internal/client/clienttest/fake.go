@@ -23,7 +23,16 @@ import (
 // a real API from the command's perspective. A caller can also override any
 // method by setting a per-method error field.
 type Fake struct {
-	mu sync.Mutex
+	mu                     sync.Mutex
+	AppReleases            []client.AppRelease
+	AppReleaseSequences    [][]client.AppRelease
+	ListAppReleasesErr     error
+	ImageResolution        *client.ImageResolution
+	ResolveAppImageErr     error
+	ResolvedImages         []string
+	RetryAppEnvironmentErr error
+	AppRetryResponse       *client.AppRetry
+	AppRetryETags          []string
 
 	AppsByName                                                                                                              map[string]*client.App
 	AppEnvironmentsByApp                                                                                                    map[string]map[string]*client.AppEnvironment

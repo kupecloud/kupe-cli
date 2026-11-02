@@ -27,7 +27,7 @@ var appService = cmdutil.Service[client.App, client.CreateAppRequest, client.Pat
 	Printer: printer.App, Translate: func(err error, name string) error { return translateErr(err, "", name) },
 }
 
-// NewCmd builds the App surface. Deploy and release operations are separate.
+// NewCmd builds the app, environment and release commands.
 func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{Use: "app", Aliases: []string{"apps"}, Short: "Manage apps", Long: `An app is one stateless web service, deployed from an existing image into one
 or more environments. Each environment runs on a cluster you choose.
@@ -44,7 +44,7 @@ and every environment before deleting. Type the app name to confirm, or use
 	deleteCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return availableWaitHint(deleteRun(cmd, args))
 	}
-	cmd.AddCommand(list, appService.GetCmd(f, cmdutil.Help{Short: "Show an app and its environments"}), newAppCreateCmd(f), newAppUpdateCmd(f), deleteCmd, newEnvCmd(f))
+	cmd.AddCommand(list, appService.GetCmd(f, cmdutil.Help{Short: "Show an app and its environments"}), newAppCreateCmd(f), newAppUpdateCmd(f), deleteCmd, newEnvCmd(f), newDeployCmd(f), newRetryCmd(f), newWaitCmd(f), newReleasesCmd(f), newImageCmd(f))
 	return cmd
 }
 func validateName(name, field string, maximum int) error {

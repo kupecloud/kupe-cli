@@ -161,6 +161,7 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path, etag stri
 
 	if resp.StatusCode >= 400 {
 		apiErr := &APIError{
+			RetryAfter: parseRetryAfterHint(resp.Header.Get("Retry-After"), time.Now()),
 			StatusCode: resp.StatusCode,
 			Message:    strings.TrimSpace(string(respBody)),
 			RequestID:  requestID,
@@ -285,6 +286,11 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 			c.trace(method, path, status, time.Since(start), reqID)
 		}
 		lastResp, lastBody, lastErr = resp, body, err
+		// Only a fully read limiter refusal proves a side-effecting request
+		// did not execute. A partial response must not replay an uncertain write.
+		if opts.noReplay && err != nil {
+			break
+		}
 
 		// 429 — retry once with Retry-After, regardless of method.
 		if resp != nil && resp.StatusCode == http.StatusTooManyRequests && !retried429 {

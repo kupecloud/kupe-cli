@@ -302,3 +302,22 @@ merging unrelated edits from refusing an edited field that changed.
 runs it only with an explicit `KUPE_LIVE_APP_CLUSTER` and the committed hello-kupe digest fixture;
 without the cluster variable it skips with a reason. Local gates never execute
 that fixture.
+
+App release command tests cover real HTTP digest resolution and PATCH preservation,
+opaque review preconditions, a single write followed by a fresh review on 412,
+retry's uncertain-outcome and redirect refusals, generation/revision convergence,
+requested-release failure after recovery, and environment replacement during a
+history read. They also cover defaulted runtime comparison, semantic quantities,
+referenced secret identity, release sorting and environment selection.
+
+The app live fixture additionally deploys the committed hello-kupe version tag,
+checks the resolved digest, waits, retries and checks the Retry release, then
+changes the port to make readiness fail. It requires exit 1 and separately observes
+recovery before checking that the previous release is serving again. Compile-only
+checks never execute these operations. The complete fixture remains an engineer-run
+acceptance step on the designated existing cluster.
+
+`make test-live` allows 45m for the complete suite because the app fixture includes
+successful deployments, a failed rollout and recovery. The platform rollout
+deadline is 10m; recovery is observed separately. The longer suite timeout changes
+no wait or rollout deadline and does not authorise running live tests locally.

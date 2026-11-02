@@ -2,6 +2,7 @@ package printer
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -188,6 +189,7 @@ func databaseBindingDetailColumns(colorEnabled bool) Columns {
 		{Name: "Credentials", Get: func(v any) string { return bindingCredentialsLabel(databaseBinding(v)) }},
 		{Name: "Rotation requested", Get: func(v any) string { return bindingRotationState(databaseBinding(v)).RequestedAt }},
 		{Name: "Rotation applied", Get: func(v any) string { return bindingRotationState(databaseBinding(v)).AppliedAt }},
+		{Name: "Rotation pending", Get: func(v any) string { return bindingRotationPending(databaseBinding(v)) }},
 		{Name: "Secret", Get: func(v any) string { return databaseBinding(v).EffectiveSecretName() }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(bindingStatus(databaseBinding(v)).Phase, colorEnabled)
@@ -364,4 +366,12 @@ func bindingNamespaceRotation(row bindingRow) string {
 		return "delivered"
 	}
 	return "pending"
+}
+
+// bindingRotationPending renders only the computed state the API reported.
+func bindingRotationPending(b *client.DatabaseBinding) string {
+	if b.Status == nil || b.Status.Rotation == nil {
+		return ""
+	}
+	return strconv.FormatBool(b.Status.Rotation.Pending)
 }

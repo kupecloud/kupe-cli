@@ -112,7 +112,7 @@ longer than 63 characters. To add a namespace to a binding later, use
 				return err
 			}
 			if opts.dedicated && opts.role == client.DatabaseRoleOwner {
-				return cli.MisuseError("owner bindings cannot use dedicated credentials")
+				return cli.MisuseError("owner bindings use shared credentials")
 			}
 			role, roleName := opts.role, ""
 			if !slices.Contains(client.DatabaseRoles, role) {
@@ -495,7 +495,7 @@ is accepted.`,
 			updated, err := api.UpdateDatabaseBindingRMW(cmd.Context(), database, name, func(current *client.DatabaseBinding) *client.PatchDatabaseBindingRequest {
 
 				if opts.dedicated && current.Role == client.DatabaseRoleOwner {
-					refused = cli.MisuseError("owner bindings cannot use dedicated credentials")
+					refused = cli.MisuseError("owner bindings use shared credentials")
 					return nil
 				}
 				namespaces, editErr := editNamespaces(current, database, opts.add, opts.remove)

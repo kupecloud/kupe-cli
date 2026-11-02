@@ -1233,6 +1233,10 @@ role name with `_` replaced by `-`: `orders-db-prod-report-ro` for
 `--role report_ro`. Its default Secret is `orders-db-report-ro`.
 `--dedicated` also works with readwrite and readonly; owner stays shared.
 
+A platform whose API rejects `postgres`, `roleName` or `credentials` as an
+unknown field is reported as not supporting the setting yet (exit `7`). The
+CLI keeps the original refusal and request ID and sends no fallback request.
+
 Refusals keep the API's message: `role_reserved`, `extension_not_allowed`,
 `role_not_declared`, `invalid_binding_credentials` and
 `dedicated_credentials_irreversible` exit `2`; `role_in_use` and
@@ -1403,7 +1407,7 @@ credentials, rotate the role afterwards to revoke knowledge of its password.
 |---------|-------------|
 | `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly\|DECLARED [--dedicated] [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--name` defaults to `DATABASE-CLUSTER-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
 | `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `CREDENTIALS`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds the namespace's `ROTATION`, `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
-| `kupe db binding get DATABASE BINDING` | Details including the Secret name, then a table of its namespaces with each one's phase, rotation progress, in-cluster host and message. A binding of another database exits `4`. |
+| `kupe db binding get DATABASE BINDING` | Details including the Secret name and requested/applied/pending rotation state, then a table of its namespaces with each one's phase, rotation progress, in-cluster host and message. A binding of another database exits `4`. |
 | `kupe db binding update DATABASE BINDING [--add-namespace NS]... [--remove-namespace NS]... [--dedicated]` | Change the namespaces a binding lists or turn on dedicated credentials and wait until every listed one is `Ready` and every removed one is withdrawn (see below). |
 | `kupe db binding rotate-credentials DATABASE BINDING` | Rotate dedicated logins for every listed namespace and wait for delivery; `--yes` in automation. |
 | `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
@@ -1431,6 +1435,7 @@ Role:                readwrite
 Credentials:         shared
 Rotation requested:
 Rotation applied:
+Rotation pending:
 Secret:              orders-db-readwrite
 Phase:               Pending
 Message:             the database is not yet available in namespace "orders-worker"; retrying

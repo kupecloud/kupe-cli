@@ -1,7 +1,9 @@
 package database
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -17,6 +19,18 @@ import (
 // that carries none (cli.WrapAPI). Anything unrecognised passes through
 // unchanged.
 func translateErr(err error, name string) error {
+	// A pre-access API rejects only these new fields before interpreting them.
+	// Keep its refusal and request ID; never retry after dropping settings.
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && apiErr.Code == "" {
+		for _, field := range []string{"postgres", "roleName", "credentials"} {
+			if strings.HasSuffix(strings.TrimSpace(apiErr.Message), `json: unknown field "`+field+`"`) {
+				return cli.WrapAPI(cli.ExitUnavailable, "this platform does not support this database setting yet", err).
+					WithHint("this platform does not support this database setting yet")
+			}
+		}
+	}
+
 	switch client.ErrorCode(err) {
 	case client.DatabaseCodeDedicatedCredentialsIrreversible:
 		return dedicatedIrreversible(err)

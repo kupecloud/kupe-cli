@@ -14,6 +14,8 @@ import (
 )
 
 type createOpts struct {
+	roles                []string
+	extensions           []string
 	engine               string
 	version              string
 	cpu                  string
@@ -112,6 +114,7 @@ your plan's database limit like any other.`,
 				HighAvailability: opts.highAvailability,
 				Backup:           backup,
 				Source:           source,
+				Postgres:         postgresFromNames(opts.roles, opts.extensions, cmd.Flags().Changed("roles"), cmd.Flags().Changed("extensions")),
 			}
 			if opts.noDeletionProtection {
 				off := false
@@ -142,6 +145,8 @@ your plan's database limit like any other.`,
 		},
 	}
 
+	cmd.Flags().StringSliceVar(&opts.roles, "roles", nil, "Declared group roles, comma-separated; the platform grants them no privileges")
+	cmd.Flags().StringSliceVar(&opts.extensions, "extensions", nil, "PostgreSQL extensions, comma-separated; the platform checks its allowlist")
 	cmd.Flags().StringVar(&opts.engine, "engine", "postgres", "Database engine (only postgres is supported)")
 	cmd.Flags().StringVar(&opts.version, "version", "", "Engine major version (e.g. 18). Defaults to the platform default if unset, or with --from-backup or --from to the source's.")
 	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "CPU per instance, without a unit (e.g. 500m, 2) (required)")

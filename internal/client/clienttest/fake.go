@@ -134,12 +134,14 @@ type Fake struct {
 	GetDatabaseSeq map[string][]*client.Database
 
 	// DatabaseBindings keyed by binding name (unique across the tenant).
-	DatabaseBindings         map[string]*client.DatabaseBinding
-	ListDatabaseBindingsErr  error
-	GetDatabaseBindingErr    error
-	CreateDatabaseBindingErr error
-	UpdateDatabaseBindingErr error
-	DeleteDatabaseBindingErr error
+	DatabaseBindings            map[string]*client.DatabaseBinding
+	ListDatabaseBindingsErr     error
+	GetDatabaseBindingErr       error
+	BindingPatches              []client.PatchDatabaseBindingRequest
+	RotateBindingCredentialsErr error
+	CreateDatabaseBindingErr    error
+	UpdateDatabaseBindingErr    error
+	DeleteDatabaseBindingErr    error
 
 	// GetDatabaseBindingSeq scripts successive GetDatabaseBinding results
 	// per binding name, with the same semantics as GetClusterSeq.
@@ -548,6 +550,19 @@ func (f *Fake) DeleteSecret(_ context.Context, name string) error {
 
 // applyDatabasePatch merges a patch into a stored database as the API does.
 func applyDatabasePatch(db *client.Database, patch client.PatchDatabaseRequest) {
+	if patch.Postgres != nil {
+		if db.Postgres == nil {
+			db.Postgres = &client.DatabasePostgres{}
+		}
+		if patch.Postgres.Roles != nil {
+			roles := slices.Clone(*patch.Postgres.Roles)
+			db.Postgres.Roles = &roles
+		}
+		if patch.Postgres.Extensions != nil {
+			extensions := slices.Clone(*patch.Postgres.Extensions)
+			db.Postgres.Extensions = &extensions
+		}
+	}
 	if patch.Version != nil {
 		db.Version = *patch.Version
 	}
@@ -680,13 +695,15 @@ func (f *Fake) CreateDatabaseBinding(_ context.Context, database string, req cli
 		return nil, &client.APIError{StatusCode: 409, Message: "binding already exists"}
 	}
 	b := &client.DatabaseBinding{
-		Name:       req.Name,
-		Database:   database,
-		Cluster:    req.Cluster,
-		Namespaces: slices.Clone(req.Namespaces),
-		Role:       req.Role,
-		SecretName: req.SecretName,
-		Status:     &client.DatabaseBindingStatus{Phase: "Pending"},
+		Name:        req.Name,
+		Database:    database,
+		Cluster:     req.Cluster,
+		Namespaces:  slices.Clone(req.Namespaces),
+		Role:        req.Role,
+		RoleName:    req.RoleName,
+		Credentials: req.Credentials,
+		SecretName:  req.SecretName,
+		Status:      &client.DatabaseBindingStatus{Phase: "Pending"},
 	}
 	f.DatabaseBindings[req.Name] = b
 	return b, nil
@@ -713,7 +730,17 @@ func (f *Fake) UpdateDatabaseBindingRMW(_ context.Context, database, name string
 	if f.UpdateDatabaseBindingErr != nil {
 		return nil, f.UpdateDatabaseBindingErr
 	}
-	b.Namespaces = slices.Clone(patch.Namespaces)
+	f.BindingPatches = append(f.BindingPatches, *patch)
+	if patch.Namespaces != nil {
+		b.Namespaces = slices.Clone(patch.Namespaces)
+	}
+	if patch.Credentials != nil {
+		credentials := *patch.Credentials
+		b.Credentials = &credentials
+	}
+	if b.Generation > 0 {
+		b.Generation++
+	}
 	updated := *b
 	return &updated, nil
 }
@@ -976,4 +1003,39 @@ func (f *Fake) RefreshSecret(_ context.Context, name string) (string, error) {
 		requestedAt = "2026-10-30T12:00:00Z"
 	}
 	return requestedAt, nil
+}
+
+// RotateDatabaseBindingCredentials implements client.Interface.
+func (f *Fake) RotateDatabaseBindingCredentials(_ context.Context, database, name string) (*client.BindingCredentialRotation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("RotateDatabaseBindingCredentials:" + database + "/" + name)
+	if f.RotateBindingCredentialsErr != nil {
+		return nil, f.RotateBindingCredentialsErr
+	}
+	b := f.DatabaseBindings[name]
+	if b == nil || b.Database != database {
+		return nil, bindingNotFound()
+	}
+	if !b.Dedicated() {
+		return nil, &client.APIError{StatusCode: 409, Code: client.DatabaseCodeCredentialsNotDedicated, Message: "binding does not use dedicated credentials"}
+	}
+	return &client.BindingCredentialRotation{Database: database, Binding: name, RequestedAt: "rotation-token"}, nil
+}
+
+// copyDatabasePostgres keeps stored lists independent from a create request.
+func copyDatabasePostgres(p *client.DatabasePostgres) *client.DatabasePostgres {
+	if p == nil {
+		return nil
+	}
+	out := &client.DatabasePostgres{}
+	if p.Roles != nil {
+		roles := slices.Clone(*p.Roles)
+		out.Roles = &roles
+	}
+	if p.Extensions != nil {
+		extensions := slices.Clone(*p.Extensions)
+		out.Extensions = &extensions
+	}
+	return out
 }

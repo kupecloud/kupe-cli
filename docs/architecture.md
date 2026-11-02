@@ -104,7 +104,7 @@ internal/
 │   ├── secret/                  — list, get, create, update, delete, refresh, wait.
 │   │                              values metadata/write, guarded purge.
 │   ├── database/                — list, get, create, update, upgrade, delete,
-│   │                              rotate-credentials, wait, binding add/list/get/update/delete.
+│   │                              rotate-credentials, wait, binding add/list/get/update/rotate-credentials/delete.
 │   ├── cmdutil/                 — Shared helpers: phase waits, wait-error mapping,
 │   │                              resource-quantity checks.
 │   ├── member/                  — list, add, update, remove.

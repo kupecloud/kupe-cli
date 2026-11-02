@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // RequestNotSentError identifies local setup failures before submission. Earlier
@@ -55,6 +56,8 @@ type errorEnvelope struct {
 // CLUSTER_DEDICATED_UNSUPPORTED, etc.). Callers that need to branch on a
 // specific advisory should check Code rather than string-matching Message.
 type APIError struct {
+	// RetryAfter is a validated duration hint; raw response headers are never rendered.
+	RetryAfter time.Duration
 	StatusCode int
 	Message    string
 	RequestID  string

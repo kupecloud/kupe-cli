@@ -48,3 +48,23 @@ func parseRetryAfter(header string, now time.Time) time.Duration {
 	}
 	return 0
 }
+
+// Display hints preserve the server's actual interval. In particular image
+// resolution's rolling-hour budget can return much more than the 60s upstream
+// throttle cap. Unrepresentable or invalid headers produce no hint.
+func parseRetryAfterHint(header string, now time.Time) time.Duration {
+	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil {
+		if seconds <= 0 || seconds > int64((1<<63-1)/time.Second) {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if target, err := http.ParseTime(header); err == nil && target.After(now) {
+		delay := target.Sub(now)
+		if now.Add(delay).Before(target) {
+			return 0
+		}
+		return delay
+	}
+	return 0
+}

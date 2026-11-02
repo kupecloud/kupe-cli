@@ -50,6 +50,10 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app env get` | v1 |
 | `PATCH /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app env update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app env delete` | v1 |
+| `PATCH /api/v1/tenants/{tenant}/apps/{app}/environments/{env}` | `kupe app deploy` | v1 |
+| `POST /api/v1/tenants/{tenant}/apps/{app}/environments/{env}/retry` | `kupe app retry` | v1 |
+| `GET /api/v1/tenants/{tenant}/apps/{app}/environments/{env}/releases` | `kupe app releases` (also used by `wait`) | v1 |
+| `POST /api/v1/tenants/{tenant}/app-images/resolve` | `kupe app image resolve` (also used by `deploy`) | v1 |
 | `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
@@ -921,8 +925,106 @@ secret deliveries or service bindings into its namespace, then type the environm
 name or pass `--yes`. It waits until the environment is gone; `--wait=false` returns
 at acceptance. Both deletes use `--wait-timeout` (default 30m).
 
-When an API operation answers `apps_unavailable`, the CLI preserves the API message
+When an app operation answers `apps_unavailable`, the CLI preserves the API message
 and exits 7. A plain missing app or environment exits 4.
+
+### `kupe app deploy`
+
+```bash
+kupe app deploy shop production --image ghcr.io/kupecloud/hello-kupe:1.8.3
+kupe app deploy shop production --image "$IMAGE_DIGEST" --set-env LOG_LEVEL=info --port 8080 --replicas 2 --yes
+```
+
+A tag is resolved once. The review on stderr shows the tag and immutable digest;
+the deploy submits only the digest. A digest reference is used as supplied.
+The change keeps the environment's current resource requests, limits, variables,
+secret references, probes, commands and arguments. Repeat `--set-env NAME=VALUE`
+to set literal variables. `--port` and `--replicas` change those fields in the same
+release. Domains, secret declarations and deletion protection are kept.
+
+Review the configuration and type `yes` to confirm, or pass `--yes` (required
+without a TTY). A version conflict prints the current configuration again and
+exits 5. Run the command again after reviewing it; `--yes` does not resubmit a
+stale review. An unchanged configuration creates no release.
+
+Deploy waits for the requested release by default. `--wait=false` returns the
+accepted environment, and `--wait-timeout` defaults to 15m. A failed release exits 1,
+including when recovery succeeds and the previous release is serving again.
+
+For `deploy`, `retry`, `wait` and `releases`, omit ENV when the app has exactly
+one environment. If it has several, the command exits 2 and lists their names.
+The `app env` CRUD commands retain their explicit environment arguments.
+
+### `kupe app retry`
+
+```bash
+kupe app retry shop production --yes
+kupe app retry shop production --yes --wait=false -o json
+```
+
+Retry reviews the current configuration and requests another deployment with its
+reviewed version. It creates a Retry release by increasing the deployment revision.
+Confirmation, stale-review handling and wait defaults match `deploy`. With
+`--wait=false`, output contains the accepted app, environment, generation and
+deployment revision. An uncertain request outcome is never resubmitted; inspect
+`kupe app env get APP ENV` and `kupe app releases APP ENV` before retrying.
+
+### `kupe app wait`
+
+```bash
+kupe app wait shop production --for Succeeded --timeout 15m
+```
+
+Wait watches the environment's currently requested release and never changes the
+environment. Deploy and retry use the same release wait after their accepted
+generation has been observed. Successful recovery does not change a failed
+requested release into success.
+
+| Exit | Outcome |
+| --- | --- |
+| 0 | The requested release succeeded. |
+| 1 | The requested release failed or was superseded. When available, output names the current newer requested release. |
+| 7 | The requested release could not be identified after the environment changed. Inspect its current state before deploying again. |
+| 8 | The wait timed out; the error names the release when observed and prints `kupe app wait APP ENV` to resume. |
+| 130 | Waiting was interrupted; the deployment may still be in progress. |
+
+Before a release has been identified, a newer environment generation can make the
+accepted deployment's outcome unverifiable. A domain or deletion-protection change
+can also cause this exit 7 result. Inspect the environment and release history;
+the CLI does not claim that the accepted deployment failed or follow a later
+deployment with the same runtime.
+
+### `kupe app releases`
+
+```bash
+kupe app releases shop production
+kupe app releases shop production 7 -o json
+kupe app releases shop --number 7 -o json
+```
+
+History is newest first. It shows number, Deploy or Retry trigger, phase, recovery
+on failed releases, image digest, start and completion times, and reason. Pass a
+release number after APP and ENV to show one retained release. With a single
+environment, use `--number N` to omit ENV for a detail lookup. Numeric environment
+names keep their positional meaning. A positional number and `--number` together
+are refused. A pruned number
+exits 4. Recovery creates no additional release. JSON and YAML retain the flat
+`runtime.image` configuration and separate release status.
+
+### `kupe app image resolve`
+
+```bash
+kupe app image resolve ghcr.io/kupecloud/hello-kupe:1.8.3
+kupe app image resolve ghcr.io/kupecloud/hello-kupe:1.8.3 -o json
+```
+
+Resolve prints the immutable digest reference, platforms, numeric user and exposed
+TCP ports. JSON prints the resolution as returned by the API. Images must come
+from an approved registry, support linux/amd64 and run with a non-root numeric `USER`.
+The CLI explains missing or inaccessible images, registry unavailability, unsupported
+platforms and policy refusals separately. Registry unavailability includes a parsed
+Retry-After hint when the API supplies one. The hint keeps the server's interval,
+including a rolling-hour image-resolution budget delay; invalid headers are omitted.
 
 ---
 

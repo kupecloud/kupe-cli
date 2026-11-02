@@ -138,7 +138,8 @@ The CLI auto-detects non-TTY environments and switches off colors, spinners, and
 | `kupe app env get APP ENV` | Show configuration, deployment and recovery |
 | `kupe database create NAME` | Create a PostgreSQL database |
 | `kupe database binding add DATABASE` | Grant a database role to namespaces of a cluster |
-| `kupe database binding update DATABASE BINDING` | Add or remove namespaces of a binding |
+| `kupe database binding update DATABASE BINDING` | Edit binding namespaces or turn on dedicated credentials |
+| `kupe database binding rotate-credentials DATABASE BINDING` | Rotate a binding's dedicated credentials |
 | `kupe registry create` | Turn on the tenant's container registry |
 | `kupe registry login` | Sign Docker in to the registry for 12 hours |
 | `kupe registry connect CLUSTER` | Let a cluster's pods pull from the registry |

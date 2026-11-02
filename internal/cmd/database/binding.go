@@ -35,12 +35,13 @@ the database and a credentials Secret, and gains a network path to the
 database. Other namespaces see neither.
 
 Roles: owner can change the schema; readwrite can read and write data;
-readonly can read data. "binding update" adds or removes namespaces; a
-binding's cluster, role and Secret name are fixed: to change one, delete the
-binding and add another.`,
+readonly can read data. A declared role uses dedicated credentials. A
+binding's cluster, role and Secret name are fixed; its namespaces can change
+and dedicated credentials can be turned on with "binding update".`,
 	}
 
 	cmd.AddCommand(newBindingAddCmd(f))
+	cmd.AddCommand(newBindingRotateCredentialsCmd(f))
 	cmd.AddCommand(newBindingListCmd(f))
 	cmd.AddCommand(newBindingGetCmd(f))
 	cmd.AddCommand(newBindingUpdateCmd(f))
@@ -49,6 +50,7 @@ binding and add another.`,
 }
 
 type bindingAddOpts struct {
+	dedicated   bool
 	cluster     string
 	namespaces  []string
 	role        string
@@ -66,12 +68,15 @@ func newBindingAddCmd(f *cli.Factory) *cobra.Command {
 	opts := &bindingAddOpts{}
 
 	cmd := &cobra.Command{
-		Use:   "add DATABASE --cluster CLUSTER --namespace NAMESPACE... --role owner|readwrite|readonly",
+		Use:   "add DATABASE --cluster CLUSTER --namespace NAMESPACE... --role owner|readwrite|readonly|DECLARED",
 		Short: "Grant a database role to namespaces of a cluster",
 		Long: `Bind a database into namespaces of one cluster. Pass --namespace once for
 each namespace, up to 10. Applications in each namespace connect to the host
 named after the database and read their credentials from the Secret (default
-name: DATABASE-ROLE), which has the same name in every namespace.
+name: DATABASE-ROLE), which has the same name in every namespace. A declared
+role uses dedicated credentials and defaults its Secret name to
+DATABASE-ROLENAME, with underscores replaced by hyphens. --dedicated also gives
+each namespace its own login for readwrite or readonly; owner stays shared.
 
 By default the command waits until the binding is Ready in every namespace.
 It is Pending while the database or the cluster does not exist yet or is not
@@ -103,12 +108,19 @@ longer than 63 characters. To add a namespace to a binding later, use
 				return cli.MisuseError(fmt.Sprintf("a binding can list at most %d namespaces; %d given", maxNamespacesPerBinding, n)).
 					WithHint("bind the others with a second binding of the same role (pass --name)")
 			}
-			if err := validateRole(opts.role); err != nil {
+			if err := validateBindingRole(opts.role); err != nil {
 				return err
+			}
+			if opts.dedicated && opts.role == client.DatabaseRoleOwner {
+				return cli.MisuseError("owner bindings cannot use dedicated credentials")
+			}
+			role, roleName := opts.role, ""
+			if !slices.Contains(client.DatabaseRoles, role) {
+				role, roleName, opts.dedicated = client.DatabaseRoleCustom, opts.role, true
 			}
 			name := opts.name
 			if name == "" {
-				name = fmt.Sprintf("%s-%s-%s", database, opts.cluster, opts.role)
+				name = fmt.Sprintf("%s-%s-%s", database, opts.cluster, strings.ReplaceAll(opts.role, "_", "-"))
 				if len(name) > maxNameLength {
 					return cli.MisuseError(fmt.Sprintf("default binding name %q is longer than %d characters", name, maxNameLength)).
 						WithHint("pass a shorter one with --name")
@@ -123,11 +135,13 @@ longer than 63 characters. To add a namespace to a binding later, use
 				return err
 			}
 			b, err := api.CreateDatabaseBinding(cmd.Context(), database, client.CreateDatabaseBindingRequest{
-				Name:       name,
-				Cluster:    opts.cluster,
-				Namespaces: opts.namespaces,
-				Role:       opts.role,
-				SecretName: opts.secretName,
+				Name:        name,
+				Cluster:     opts.cluster,
+				Namespaces:  opts.namespaces,
+				Role:        role,
+				RoleName:    roleName,
+				Credentials: bindingCredentials(opts.dedicated),
+				SecretName:  opts.secretName,
 			})
 			if err != nil {
 				return translateBindingAddErr(err, database, name, opts)
@@ -147,7 +161,8 @@ longer than 63 characters. To add a namespace to a binding later, use
 
 	cmd.Flags().StringVar(&opts.cluster, "cluster", "", "Cluster to bind into (required)")
 	cmd.Flags().StringArrayVar(&opts.namespaces, "namespace", nil, "Namespace inside the cluster that receives the Service and Secret; repeat for each namespace, up to 10 (required)")
-	cmd.Flags().StringVar(&opts.role, "role", "", "Role granted: owner (schema changes), readwrite (read and write data) or readonly (read data) (required)")
+	cmd.Flags().StringVar(&opts.role, "role", "", "Role granted: owner, readwrite, readonly or a declared role (required); a declared role uses dedicated credentials")
+	cmd.Flags().BoolVar(&opts.dedicated, "dedicated", false, "Give each namespace its own login and password; unavailable for owner")
 	cmd.Flags().StringVar(&opts.secretName, "secret-name", "", "Name of the credentials Secret in every namespace (default DATABASE-ROLE)")
 	cmd.Flags().StringVar(&opts.name, "name", "", "Binding name (default DATABASE-CLUSTER-ROLE)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the binding to become Ready in every namespace before returning")
@@ -179,6 +194,12 @@ func bindingPhaseGetter(api client.Interface, database, name string) cmdutil.Pha
 func bindingPhase(b *client.DatabaseBinding) string {
 	if b.Status == nil {
 		return ""
+	}
+	if b.Status.Phase == client.PhaseTerminating {
+		return client.PhaseTerminating
+	}
+	if b.Status.ObservedGeneration < b.Generation {
+		return client.PhasePending
 	}
 	phase := b.Status.Phase
 	if len(b.Status.Namespaces) == 0 && phase == client.PhaseFailed {
@@ -407,6 +428,7 @@ func newBindingGetCmd(f *cli.Factory) *cobra.Command {
 }
 
 type bindingUpdateOpts struct {
+	dedicated   bool
 	add         []string
 	remove      []string
 	wait        bool
@@ -418,8 +440,8 @@ func newBindingUpdateCmd(f *cli.Factory) *cobra.Command {
 	opts := &bindingUpdateOpts{}
 
 	cmd := &cobra.Command{
-		Use:   "update DATABASE BINDING [--add-namespace NAMESPACE]... [--remove-namespace NAMESPACE]...",
-		Short: "Add or remove namespaces of a binding",
+		Use:   "update DATABASE BINDING [--add-namespace NAMESPACE]... [--remove-namespace NAMESPACE]... [--dedicated]",
+		Short: "Edit binding namespaces or turn on dedicated credentials",
 		Long: `Change the namespaces a binding delivers into. A namespace added gets the
 Service and credentials Secret. A namespace removed loses the Secret, and the
 Service and its network path to the database unless another binding of the
@@ -427,9 +449,13 @@ database lists that namespace in the same cluster; the other namespaces keep
 working. A binding lists 1 to 10 namespaces. Its cluster, role and Secret
 name cannot change.
 
-Removing a namespace does not change the role's password; rotate it with
-"kupe database rotate-credentials" if that namespace should also lose
-knowledge of it.
+Removing a namespace revokes its dedicated login. With shared credentials,
+rotate the role with "kupe database rotate-credentials" if the namespace
+should also lose knowledge of its password.
+
+--dedicated gives each namespace its own login and password. This cannot be
+turned off and is unavailable for owner bindings. Namespace edits and
+--dedicated are sent together in one change.
 
 The command reads the binding, edits its namespace list and writes it back.
 If the binding changed in between, it reads it again and retries once. By
@@ -447,8 +473,11 @@ is accepted.`,
   kupe db binding update orders-db orders-db-staging-readwrite --add-namespace orders-worker --remove-namespace orders-api --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			database, name := args[0], args[1]
-			if len(opts.add) == 0 && len(opts.remove) == 0 {
-				return cli.MisuseError("pass --add-namespace or --remove-namespace")
+			if cmd.Flags().Changed("dedicated") && !opts.dedicated {
+				return dedicatedIrreversible(nil)
+			}
+			if len(opts.add) == 0 && len(opts.remove) == 0 && !opts.dedicated {
+				return cli.MisuseError("pass --add-namespace, --remove-namespace or --dedicated")
 			}
 			for _, ns := range opts.add {
 				if slices.Contains(opts.remove, ns) {
@@ -467,12 +496,28 @@ is accepted.`,
 			var refused error
 			unchanged := false
 			updated, err := api.UpdateDatabaseBindingRMW(cmd.Context(), database, name, func(current *client.DatabaseBinding) *client.PatchDatabaseBindingRequest {
-				namespaces, err := editNamespaces(current, database, opts.add, opts.remove)
-				refused, unchanged = err, err == nil && slices.Equal(namespaces, current.Namespaces)
-				if err != nil || unchanged {
+
+				if opts.dedicated && current.Role == client.DatabaseRoleOwner {
+					refused = cli.MisuseError("owner bindings cannot use dedicated credentials")
 					return nil
 				}
-				return &client.PatchDatabaseBindingRequest{Namespaces: namespaces}
+				namespaces, editErr := editNamespaces(current, database, opts.add, opts.remove)
+				refused = editErr
+				if editErr != nil {
+					return nil
+				}
+				patch := &client.PatchDatabaseBindingRequest{}
+				if !slices.Equal(namespaces, current.Namespaces) {
+					patch.Namespaces = namespaces
+				}
+				if opts.dedicated && !current.Dedicated() {
+					patch.Credentials = bindingCredentials(true)
+				}
+				unchanged = patch.Namespaces == nil && patch.Credentials == nil
+				if unchanged {
+					return nil
+				}
+				return patch
 			})
 			if refused != nil {
 				return refused
@@ -496,6 +541,7 @@ is accepted.`,
 		},
 	}
 
+	cmd.Flags().BoolVar(&opts.dedicated, "dedicated", false, "Turn on a separate login and password for each namespace; cannot be turned off")
 	cmd.Flags().StringArrayVar(&opts.add, "add-namespace", nil, "Namespace to add; repeat for each namespace")
 	cmd.Flags().StringArrayVar(&opts.remove, "remove-namespace", nil, "Namespace to remove; repeat for each namespace")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until every listed namespace is Ready and every removed one is withdrawn")
@@ -545,9 +591,10 @@ func newBindingDeleteCmd(f *cli.Factory) *cobra.Command {
 		Long: `Remove a binding: its credentials Secret leaves every namespace it lists,
 and so do the Service and the network path to the database, except in a
 namespace another binding of the database still lists in the same cluster.
-The role's password does not change; rotate it with
-"kupe database rotate-credentials" if those namespaces should also lose
-knowledge of it. To remove only some of its namespaces, use
+Dedicated logins are revoked. With shared credentials, the role's password
+does not change; rotate it with "kupe database rotate-credentials" if those
+namespaces should also lose knowledge of it. To remove only some namespaces,
+use
 "kupe database binding update --remove-namespace".
 
 The request is asynchronous: the platform withdraws them in the background.

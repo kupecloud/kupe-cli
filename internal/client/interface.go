@@ -81,6 +81,7 @@ type Interface interface {
 
 	// RotateDatabaseCredentials requests a new password for one role.
 	RotateDatabaseCredentials(ctx context.Context, name, role string) (*CredentialRotation, error)
+	RotateDatabaseBindingCredentials(ctx context.Context, database, name string) (*BindingCredentialRotation, error)
 
 	// ListDatabaseBindings lists the bindings of one database.
 	ListDatabaseBindings(ctx context.Context, database string) ([]DatabaseBinding, error)

@@ -17,6 +17,22 @@ import (
 // that carries none (cli.WrapAPI). Anything unrecognised passes through
 // unchanged.
 func translateErr(err error, name string) error {
+	switch client.ErrorCode(err) {
+	case client.DatabaseCodeDedicatedCredentialsIrreversible:
+		return dedicatedIrreversible(err)
+	case client.DatabaseCodeRoleReserved:
+		return cli.WrapAPI(cli.ExitMisuse, "that role name is reserved", err).WithHint("choose another declared role name")
+	case client.DatabaseCodeExtensionNotAllowed:
+		return cli.WrapAPI(cli.ExitMisuse, "that extension is not available", err).WithHint("choose an extension from the platform's allowlist in the error")
+	case client.DatabaseCodeRoleInUse:
+		return cli.WrapAPI(cli.ExitConflict, "the role is still in use", err).WithHint("remove its bindings before removing the declared role")
+	case client.DatabaseCodeRoleNotDeclared:
+		return cli.WrapAPI(cli.ExitMisuse, "the role is not declared on the database", err).WithHint("declare it with kupe database update --add-role")
+	case client.DatabaseCodeCredentialsNotDedicated:
+		return cli.WrapAPI(cli.ExitConflict, "the binding does not use dedicated credentials", err).WithHint("turn them on with kupe database binding update DATABASE BINDING --dedicated, or rotate the shared role with kupe database rotate-credentials")
+	case client.DatabaseCodeInvalidBindingCredentials:
+		return cli.WrapAPI(cli.ExitMisuse, "invalid binding credentials", err).WithHint("owner uses shared credentials; declared roles require dedicated credentials")
+	}
 	return cmdutil.TranslateCommon(noun, name, err)
 }
 

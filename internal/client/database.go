@@ -10,9 +10,10 @@ import (
 // mirror kupe-api's database response. It never carries credentials: role
 // passwords reach applications only through bindings.
 type Database struct {
-	Name    string `json:"name" yaml:"name"`
-	Engine  string `json:"engine" yaml:"engine"`
-	Version string `json:"version" yaml:"version"`
+	Postgres *DatabasePostgres `json:"postgres,omitempty" yaml:"postgres,omitempty"`
+	Name     string            `json:"name" yaml:"name"`
+	Engine   string            `json:"engine" yaml:"engine"`
+	Version  string            `json:"version" yaml:"version"`
 	// Resources are per instance; a highly available database runs two.
 	Resources          *DatabaseResources `json:"resources,omitempty" yaml:"resources,omitempty"`
 	HighAvailability   bool               `json:"highAvailability" yaml:"highAvailability"`
@@ -134,6 +135,7 @@ type Condition struct {
 // CreateDatabaseRequest is the POST body. An empty Engine or Version takes
 // the platform default; a nil DeletionProtection takes the default (on).
 type CreateDatabaseRequest struct {
+	Postgres           *DatabasePostgres  `json:"postgres,omitempty"`
 	Name               string             `json:"name"`
 	Engine             string             `json:"engine,omitempty"`
 	Version            string             `json:"version,omitempty"`
@@ -162,6 +164,7 @@ type DatabaseSource struct {
 // left unchanged; at least one must be set. Backup changes only the keys it
 // sets.
 type PatchDatabaseRequest struct {
+	Postgres           *DatabasePostgres  `json:"postgres,omitempty"`
 	Version            *string            `json:"version,omitempty"`
 	Resources          *DatabaseResources `json:"resources,omitempty"`
 	HighAvailability   *bool              `json:"highAvailability,omitempty"`
@@ -174,18 +177,18 @@ type PatchDatabaseRequest struct {
 // left out.
 func (p PatchDatabaseRequest) IsEmpty() bool {
 	return p.Version == nil && p.Resources == nil && p.HighAvailability == nil &&
-		p.DeletionProtection == nil && p.Backup == nil
+		p.DeletionProtection == nil && p.Backup == nil && p.Postgres == nil
 }
 
 // NeedsWait reports whether the patch changes something the platform has
 // to apply to the running database before it is in effect: the version,
-// resources, high availability or backup settings (the operator applies a
+// resources, high availability, roles, extensions or backup settings (the operator applies a
 // backup change to the database's backup objects). Deletion protection is
 // read from the spec when a delete comes in, so it is in effect once the
 // PATCH lands. TestPatchDatabaseRequest_NeedsWaitCoversEveryField fails
 // when a new field is in neither group.
 func (p PatchDatabaseRequest) NeedsWait() bool {
-	return p.Version != nil || p.Resources != nil || p.HighAvailability != nil || p.Backup != nil
+	return p.Version != nil || p.Resources != nil || p.HighAvailability != nil || p.Backup != nil || p.Postgres != nil
 }
 
 // Error codes the database endpoints return. Compare via ErrorCode(err).
@@ -256,6 +259,7 @@ var DatabaseBackupSchedules = []string{DatabaseBackupScheduleDaily, DatabaseBack
 // data, readonly can read data. Bindings grant one; credential rotation
 // targets one.
 const (
+	DatabaseRoleCustom    = "custom"
 	DatabaseRoleOwner     = "owner"
 	DatabaseRoleReadWrite = "readwrite"
 	DatabaseRoleReadOnly  = "readonly"
@@ -277,11 +281,14 @@ type CredentialRotation struct {
 // DatabaseBinding grants one role of a database to namespaces of one
 // cluster. Credentials are never returned.
 type DatabaseBinding struct {
-	Name     string `json:"name" yaml:"name"`
-	Database string `json:"database" yaml:"database"`
-	Cluster  string `json:"cluster" yaml:"cluster"`
+	RoleName    string              `json:"roleName,omitempty" yaml:"roleName,omitempty"`
+	Credentials *BindingCredentials `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Generation  int64               `json:"generation,omitempty" yaml:"generation,omitempty"`
+	Name        string              `json:"name" yaml:"name"`
+	Database    string              `json:"database" yaml:"database"`
+	Cluster     string              `json:"cluster" yaml:"cluster"`
 	// Namespaces are the namespaces inside the cluster the binding delivers
-	// into. The only field of a binding that can change.
+	// into. Namespaces can change and dedicated credentials can be turned on.
 	Namespaces []string `json:"namespaces" yaml:"namespaces"`
 	Role       string   `json:"role" yaml:"role"`
 	// SecretName as requested; empty means the platform default. The
@@ -346,7 +353,10 @@ func (b *DatabaseBinding) NamespaceStates() []BindingNamespace {
 // DatabaseBindingStatus is the observed state. Phase: Pending | Ready |
 // Failed; Ready only when every listed namespace is.
 type DatabaseBindingStatus struct {
-	Phase string `json:"phase,omitempty" yaml:"phase,omitempty"`
+	ObservedGeneration int64            `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+	ObservedRotation   string           `json:"observedRotation,omitempty" yaml:"observedRotation,omitempty"`
+	Rotation           *BindingRotation `json:"rotation,omitempty" yaml:"rotation,omitempty"`
+	Phase              string           `json:"phase,omitempty" yaml:"phase,omitempty"`
 	// SecretName is the effective credentials Secret name in every
 	// namespace.
 	SecretName string `json:"secretName,omitempty" yaml:"secretName,omitempty"`
@@ -404,11 +414,13 @@ func conditionTrue(conditions []Condition, t string) bool {
 // CreateDatabaseBindingRequest is the POST body. The database comes from
 // the path.
 type CreateDatabaseBindingRequest struct {
-	Name       string   `json:"name"`
-	Cluster    string   `json:"cluster"`
-	Namespaces []string `json:"namespaces"`
-	Role       string   `json:"role"`
-	SecretName string   `json:"secretName,omitempty"`
+	RoleName    string              `json:"roleName,omitempty"`
+	Credentials *BindingCredentials `json:"credentials,omitempty"`
+	Name        string              `json:"name"`
+	Cluster     string              `json:"cluster"`
+	Namespaces  []string            `json:"namespaces"`
+	Role        string              `json:"role"`
+	SecretName  string              `json:"secretName,omitempty"`
 }
 
 // RotateDatabaseCredentials requests a new password for one role (one of
@@ -425,11 +437,10 @@ func (c *Client) RotateDatabaseCredentials(ctx context.Context, name, role strin
 	return &rotation, nil
 }
 
-// PatchDatabaseBindingRequest is the PATCH body: the binding's complete new
-// namespace list. Namespaces are the only field of a binding that can
-// change.
+// PatchDatabaseBindingRequest changes namespaces and can turn on dedicated credentials.
 type PatchDatabaseBindingRequest struct {
-	Namespaces []string `json:"namespaces"`
+	Credentials *BindingCredentials `json:"credentials,omitempty"`
+	Namespaces  []string            `json:"namespaces,omitempty"`
 }
 
 // DatabaseBindingMutator is the UpdateDatabaseBindingRMW callback: it gets
@@ -459,8 +470,8 @@ func (c *Client) CreateDatabaseBinding(ctx context.Context, database string, req
 	return b, err
 }
 
-// UpdateDatabaseBindingRMW changes a binding's namespaces: it reads the
-// binding, asks mutate for the new list and sends it with If-Match set to
+// UpdateDatabaseBindingRMW changes namespaces or enables dedicated credentials.
+// It reads the binding and sends the patch with If-Match set to
 // the ETag read. A binding changed in between (412) is read again and the
 // change retried once, then ErrRMWContention. A nil patch sends nothing and
 // returns the binding as read.
@@ -584,3 +595,60 @@ func (c *Client) DeleteBackup(ctx context.Context, name string) error {
 	_, err := c.request(ctx, http.MethodDelete, c.tenantPath("backups", name), nil, nil)
 	return err
 }
+
+// DeclaredRole is a group role declared on a database.
+type DeclaredRole struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+// Extension is an extension installed in a database.
+type Extension struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+// DatabasePostgres holds PostgreSQL settings. Nil lists are unchanged; empty lists clear.
+type DatabasePostgres struct {
+	Roles      *[]DeclaredRole `json:"roles,omitempty" yaml:"roles,omitempty"`
+	Extensions *[]Extension    `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+}
+
+// BindingCredentials selects separate logins for each namespace; it contains no passwords.
+type BindingCredentials struct {
+	Dedicated bool `json:"dedicated" yaml:"dedicated"`
+}
+
+// BindingRotation reports an opaque token applied and delivered to every listed namespace.
+type BindingRotation struct {
+	RequestedAt string `json:"requestedAt" yaml:"requestedAt"`
+	AppliedAt   string `json:"appliedAt" yaml:"appliedAt"`
+	Pending     bool   `json:"pending" yaml:"pending"`
+}
+
+// Dedicated reports whether the binding uses dedicated logins.
+func (b *DatabaseBinding) Dedicated() bool { return b.Credentials != nil && b.Credentials.Dedicated }
+
+// BindingCredentialRotation acknowledges a binding rotation without returning a password.
+type BindingCredentialRotation struct {
+	Database    string `json:"database" yaml:"database"`
+	Binding     string `json:"binding" yaml:"binding"`
+	RequestedAt string `json:"requestedAt" yaml:"requestedAt"`
+}
+
+// RotateDatabaseBindingCredentials rotates only this binding's dedicated logins.
+func (c *Client) RotateDatabaseBindingCredentials(ctx context.Context, database, name string) (*BindingCredentialRotation, error) {
+	var out BindingCredentialRotation
+	if _, err := c.request(ctx, http.MethodPost, c.tenantPath("databases", database, "bindings", name, "rotate-credentials"), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+const (
+	DatabaseCodeRoleReserved                     = "role_reserved"
+	DatabaseCodeExtensionNotAllowed              = "extension_not_allowed"
+	DatabaseCodeRoleInUse                        = "role_in_use"
+	DatabaseCodeRoleNotDeclared                  = "role_not_declared"
+	DatabaseCodeCredentialsNotDedicated          = "credentials_not_dedicated"
+	DatabaseCodeDedicatedCredentialsIrreversible = "dedicated_credentials_irreversible"
+	DatabaseCodeInvalidBindingCredentials        = "invalid_binding_credentials"
+)

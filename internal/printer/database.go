@@ -132,6 +132,8 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Memory", Get: func(v any) string { return databaseResources(database(v)).Memory }},
 		{Name: "Storage", Get: func(v any) string { return databaseResources(database(v)).Storage }},
 		{Name: "Deletion Protection", Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
+		{Name: "Roles", Get: func(v any) string { return postgresRoleNames(database(v)) }},
+		{Name: "Extensions", Get: func(v any) string { return postgresExtensionNames(database(v)) }},
 		{Name: "Backups", Get: func(v any) string { return backupSettings(database(v)) }},
 		{Name: "Last Backup", Get: func(v any) string { return lastBackup(database(v)) }},
 		{Name: "Restore Window", Get: func(v any) string { return recoveryWindow(database(v)) }},
@@ -147,12 +149,14 @@ func databaseBindingColumns(colorEnabled bool) Columns {
 		{Name: "NAME", Get: func(v any) string { return bindingRowOf(v).binding.Name }},
 		{Name: "CLUSTER", Get: func(v any) string { return bindingRowOf(v).binding.Cluster }},
 		{Name: "NAMESPACE", Get: func(v any) string { return bindingRowOf(v).namespace.Name }},
-		{Name: "ROLE", Get: func(v any) string { return bindingRowOf(v).binding.Role }},
+		{Name: "ROLE", Get: func(v any) string { return bindingRole(bindingRowOf(v).binding) }},
+		{Name: "CREDENTIALS", Get: func(v any) string { return bindingCredentialsLabel(bindingRowOf(v).binding) }},
 		{Name: "SECRET", Get: func(v any) string { return bindingRowOf(v).binding.EffectiveSecretName() }},
 		{Name: "PHASE", Get: func(v any) string {
 			return ux.ColorPhase(bindingNamespacePhase(bindingRowOf(v).namespace), colorEnabled)
 		}},
 		{Name: "AGE", Get: func(v any) string { return ageFromRFC3339(bindingRowOf(v).binding.CreatedAt) }},
+		{Name: "ROTATION", Wide: true, Get: func(v any) string { return bindingNamespaceRotation(bindingRowOf(v)) }},
 		{Name: "HOST", Wide: true, Get: func(v any) string { return bindingRowOf(v).namespace.Status.Host }},
 		{Name: "MESSAGE", Wide: true, Get: func(v any) string { return bindingRowOf(v).namespace.Status.Message }},
 	}
@@ -166,6 +170,7 @@ func bindingNamespaceColumns(colorEnabled bool) Columns {
 		{Name: "PHASE", Get: func(v any) string {
 			return ux.ColorPhase(bindingNamespacePhase(bindingRowOf(v).namespace), colorEnabled)
 		}},
+		{Name: "ROTATION", Get: func(v any) string { return bindingNamespaceRotation(bindingRowOf(v)) }},
 		{Name: "HOST", Get: func(v any) string { return bindingRowOf(v).namespace.Status.Host }},
 		{Name: "MESSAGE", Get: func(v any) string { return bindingRowOf(v).namespace.Status.Message }},
 	}
@@ -179,7 +184,10 @@ func databaseBindingDetailColumns(colorEnabled bool) Columns {
 		{Name: "Database", Get: func(v any) string { return databaseBinding(v).Database }},
 		{Name: "Cluster", Get: func(v any) string { return databaseBinding(v).Cluster }},
 		{Name: "Namespaces", Get: func(v any) string { return strings.Join(databaseBinding(v).Namespaces, ", ") }},
-		{Name: "Role", Get: func(v any) string { return databaseBinding(v).Role }},
+		{Name: "Role", Get: func(v any) string { return bindingRole(databaseBinding(v)) }},
+		{Name: "Credentials", Get: func(v any) string { return bindingCredentialsLabel(databaseBinding(v)) }},
+		{Name: "Rotation requested", Get: func(v any) string { return bindingRotationState(databaseBinding(v)).RequestedAt }},
+		{Name: "Rotation applied", Get: func(v any) string { return bindingRotationState(databaseBinding(v)).AppliedAt }},
 		{Name: "Secret", Get: func(v any) string { return databaseBinding(v).EffectiveSecretName() }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(bindingStatus(databaseBinding(v)).Phase, colorEnabled)
@@ -306,4 +314,54 @@ func createdWithAge(ts string) string {
 		return ts + " (" + age + " ago)"
 	}
 	return ts
+}
+
+func postgresRoleNames(db *client.Database) string {
+	names := []string{}
+	if db.Postgres != nil && db.Postgres.Roles != nil {
+		for _, role := range *db.Postgres.Roles {
+			names = append(names, role.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+func postgresExtensionNames(db *client.Database) string {
+	names := []string{}
+	if db.Postgres != nil && db.Postgres.Extensions != nil {
+		for _, extension := range *db.Postgres.Extensions {
+			names = append(names, extension.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+func bindingRole(b *client.DatabaseBinding) string {
+	if b.Role == client.DatabaseRoleCustom {
+		return b.RoleName
+	}
+	return b.Role
+}
+func bindingCredentialsLabel(b *client.DatabaseBinding) string {
+	if b.Dedicated() {
+		return "dedicated"
+	}
+	return "shared"
+}
+func bindingRotationState(b *client.DatabaseBinding) client.BindingRotation {
+	if b.Status != nil && b.Status.Rotation != nil {
+		return *b.Status.Rotation
+	}
+	return client.BindingRotation{}
+}
+func bindingNamespaceRotation(row bindingRow) string {
+	if !row.binding.Dedicated() || !row.namespace.Listed {
+		return ""
+	}
+	token := bindingRotationState(row.binding).RequestedAt
+	if token == "" {
+		return ""
+	}
+	if row.namespace.Reported && row.namespace.Status.DeliveredRotation == token {
+		return "delivered"
+	}
+	return "pending"
 }

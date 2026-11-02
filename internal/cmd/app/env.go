@@ -126,7 +126,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 		if cmd.Flags().Changed("image") && (len(o.image) > 512 || !digestImage.MatchString(o.image)) {
 			return cli.MisuseError("image must be a digest reference").WithHint(imageHint)
 		}
-		file, err := readEnvironmentFile(o.file, f.IOStreams.In, update)
+		file, err := readEnvironmentFile(cmd.Context(), o.file, f.IOStreams.In, update)
 		if err != nil {
 			return err
 		}
@@ -289,9 +289,30 @@ func renderEnvironmentWrite(cmd *cobra.Command, f *cli.Factory, api client.Inter
 	return printer.AppEnvironment.One(f.IOStreams, format, item)
 }
 
+// Standalone waits are a separate App command slice. Keep the shared wait
+// error classes and inspection guidance without advertising absent commands.
+func availableWaitHint(err error) error {
+	var ce *cli.Error
+	if !errors.As(err, &ce) || ce.Hint == "" {
+		return err
+	}
+	original := strings.Split(ce.Hint, "\n")
+	var lines []string
+	for _, line := range original {
+		if !strings.HasPrefix(line, "resume wait:") {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == len(original) {
+		return err
+	}
+	return ce.WithHint(strings.Join(lines, "\n"))
+}
+
 // Shared wait helpers use the resource noun; this nested command adds its app
 // argument to the existing hints without changing polling or error classes.
 func environmentHint(err error, parent string) error {
+	err = availableWaitHint(err)
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint == "" {
 		return err

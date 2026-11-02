@@ -2,11 +2,11 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -29,19 +29,27 @@ var digestImage = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?((\.[a-z0-9]
 
 // readEnvironmentFile validates structure before any API call. Parsing errors
 // never echo input, which may contain sensitive literal configuration.
-func readEnvironmentFile(path string, in io.Reader, update bool) (map[string]any, error) {
+func readEnvironmentFile(ctx context.Context, path string, in io.Reader, update bool) (fields map[string]any, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			fields, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if path == "" {
 		return nil, nil
 	}
 	if path != "-" {
-		f, err := os.Open(path) // #nosec G304 -- CLI user selects this local file; arbitrary paths are intentional.
+		f, err := cli.OpenInputFile(ctx, path)
 		if err != nil {
 			return nil, cli.Wrap(cli.ExitMisuse, "open environment file", err)
 		}
 		defer func() { _ = f.Close() }()
 		in = f
 	}
-	data, err := io.ReadAll(io.LimitReader(in, maxEnvironmentFile+1))
+	data, err := cli.ReadInput(ctx, in, maxEnvironmentFile+1)
 	if err != nil {
 		return nil, cli.Wrap(cli.ExitMisuse, "read environment file", err)
 	}
@@ -76,7 +84,6 @@ func readEnvironmentFile(path string, in io.Reader, update bool) (map[string]any
 		}
 		return nil, cli.MisuseError("environment file has an invalid field type")
 	}
-	var fields map[string]any
 	if err := json.Unmarshal(jsonData, &fields); err != nil {
 		return nil, cli.MisuseError("invalid environment file")
 	}
@@ -159,6 +166,12 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 	var req client.CreateAppEnvironmentRequest
 	if err := json.Unmarshal(data, &req); err != nil {
 		return req, cli.MisuseError("environment file has an invalid field type")
+	}
+	if value, present := file["deletionProtection"]; present && value == nil {
+		// Removing this field restores the CRD/API default, even when the
+		// current environment has explicitly disabled protection.
+		protection := true
+		req.DeletionProtection = &protection
 	}
 	if current == nil && req.Environment != "" && req.Environment != name {
 		return req, cli.MisuseError("environment in the file must match the command argument")

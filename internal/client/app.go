@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 )
 
@@ -106,11 +107,48 @@ type CreateAppEnvironmentRequest struct {
 	Domains            []string    `json:"domains,omitempty" yaml:"domains,omitempty"`
 }
 type PatchAppEnvironmentRequest struct {
+	// Web is the complete effective configuration. Its absent checks and probe
+	// alternatives must be explicit nulls in the recursive merge patch.
 	Web                *AppWeb      `json:"web,omitempty"`
 	Secrets            *[]AppSecret `json:"secrets,omitempty"`
 	Domains            *[]string    `json:"domains,omitempty"`
 	DeletionProtection *bool        `json:"deletionProtection,omitempty"`
 }
+
+func (p PatchAppEnvironmentRequest) MarshalJSON() ([]byte, error) {
+	type probePatch struct {
+		TCP  *struct{}     `json:"tcp"`
+		HTTP *AppHTTPProbe `json:"http"`
+	}
+	type checksPatch struct {
+		Readiness *probePatch `json:"readiness"`
+		Liveness  *probePatch `json:"liveness"`
+	}
+	type webPatch struct {
+		*AppWeb
+		HealthChecks *checksPatch `json:"healthChecks"`
+	}
+	probe := func(p *AppProbe) *probePatch {
+		if p == nil {
+			return nil
+		}
+		return &probePatch{TCP: p.TCP, HTTP: p.HTTP}
+	}
+	var web *webPatch
+	if p.Web != nil {
+		web = &webPatch{AppWeb: p.Web}
+		if checks := p.Web.HealthChecks; checks != nil {
+			web.HealthChecks = &checksPatch{Readiness: probe(checks.Readiness), Liveness: probe(checks.Liveness)}
+		}
+	}
+	// The alias retains the other patch fields without recursively calling us.
+	type patch PatchAppEnvironmentRequest
+	return json.Marshal(struct {
+		patch
+		Web *webPatch `json:"web,omitempty"`
+	}{patch: patch(p), Web: web})
+}
+
 type AppEnvironmentStatus struct {
 	Phase                 string               `json:"phase" yaml:"phase"`
 	Deployment            *AppDeployment       `json:"deployment" yaml:"deployment"`

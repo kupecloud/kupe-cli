@@ -34,12 +34,17 @@ or more environments. Each environment runs on a cluster you choose.
 Deleting an app never deletes a cluster.`}
 	list := appService.ListCmd(f, cmdutil.Help{Short: "List apps"})
 	list.Args = cobra.NoArgs
-	cmd.AddCommand(list, appService.GetCmd(f, cmdutil.Help{Short: "Show an app and its environments"}), newAppCreateCmd(f), newAppUpdateCmd(f), appService.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: "Delete an app and all its environments", Long: `Every environment is deleted first, with its namespace and everything in it.
+	deleteCmd := appService.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: "Delete an app and all its environments", Long: `Every environment is deleted first, with its namespace and everything in it.
 Clusters and Vault entries are kept. Turn off deletion protection on the app
 and every environment before deleting. Type the app name to confirm, or use
 --yes. By default, wait until the app is gone.`}, ConfirmByName: true, Warning: func(io *cli.IOStreams, _ string) {
 		fmt.Fprintln(io.ErrOut, "Every environment is deleted first, with its namespace and everything in it. Clusters and Vault entries are kept.")
-	}, WaitTimeout: 30 * time.Minute}), newEnvCmd(f))
+	}, WaitTimeout: 30 * time.Minute})
+	deleteRun := deleteCmd.RunE
+	deleteCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return availableWaitHint(deleteRun(cmd, args))
+	}
+	cmd.AddCommand(list, appService.GetCmd(f, cmdutil.Help{Short: "Show an app and its environments"}), newAppCreateCmd(f), newAppUpdateCmd(f), deleteCmd, newEnvCmd(f))
 	return cmd
 }
 func validateName(name, field string, maximum int) error {

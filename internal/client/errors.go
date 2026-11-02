@@ -15,6 +15,19 @@ import (
 	"strings"
 )
 
+// RequestNotSentError identifies local setup failures before submission. Earlier
+// attempts, if any, were refused with 429, so no write outcome is uncertain.
+// TokenResolution distinguishes credential lookup from request construction.
+type RequestNotSentError struct {
+	Err             error
+	TokenResolution bool
+}
+
+func (e *RequestNotSentError) Error() string { return e.Err.Error() }
+
+// Unwrap preserves the setup cause for errors.Is/As and normal exit handling.
+func (e *RequestNotSentError) Unwrap() error { return e.Err }
+
 // errorEnvelope matches both kupe-api error body shapes:
 //
 //  1. Legacy:     {"error": "human message"}

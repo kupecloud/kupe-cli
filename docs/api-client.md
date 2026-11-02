@@ -299,3 +299,10 @@ Purge opts out of ordinary DELETE retries per request, leaving other DELETE
 callers unchanged. Both retain one retry for a 429 limiter refusal, which occurs
 before a Vault handler can apply a write. The API's IP limiter runs before the
 router; its tenant limiter returns before the Vault handler continues.
+
+`RequestNotSentError` retains local body construction, request construction,
+token resolution and context failures before submission. Its cause remains
+available through `errors.Is` and `errors.As`. An earlier possibly executed
+attempt prevents this classification; a complete 429 refusal does not. Vault
+write calls keep normal setup exit codes and credential guidance. Errors after
+submission, including response reads, keep the unknown-write guidance.

@@ -141,7 +141,7 @@ func (c *Client) requestWithOptions(ctx context.Context, method, path, etag stri
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
-			return "", fmt.Errorf("marshalling request body: %w", err)
+			return "", &RequestNotSentError{Err: fmt.Errorf("marshalling request body: %w", err)}
 		}
 		bodyBytes = data
 	}
@@ -231,20 +231,33 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 		httpClient = &clone
 	}
 	var (
-		lastResp   *http.Response
-		lastBody   []byte
-		lastErr    error
-		retried429 bool
+		lastResp        *http.Response
+		lastBody        []byte
+		lastErr         error
+		retried429      bool
+		mayHaveExecuted bool
 	)
 
 	for attempt := 0; attempt < c.retry.maxAttempts; attempt++ {
 		req, err := c.newRequest(ctx, method, path, etag, bodyBytes, opts)
 		if err != nil {
+			if mayHaveExecuted {
+				// Setup of this attempt failed, but an earlier attempt may
+				// already have executed. Do not claim the operation was unsent.
+				var setup *RequestNotSentError
+				if errors.As(err, &setup) {
+					err = setup.Err
+				}
+			}
 			return nil, nil, err
 		}
 
 		start := time.Now()
 		resp, err := httpClient.Do(req)
+		// Only a complete limiter refusal proves that an earlier submission
+		// did not execute. Transport and response-read failures stay uncertain.
+		previousMayHaveExecuted := mayHaveExecuted
+		mayHaveExecuted = true
 		var body []byte
 		if resp != nil {
 			var readErr error
@@ -275,6 +288,9 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 
 		// 429 — retry once with Retry-After, regardless of method.
 		if resp != nil && resp.StatusCode == http.StatusTooManyRequests && !retried429 {
+			if err == nil {
+				mayHaveExecuted = previousMayHaveExecuted
+			}
 			// No attempt left to spend — don't burn the full Retry-After
 			// (up to 30s) just to return the same 429 anyway (LOW-1).
 			if attempt+1 >= c.retry.maxAttempts {
@@ -318,6 +334,9 @@ func (c *Client) doWithRetry(ctx context.Context, method, path, etag string, bod
 // newRequest builds a fresh *http.Request — called once per attempt so
 // retries get an unconsumed body reader.
 func (c *Client) newRequest(ctx context.Context, method, path, etag string, bodyBytes []byte, options ...requestOptions) (*http.Request, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, &RequestNotSentError{Err: err}
+	}
 	var bodyReader io.Reader
 	if bodyBytes != nil {
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -326,7 +345,7 @@ func (c *Client) newRequest(ctx context.Context, method, path, etag string, body
 	reqURL := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, &RequestNotSentError{Err: fmt.Errorf("creating request: %w", err)}
 	}
 
 	// Token is optional: the public plan catalog (/api/v1/plans) accepts
@@ -339,7 +358,7 @@ func (c *Client) newRequest(ctx context.Context, method, path, etag string, body
 	if c.tokenSource != nil {
 		t, err := c.tokenSource(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("resolving auth token: %w", err)
+			return nil, &RequestNotSentError{Err: fmt.Errorf("resolving auth token: %w", err), TokenResolution: true}
 		}
 		token = t
 	}
@@ -356,6 +375,9 @@ func (c *Client) newRequest(ctx context.Context, method, path, etag string, body
 	}
 	if len(options) > 0 && options[0].ifNoneMatch != "" {
 		req.Header.Set("If-None-Match", options[0].ifNoneMatch)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, &RequestNotSentError{Err: err}
 	}
 	return req, nil
 }

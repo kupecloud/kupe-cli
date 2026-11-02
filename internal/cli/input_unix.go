@@ -104,7 +104,10 @@ func (r *fileInput) Read(p []byte) (int, error) {
 		if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
 			continue
 		}
-		if n == 0 && err == nil {
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
 			return 0, io.EOF
 		}
 		return n, err

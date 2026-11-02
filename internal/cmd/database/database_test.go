@@ -1124,7 +1124,7 @@ func TestValidateRole_TheThreeRoles(t *testing.T) {
 			wantErr = "--role is required"
 		}
 		commands := map[string]func(*cli.Factory) *cobra.Command{
-			"binding add":        newBindingAddCmd,
+
 			"rotate-credentials": newRotateCredentialsCmd,
 		}
 		for name, newCmd := range commands {
@@ -1280,8 +1280,8 @@ func TestBindingAdd(t *testing.T) {
 			cli.ExitOK, "orders-db-" + strings.Repeat("c", 43) + "-readwrite", "", []string{strings.Repeat("n", 40)}, ""},
 		{"cluster is required", []string{"orders-db", "--namespace", "api", "--role", "readwrite"}, cli.ExitMisuse, "", "", nil, "--cluster and --namespace are required"},
 		{"namespace is required", []string{"orders-db", "--cluster", "prod", "--role", "readwrite"}, cli.ExitMisuse, "", "", nil, "--cluster and --namespace are required"},
-		{"role must be owner, readwrite or readonly", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "admin"}, cli.ExitMisuse, "", "", nil, "invalid --role admin"},
-		{"app is not a role", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app"}, cli.ExitMisuse, "", "", nil, "invalid --role"},
+		{"declared role must be lowercase", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "Admin"}, cli.ExitMisuse, "", "", nil, "invalid --role Admin"},
+		{"declared role cannot contain hyphens", []string{"orders-db", "--cluster", "prod", "--namespace", "api", "--role", "app-user"}, cli.ExitMisuse, "", "", nil, "invalid --role"},
 		{"missing database exits 4", []string{"ghost", "--cluster", "prod", "--namespace", "api", "--role", "readwrite"}, cli.ExitNotFound, "", "", nil, ""},
 	}
 	for _, tt := range tests {
@@ -1519,7 +1519,7 @@ func TestBindingUpdate(t *testing.T) {
 			"to remove the binding:  kupe database binding delete orders-db orders-db-prod-readwrite", "", ""},
 		{"more than ten namespaces are refused", elevenAdds, nil,
 			cli.ExitMisuse, "", "a binding can list at most 10 namespaces; this change would list 11", "second binding", "", ""},
-		{"a flag is required", nil, nil, cli.ExitMisuse, "", "pass --add-namespace or --remove-namespace", "", "", ""},
+		{"a flag is required", nil, nil, cli.ExitMisuse, "", "pass --add-namespace, --remove-namespace or --dedicated", "", "", ""},
 		{"a namespace cannot be added and removed", []string{"--add-namespace", "web", "--remove-namespace", "web"}, nil,
 			cli.ExitMisuse, "", "namespace web is both added and removed", "", "", ""},
 		{"a binding being deleted exits 5 without the database wait hint", []string{"--add-namespace", "web"},
@@ -1594,7 +1594,7 @@ func TestBindingUpdate_Wait(t *testing.T) {
 		{"a withdrawal past the timeout says what is left", []string{"--remove-namespace", "jobs", "--wait-timeout", "50ms"},
 			[]*client.DatabaseBinding{afterRemove(withdrawing)}, cli.ExitTimeout, 1, "",
 			`binding "orders-db-prod-readwrite" is still Pending; still removing namespace "jobs"`, "the change was accepted and the platform keeps trying"},
-		{"--wait=false returns without polling", []string{"--remove-namespace", "jobs", "--wait=false"}, nil, cli.ExitOK, 0, "Namespaces:  api", "", ""},
+		{"--wait=false returns without polling", []string{"--remove-namespace", "jobs", "--wait=false"}, nil, cli.ExitOK, 0, "Namespaces:          api", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1719,7 +1719,7 @@ func TestBindingListGetDelete(t *testing.T) {
 			t.Fatalf("get: %v", err)
 		}
 		for _, want := range []string{
-			"Namespaces:  api, jobs", "Secret:      orders-db-readwrite", "Phase:       Pending",
+			"Namespaces:          api, jobs", "Secret:              orders-db-readwrite", "Phase:               Pending",
 			"NAMESPACE  PHASE", "api        Ready", "orders-db.api.svc.cluster.local", "jobs       Pending", "reports    Removing",
 		} {
 			if !strings.Contains(out, want) {

@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -61,13 +63,15 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 		var expected *client.AppWeb
 		var mutationErr error
 		changedRuntime := false
-		item, err := api.AppEnvironments(app).UpdateRMW(cmd.Context(), env, func(current *client.AppEnvironment) *client.PatchAppEnvironmentRequest {
+		environments := api.AppEnvironments(app)
+		var reviewedETag string
+		mutate := func(current *client.AppEnvironment) *client.PatchAppEnvironmentRequest {
 			if first != nil {
 				reviewRelease(f.IOStreams, "Review current configuration", app, env, "", current, current.Web, nil)
 				mutationErr = staleReviewError()
 				return nil
 			}
-			if current.UID == "" || current.Generation <= 0 || current.Web == nil {
+			if strings.TrimSpace(reviewedETag) == "" || current.UID == "" || current.Generation <= 0 || current.Web == nil {
 				mutationErr = cli.New(cli.ExitUnavailable, "environment has no review precondition; deploy was not sent")
 				return nil
 			}
@@ -104,7 +108,19 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 			}
 			changedRuntime = true
 			return &client.PatchAppEnvironmentRequest{Web: req.Web}
-		})
+		}
+		// Keep the shared RMW policy, but require the exact reviewed read's
+		// opaque precondition before allowing its complete web snapshot to PATCH.
+		item, err := client.UpdateResourceRMW(cmd.Context(),
+			func(ctx context.Context) (*client.AppEnvironment, string, error) {
+				current, etag, getErr := environments.Get(ctx, env)
+				reviewedETag = etag
+				return current, etag, getErr
+			},
+			func(ctx context.Context, etag string, patch client.PatchAppEnvironmentRequest) (*client.AppEnvironment, string, error) {
+				return environments.Update(ctx, env, etag, patch)
+			},
+			mutate, client.ErrRMWContention)
 		if mutationErr != nil {
 			return mutationErr
 		}

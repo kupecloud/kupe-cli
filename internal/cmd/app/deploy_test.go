@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -30,6 +31,7 @@ func releaseFake() *clienttest.Fake {
 }
 
 func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *testing.T) {
+	const reviewedETag = `"opaque-review-token.with-dots"`
 	current := releaseEnvironment()
 	current.Web.Command, current.Web.Args = []string{"/app/server"}, []string{"--serve", "web"}
 	current.Web.HealthChecks = &client.AppHealthChecks{Readiness: &client.AppProbe{HTTP: &client.AppHTTPProbe{Path: "/ready"}}, Liveness: &client.AppProbe{TCP: &struct{}{}}}
@@ -38,7 +40,7 @@ func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *t
 	current.Domains, current.DeletionProtection = []string{"shop.example.com"}, true
 	const privateValue = "synthetic-private-literal"
 	current.Web.Env[0].Value = str(privateValue)
-	resolve, patches := 0, 0
+	resolve, gets, patches := 0, 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/tenants/acme/app-images/resolve" {
 			resolve++
@@ -52,13 +54,14 @@ func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *t
 		if r.URL.Path != "/api/v1/tenants/acme/apps/shop/environments/production" {
 			t.Errorf("path=%s", r.URL.Path)
 		}
-		w.Header().Set("ETag", `"current-environment-uid.1"`)
+		w.Header().Set("ETag", reviewedETag)
 		if r.Method == "GET" {
+			gets++
 			_ = json.NewEncoder(w).Encode(current)
 			return
 		}
 		patches++
-		if r.Method != "PATCH" || r.Header.Get("If-Match") != `"current-environment-uid.1"` {
+		if r.Method != "PATCH" || r.Header.Get("If-Match") != reviewedETag {
 			t.Errorf("method=%s etag=%q", r.Method, r.Header.Get("If-Match"))
 		}
 		var body map[string]json.RawMessage
@@ -86,8 +89,8 @@ func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *t
 	f := factoryWith(clienttest.New())
 	f.Client = func() (client.Interface, error) { return client.New(server.URL, "acme", "", "test"), nil }
 	out, review, err := run(f, "deploy", "shop", "production", "--image", "hello-kupe:release", "--yes", "--wait=false", "-o", "json")
-	if err != nil || resolve != 1 || patches != 1 {
-		t.Fatalf("resolve=%d patches=%d err=%v", resolve, patches, err)
+	if err != nil || resolve != 1 || gets != 1 || patches != 1 {
+		t.Fatalf("resolve=%d gets=%d patches=%d err=%v", resolve, gets, patches, err)
 	}
 	if !strings.Contains(review, "hello-kupe:release → "+nextDigest) || strings.Contains(review, privateValue) || !strings.Contains(review, "DB_PASSWORD (secret reference)") {
 		t.Fatalf("review=%s", review)
@@ -95,6 +98,57 @@ func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *t
 	var result client.AppEnvironment
 	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Web.Image != nextDigest || result.Cluster != current.Cluster || !result.DeletionProtection {
 		t.Fatalf("out=%s err=%v", out, err)
+	}
+}
+
+func TestDeployRequiresReviewedETagBeforeWriting(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		present bool
+		value   string
+	}{
+		{name: "omitted"},
+		{name: "empty", present: true},
+		{name: "whitespace", present: true, value: " \t "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gets, patches atomic.Int32
+			current := releaseEnvironment()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/tenants/acme/apps/shop/environments/production" {
+					t.Errorf("path=%s", r.URL.Path)
+				}
+				if r.Method == http.MethodGet {
+					gets.Add(1)
+					if tc.present {
+						w.Header().Set("ETag", tc.value)
+					}
+					_ = json.NewEncoder(w).Encode(current)
+					return
+				}
+				patches.Add(1)
+				if r.Method != http.MethodPatch || r.Header.Get("If-Match") != "" {
+					t.Errorf("unexpected write method=%s If-Match=%q", r.Method, r.Header.Get("If-Match"))
+				}
+				var patch client.PatchAppEnvironmentRequest
+				if err := json.NewDecoder(r.Body).Decode(&patch); err != nil || patch.Web == nil || patch.Web.Image != nextDigest {
+					t.Errorf("deploy patch=%+v err=%v", patch, err)
+				}
+				// Like the published API, this fixture accepts an optional
+				// If-Match. Only the command can prevent a blind reviewed PATCH.
+				accepted := *current
+				accepted.Generation = current.Generation + 1
+				accepted.Web = patch.Web
+				_ = json.NewEncoder(w).Encode(accepted)
+			}))
+			defer server.Close()
+			f := factoryWith(clienttest.New())
+			f.Client = func() (client.Interface, error) { return client.New(server.URL, "acme", "", "test"), nil }
+			out, review, err := run(f, "deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false", "-o", "json")
+			if cli.ExitCode(err) != cli.ExitUnavailable || err.Error() != "environment has no review precondition; deploy was not sent" || patches.Load() != 0 || gets.Load() != 1 || out != "" || strings.Contains(review, "Review deploy") {
+				t.Fatalf("gets=%d patches=%d out=%s review=%s err=%v", gets.Load(), patches.Load(), out, review, err)
+			}
+		})
 	}
 }
 

@@ -48,10 +48,11 @@ until it is in effect. Each role has its own password; rotating one leaves
 the others unchanged.
 
 The wait ends once the new password is in effect in PostgreSQL (the old one
-then stops working) and every binding of that role carries it in its
-credentials Secret in every namespace it lists. The Secret reaches the cluster
-within seconds after that; applications using the old password must restart to
-pick it up. No password is shown.
+then stops working) and every binding using that role's shared credentials
+carries it in every listed namespace. Copying Secrets into the cluster follows
+asynchronously; applications using the old password must restart to pick it
+up. Dedicated bindings keep their credentials; rotate them with
+"kupe database binding rotate-credentials". No password is shown.
 
 Pass --wait=false to return as soon as the rotation is requested. In
 "kupe database get NAME -o yaml", the rotation is in effect once

@@ -1,7 +1,9 @@
 package database
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
@@ -17,6 +19,34 @@ import (
 // that carries none (cli.WrapAPI). Anything unrecognised passes through
 // unchanged.
 func translateErr(err error, name string) error {
+	// A pre-access API rejects only these new fields before interpreting them.
+	// Keep its refusal and request ID; never retry after dropping settings.
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && apiErr.Code == "" {
+		for _, field := range []string{"postgres", "roleName", "credentials"} {
+			if strings.HasSuffix(strings.TrimSpace(apiErr.Message), `json: unknown field "`+field+`"`) {
+				return cli.WrapAPI(cli.ExitUnavailable, "this platform does not support this database setting yet", err).
+					WithHint("this platform does not support this database setting yet")
+			}
+		}
+	}
+
+	switch client.ErrorCode(err) {
+	case client.DatabaseCodeDedicatedCredentialsIrreversible:
+		return dedicatedIrreversible(err)
+	case client.DatabaseCodeRoleReserved:
+		return cli.WrapAPI(cli.ExitMisuse, "that role name is reserved", err).WithHint("choose another declared role name")
+	case client.DatabaseCodeExtensionNotAllowed:
+		return cli.WrapAPI(cli.ExitMisuse, "that extension is not available", err).WithHint("choose an extension from the platform's allowlist in the error")
+	case client.DatabaseCodeRoleInUse:
+		return cli.WrapAPI(cli.ExitConflict, "the role is still in use", err).WithHint("remove its bindings before removing the declared role")
+	case client.DatabaseCodeRoleNotDeclared:
+		return cli.WrapAPI(cli.ExitMisuse, "the role is not declared on the database", err).WithHint("declare it with kupe database update --add-role")
+	case client.DatabaseCodeCredentialsNotDedicated:
+		return cli.WrapAPI(cli.ExitConflict, "the binding does not use dedicated credentials", err).WithHint("turn them on with kupe database binding update DATABASE BINDING --dedicated, or rotate the shared role with kupe database rotate-credentials")
+	case client.DatabaseCodeInvalidBindingCredentials:
+		return cli.WrapAPI(cli.ExitMisuse, "invalid binding credentials", err).WithHint("owner uses shared credentials; declared roles require dedicated credentials")
+	}
 	return cmdutil.TranslateCommon(noun, name, err)
 }
 

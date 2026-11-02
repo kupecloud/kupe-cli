@@ -12,16 +12,17 @@ import (
 )
 
 type updateOpts struct {
-	cpu                string
-	memory             string
-	storage            string
-	highAvailability   bool
-	deletionProtection bool
-	backupRetention    int32
-	backupSchedule     string
-	wait               bool
-	waitTimeout        time.Duration
-	output             string
+	addRoles, removeRoles, addExtensions, removeExtensions []string
+	cpu                                                    string
+	memory                                                 string
+	storage                                                string
+	highAvailability                                       bool
+	deletionProtection                                     bool
+	backupRetention                                        int32
+	backupSchedule                                         string
+	wait                                                   bool
+	waitTimeout                                            time.Duration
+	output                                                 string
 }
 
 func newUpdateCmd(f *cli.Factory) *cobra.Command {
@@ -29,9 +30,10 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "update NAME",
-		Short: "Resize a database or change its availability, protection or backups",
+		Short: "Change database resources, backups, roles or extensions",
 		Long: `Change a database's per-instance resources, high availability, deletion
-protection or backup settings. Only the flags you pass are changed.
+protection, backup settings, declared roles or PostgreSQL extensions. Only
+the flags you pass are changed.
 
 Changing CPU or memory rolls the instances (a highly available database
 switches over first). Storage grows online and can never shrink. The major
@@ -72,8 +74,12 @@ the change is accepted.`,
 				return err
 			}
 			patch.Backup = backup
-			if patch.IsEmpty() {
-				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule")
+			listChanged := len(opts.addRoles)+len(opts.removeRoles)+len(opts.addExtensions)+len(opts.removeExtensions) > 0
+			if err := validateListEdits(opts); err != nil {
+				return err
+			}
+			if patch.IsEmpty() && !listChanged {
+				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule, --add-role, --remove-role, --add-extension, --remove-extension")
 			}
 
 			format, err := printer.Resolve(f, opts.output)
@@ -84,7 +90,8 @@ the change is accepted.`,
 			if err != nil {
 				return err
 			}
-			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(*client.Database) *client.PatchDatabaseRequest {
+			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
+				patch.Postgres = editedPostgres(current.Postgres, opts)
 				return &patch
 			})
 			if err != nil {
@@ -102,7 +109,7 @@ the change is accepted.`,
 			// The PATCH response carries the generation the change produced.
 			final, werr := service.WaitForConverged(cmd.Context(), f.IOStreams, api, name, updated.Generation, opts.waitTimeout)
 			if werr != nil {
-				return cmdutil.MapWaitErr(werr, noun, name, "update")
+				return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "update"), final)
 			}
 			if final == nil {
 				final = updated
@@ -111,6 +118,10 @@ the change is accepted.`,
 		},
 	}
 
+	cmd.Flags().StringArrayVar(&opts.addRoles, "add-role", nil, "Declared role to add; repeat for each role")
+	cmd.Flags().StringArrayVar(&opts.removeRoles, "remove-role", nil, "Declared role to remove; repeat for each role")
+	cmd.Flags().StringArrayVar(&opts.addExtensions, "add-extension", nil, "Extension to add; repeat for each extension")
+	cmd.Flags().StringArrayVar(&opts.removeExtensions, "remove-extension", nil, "Extension to remove; repeat for each extension")
 	cmd.Flags().StringVar(&opts.cpu, "cpu", "", "New CPU per instance (e.g. 1, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory", "", "New memory per instance (e.g. 2Gi)")
 	cmd.Flags().StringVar(&opts.storage, "storage", "", "New storage per instance (e.g. 20Gi); grow only")

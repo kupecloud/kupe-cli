@@ -63,7 +63,8 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding add` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding get` (also `binding update`, before its `PATCH`) | v1 |
-| `PATCH /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding update` | v1 |
+| `PATCH /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding update` (namespaces and `--dedicated`) | v1 |
+| `POST /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}/rotate-credentials` | `kupe database binding rotate-credentials` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/databases/{name}/bindings/{binding}` | `kupe database binding delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}/backups` | — (`kupe database backup list DATABASE` reads `GET /backups?database=` so it includes deleted databases' backups) | v1 |
 | `POST /api/v1/tenants/{tenant}/databases/{name}/backups` | `kupe database backup create` | v1 |
@@ -1111,6 +1112,8 @@ Create a database and wait for `status.phase=Running` by default.
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--roles ROLE,...` | — | Declare group roles; no privileges are granted. |
+| `--extensions EXTENSION,...` | — | Install PostgreSQL extensions from the platform allowlist. |
 | `--engine ENGINE` | `postgres` | Database engine. Only `postgres` is supported. |
 | `--version MAJOR` | platform default; the source's with `--from-backup` or `--from` | Engine major version (e.g. `18`). A restore runs the source's major version: leave it out, or give that one. |
 | `--cpu QUANTITY` | required | CPU per instance, without a unit (`500m`, `2`, `0.5`). |
@@ -1208,6 +1211,38 @@ paused, backups not offered, a 503, or lost contact with kupe-api while waiting,
 `Degraded` (`database "NAME" entered Degraded state`, hint: `kupe database
 get NAME`).
 
+### PostgreSQL roles and extensions
+
+Create with `--roles reporting,auditor --extensions pgcrypto,vector`. These
+lists travel under `postgres`; leaving a flag out keeps the default. A
+declared role is a group role with no privileges until you grant them.
+
+Update with repeatable `--add-role`, `--remove-role`, `--add-extension` and
+`--remove-extension`. The CLI reads the current lists and sends each edited
+list in full, preserving the other list. Removing the last entry sends `[]`.
+Concurrent changes are read again and recomputed once after a conflict.
+Adding a duplicate or removing a missing name keeps the list unchanged;
+adding and removing the same name in one command exits `2`. Role and
+extension updates wait for the new generation to be ready.
+
+`binding add --role reporting` sends `role: custom`, `roleName: reporting`
+and dedicated credentials. Use the declared name; bare `--role custom` is
+refused. Declared names use lowercase letters, numbers and underscores,
+start with a letter and fit 63 characters. The default binding name uses the
+role name with `_` replaced by `-`: `orders-db-prod-report-ro` for
+`--role report_ro`. Its default Secret is `orders-db-report-ro`.
+`--dedicated` also works with readwrite and readonly; owner stays shared.
+
+A platform whose API rejects `postgres`, `roleName` or `credentials` as an
+unknown field is reported as not supporting the setting yet (exit `7`). The
+CLI keeps the original refusal and request ID and sends no fallback request.
+
+Refusals keep the API's message: `role_reserved`, `extension_not_allowed`,
+`role_not_declared`, `invalid_binding_credentials` and
+`dedicated_credentials_irreversible` exit `2`; `role_in_use` and
+`credentials_not_dedicated` exit `5`. Dedicated-on and rotation are refused
+while databases are switched off; the existing cleanup commands still work.
+
 ### `kupe database update NAME`
 
 Change per-instance resources, high availability, deletion protection or
@@ -1218,6 +1253,8 @@ retried once, then exits `5`).
 
 | Flag | Description |
 |------|-------------|
+| `--add-role`, `--remove-role` | Edit declared roles; repeat for each name. |
+| `--add-extension`, `--remove-extension` | Edit extensions; repeat for each name. Removing the last entry sends an empty list. |
 | `--cpu`, `--memory`, `--storage` | New per-instance resources. Storage grows only. |
 | `--ha` / `--ha=false` | Turn high availability on or off. |
 | `--deletion-protection` / `--deletion-protection=false` | Turn deletion protection on or off. |
@@ -1321,8 +1358,10 @@ Prompts on TTY (type `yes`); `--yes` is required in non-interactive mode.
 The rotation is in effect once `status.rotations.ROLE.appliedAt` (in
 `kupe database get NAME -o yaml`) equals the `requestedAt` kupe-api returned
 for the request and `status.rotations.ROLE.delivered` is `true`: the database
-uses the new password and every binding of the role has delivered it to its
-credentials Secret in every namespace the binding lists. The wait polls for
+uses the new password and every binding using the role's shared credentials has delivered it to its
+credentials Secret in every namespace the binding lists. Dedicated bindings
+keep their credentials; use `kupe database binding rotate-credentials` for
+them. The wait polls for
 exactly that; a kupe-api that does not report `delivered` is taken at
 `appliedAt` alone. The values are opaque tokens, compared for equality only.
 A later rotation of the same role, requested by someone else, replaces this
@@ -1357,18 +1396,20 @@ A binding grants one role of one database to up to 10 namespaces of one
 cluster. Each namespace gets a Service named after the database and a
 credentials Secret (the same Secret name in every namespace), and a network
 path to the database. `binding update` adds or removes namespaces; the
-cluster, role and Secret name are fixed: to change one, delete the binding and
-add another. Removing a namespace or a binding removes its Secrets, and the
+cluster, role and Secret name are fixed. Dedicated credentials can be turned
+on with `binding update --dedicated`; they cannot be turned off. Removing a
+namespace or a binding removes its Secrets, and the
 Service and network path from each namespace no other binding of the database
-lists in the same cluster. It does not remove knowledge of the password:
-rotate the role afterwards if that matters.
+lists in the same cluster. Dedicated logins are revoked. With shared
+credentials, rotate the role afterwards to revoke knowledge of its password.
 
 | Command | Description |
 |---------|-------------|
-| `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--name` defaults to `DATABASE-CLUSTER-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
-| `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds the namespace's `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
-| `kupe db binding get DATABASE BINDING` | Details including the Secret name, then a table of its namespaces with each one's phase, in-cluster host and message. A binding of another database exits `4`. |
-| `kupe db binding update DATABASE BINDING [--add-namespace NS]... [--remove-namespace NS]...` | Change the namespaces a binding lists and wait until every listed one is `Ready` and every removed one is withdrawn (see below). |
+| `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly\|DECLARED [--dedicated] [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--name` defaults to `DATABASE-CLUSTER-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
+| `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `CREDENTIALS`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds the namespace's `ROTATION`, `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
+| `kupe db binding get DATABASE BINDING` | Details including the Secret name and requested/applied/pending rotation state, then a table of its namespaces with each one's phase, rotation progress, in-cluster host and message. A binding of another database exits `4`. |
+| `kupe db binding update DATABASE BINDING [--add-namespace NS]... [--remove-namespace NS]... [--dedicated]` | Change the namespaces a binding lists or turn on dedicated credentials and wait until every listed one is `Ready` and every removed one is withdrawn (see below). |
+| `kupe db binding rotate-credentials DATABASE BINDING` | Rotate dedicated logins for every listed namespace and wait for delivery; `--yes` in automation. |
 | `kupe db binding delete DATABASE BINDING` | Prompts on TTY (type `yes`); `--yes` in non-interactive mode. Asynchronous: stdout is `binding/NAME delete requested`. |
 
 ```bash
@@ -1379,26 +1420,30 @@ kupe db binding add orders-db --cluster prod --namespace orders-reports --role r
 
 ```
 $ kupe db binding list orders-db
-NAME                      CLUSTER  NAMESPACE       ROLE       SECRET               PHASE    AGE
-orders-db-prod-owner      prod     orders-migrate  owner      orders-db-owner      Ready    2m
-orders-db-prod-readwrite  prod     orders-api      readwrite  orders-db-readwrite  Ready    2m
-orders-db-prod-readwrite  prod     orders-worker   readwrite  orders-db-readwrite  Pending  2m
-orders-db-prod-readonly   prod     orders-reports  readonly   orders-db-readonly   Ready    1m
+NAME  CLUSTER  NAMESPACE  ROLE  CREDENTIALS  SECRET  PHASE  AGE
+orders-db-prod-owner  prod  orders-migrate  owner  shared  orders-db-owner  Ready  2m
+orders-db-prod-readwrite  prod  orders-api  readwrite  shared  orders-db-readwrite  Ready  2m
+orders-db-prod-readwrite  prod  orders-worker  readwrite  shared  orders-db-readwrite  Pending  2m
+orders-db-prod-readonly  prod  orders-reports  readonly  shared  orders-db-readonly  Ready  1m
 
 $ kupe db binding get orders-db orders-db-prod-readwrite
-Name:        orders-db-prod-readwrite
-Database:    orders-db
-Cluster:     prod
-Namespaces:  orders-api, orders-worker
-Role:        readwrite
-Secret:      orders-db-readwrite
-Phase:       Pending
-Message:     the database is not yet available in namespace "orders-worker"; retrying
-Created:     2026-10-18T10:00:00Z (2m ago)
+Name:                orders-db-prod-readwrite
+Database:            orders-db
+Cluster:             prod
+Namespaces:          orders-api, orders-worker
+Role:                readwrite
+Credentials:         shared
+Rotation requested:
+Rotation applied:
+Rotation pending:
+Secret:              orders-db-readwrite
+Phase:               Pending
+Message:             the database is not yet available in namespace "orders-worker"; retrying
+Created:             2026-10-18T10:00:00Z (2m ago)
 
-NAMESPACE      PHASE    HOST                                    MESSAGE
-orders-api     Ready    orders-db.orders-api.svc.cluster.local
-orders-worker  Pending                                          the binding could not be reconciled; retrying
+NAMESPACE      PHASE    ROTATION  HOST                                    MESSAGE
+orders-api     Ready              orders-db.orders-api.svc.cluster.local
+orders-worker  Pending                                                    the binding could not be reconciled; retrying
 ```
 
 A namespace's `PHASE` is `Pending` until the platform reports it.
@@ -1449,6 +1494,25 @@ When the default name is taken, the binding of that role into that cluster
 usually exists already: the hint gives the `binding update` command that adds
 the namespaces to it, or says to pass `--name` for a second binding.
 
+#### `kupe database binding rotate-credentials DATABASE BINDING`
+
+Rotate only this binding's dedicated logins, one per listed namespace. Other
+bindings keep their credentials. Prompts on a TTY; use `--yes` in automation.
+The command waits by default for `status.rotation.appliedAt` to match the
+opaque request token and for every listed namespace to carry it. It names
+namespaces still waiting and follows a newer rotation if one replaces this
+request. Copying Secrets into the cluster follows asynchronously; restart
+applications to pick them up. No password is returned.
+
+`--wait=false` returns the acknowledgement immediately; `-o json` includes
+`database`, `binding`, `requestedAt` and `pending`. `--wait-timeout` defaults
+to `10m`. A timeout exits `8`, cancellation exits `130`, and a shared binding
+is refused with `409 credentials_not_dedicated` (exit `5`).
+
+```bash
+kupe database binding rotate-credentials orders-db orders-db-prod-readwrite --yes
+```
+
 #### `kupe database binding update DATABASE BINDING`
 
 Adds and removes namespaces of a binding. The command reads the binding,
@@ -1460,6 +1524,7 @@ says `binding "NAME" is unchanged: it lists orders-api, orders-worker`.
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--dedicated` | `false` | Give each namespace its own login and password. One-way; explicit `--dedicated=false` exits `2`. Unavailable for owner. Sent together with namespace edits in one PATCH. |
 | `--add-namespace NS` | — | Namespace to add; repeatable. Added at the end of the list. |
 | `--remove-namespace NS` | — | Namespace to remove; repeatable. |
 | `--wait` | `true` | Wait until every listed namespace is `Ready` and every removed one is gone from `status.namespaces`. `--wait=false` returns as soon as the change is accepted. |

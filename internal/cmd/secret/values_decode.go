@@ -2,6 +2,7 @@ package secret
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,15 +16,21 @@ const maxVaultValuesBytes = 512 * 1024
 
 // decodeVaultValues token-walks to reject duplicate keys before a map can
 // overwrite them. Errors never contain the input, including decoder errors.
-func decodeVaultValues(input io.Reader) (map[string]string, error) {
-	raw, err := io.ReadAll(io.LimitReader(input, maxVaultValuesBytes+1))
+func decodeVaultValues(ctx context.Context, input io.Reader) (map[string]string, error) {
+	raw, err := cli.ReadInput(ctx, input, maxVaultValuesBytes+1)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, cli.MisuseError("could not read values input")
 	}
 	if len(raw) > maxVaultValuesBytes {
 		return nil, cli.MisuseError("values input exceeds the 512 KiB limit")
 	}
 	invalid := func() (map[string]string, error) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, cli.MisuseError("values must be a non-empty JSON object with unique valid keys and string values")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -60,6 +67,9 @@ func decodeVaultValues(input io.Reader) (map[string]string, error) {
 	}
 	if _, err = decoder.Token(); !errors.Is(err, io.EOF) {
 		return invalid()
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	return values, nil
 }

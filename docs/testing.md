@@ -275,6 +275,18 @@ client call, check confirmation and reference refusals, and compare stdout,
 stderr, hints and exit codes with golden files. Synthetic input sentinels must
 be absent from both output streams.
 
+Setup regressions inject a token source into the real client, allow the metadata
+read, then fail authentication before the mutation reaches the transport. They
+check production credential sentinels, typed authentication hints, context exit
+codes and cause identity. Client controls distinguish a refused 429 from an
+earlier possibly executed attempt and retain uncertain response-read failures.
+
+Input regressions cancel a stalled `io.Pipe` and require cancellation cleanup to
+finish before the command returns. Native file tests cover borrowed descriptor
+ownership, flag restoration and FIFO writer/EOF behaviour. The Unix executable
+tests call the actual signal-aware entry point in a child process with an open
+stdin pipe or FIFO, send SIGINT/SIGTERM, and require exit 130 before input EOF.
+
 The live secret fixture covers create-only, versioned replacement, stale-version
 refusal, metadata read and purge after deleting the definition. `make vet-live`
 compiles it without credentials; running it remains an engineer step.

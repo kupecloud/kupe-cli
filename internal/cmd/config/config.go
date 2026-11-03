@@ -15,7 +15,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Long: `Read and write the config file at ~/.config/kupe/config.yaml
 (or $XDG_CONFIG_HOME/kupe/, or %AppData%\kupe\).
 
-Tokens are never stored in the config file — they live in the OS keyring
+Tokens are never stored in the config file. They live in the OS keyring
 or, as a fallback, a separate credentials.yaml next to the config.`,
 	}
 

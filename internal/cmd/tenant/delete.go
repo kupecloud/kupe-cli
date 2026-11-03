@@ -31,7 +31,7 @@ func newDeleteCmd(f *cli.Factory) *cobra.Command {
 		Long: `Permanently delete the tenant the current context targets.
 
 Only the tenant owner (the contact email shown by "kupe tenant get") can do
-this, and only with an OIDC login — API keys are refused. --confirm must
+this, and only with an OIDC login. API keys are refused. --confirm must
 equal the tenant name; there is no interactive prompt.
 
 A tenant that still has clusters is refused unless --cascade is passed, in

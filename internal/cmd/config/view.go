@@ -16,7 +16,7 @@ func newViewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "view",
 		Short: "Print the full config (tokens redacted)",
-		Long: `Render the parsed config file. Tokens are never included in the output —
+		Long: `Render the parsed config file. Tokens are never included in the output:
 tokenRef shows where each context's token lives (keyring or plaintext) but
 the token value itself is retrieved only at command-run time.`,
 		RunE: func(_ *cobra.Command, _ []string) error {

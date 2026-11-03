@@ -22,7 +22,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 arrears: a period's usage lands on one invoice once the period closes.
 Names are server-controlled: usually
 "{tenant}-{YYYYMMDD}" (period start date, e.g. "acme-20260301"), but
-variants exist — a final invoice issued on cancellation or deletion
+variants exist: a final invoice issued on cancellation or deletion
 carries a "-final" suffix, and a timestamp-suffixed form is used when
 two periods start on the same date. Always list invoices rather than
 constructing names. -o json surfaces the line items (what was used, and
@@ -69,7 +69,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 		Use:   "get NAME",
 		Short: "Show one invoice by name",
 		Long: `Show a single invoice. NAME is the invoice identifier as it appears in
-"kupe invoice list" — usually "{tenant}-{YYYYMMDD}" for the period start
+"kupe invoice list". It is usually "{tenant}-{YYYYMMDD}" for the period start
 (e.g. "kupe-test-20260301"), but variants exist: a "-final" suffix for a
 final invoice issued on cancellation or deletion, and a timestamp suffix
 when two periods start on the same date. Always run "kupe invoice list"

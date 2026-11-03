@@ -63,7 +63,7 @@ For CI scripts, use --short for a bare semver value (e.g. "0.1.0") or
 				// -o json are what scripts consume, and both must stay exactly
 				// as machine-readable as they are today (M-11).
 				_, err := fmt.Fprintf(io.Out,
-					"kupe version %s (commit %s, built %s, %s %s)\nKupe is in alpha: free to use, no SLA, and nothing is charged — https://kupe.cloud/alpha\n",
+					"kupe version %s (commit %s, built %s, %s %s)\nKupe is in alpha: free to use, no SLA, and nothing is charged. See https://kupe.cloud/alpha\n",
 					info.Version, info.Commit, info.BuildDate, info.GoVersion, info.Platform,
 				)
 				return err
@@ -74,6 +74,6 @@ For CI scripts, use --short for a bare semver value (e.g. "0.1.0") or
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", "", printer.OutputHelpToggle)
-	cmd.Flags().BoolVar(&short, "short", false, "Print only the version (e.g. 0.1.0) — useful in shell scripts")
+	cmd.Flags().BoolVar(&short, "short", false, "Print only the version (e.g. 0.1.0), for shell scripts")
 	return cmd
 }

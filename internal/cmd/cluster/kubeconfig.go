@@ -37,10 +37,10 @@ promotes the new context to current.
 
 Two user-entry modes:
 
-  Token mode (default) — embeds the current API token directly. Simple, but
+  Token mode (default): embeds the current API token directly. Simple, but
     the emitted kubeconfig is a secret that expires with the API key.
 
-  Exec mode (--exec)  — emits an exec-plugin stanza that shells back to
+  Exec mode (--exec): emits an exec-plugin stanza that shells back to
     "kupe auth get-token --context=..." whenever kubectl needs a token.
     Contains no secrets; safe to commit.`,
 		Args: cobra.ExactArgs(1),
@@ -50,7 +50,7 @@ Two user-entry modes:
   # Merge into ~/.kube/config
   kupe cluster kubeconfig prod --merge
 
-  # Exec-plugin mode — kubeconfig is token-free
+  # Exec-plugin mode: the kubeconfig holds no token
   kupe cluster kubeconfig prod --merge --exec`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runKubeconfig(cmd, f, args[0], opts)
@@ -61,9 +61,9 @@ Two user-entry modes:
 	cmd.Flags().StringVar(&opts.contextName, "context-name", "", "Context name in the generated kubeconfig (default: kupe-<tenant>-<cluster>)")
 	cmd.Flags().StringVar(&opts.userName, "user-name", "", "User entry name (default: same as context-name)")
 	cmd.Flags().StringVar(&opts.clusterName, "cluster-name", "", "Cluster entry name (default: same as context-name)")
-	cmd.Flags().BoolVar(&opts.exec, "exec", false, "Produce a kubeconfig with no embedded token — kubectl shells back to 'kupe auth get-token' each time it needs one (safe to commit)")
+	cmd.Flags().BoolVar(&opts.exec, "exec", false, "Produce a kubeconfig with no embedded token; kubectl shells back to 'kupe auth get-token' each time it needs one (safe to commit)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Overwrite colliding entries on --merge")
-	cmd.Flags().BoolVar(&opts.forceOverwrite, "force-overwrite", false, "If the existing kubeconfig is corrupt, discard it and start fresh (data-loss operation — use with care)")
+	cmd.Flags().BoolVar(&opts.forceOverwrite, "force-overwrite", false, "If the existing kubeconfig is corrupt, discard it and start fresh (this loses its contents; use with care)")
 	return cmd
 }
 
@@ -134,7 +134,7 @@ func buildKubeconfig(f *cli.Factory, names kubeconfig.Names, kc *client.ClusterK
 	// (KC-6).
 	if r, err := f.Resolved(); err == nil && r != nil && r.AuthMethod == "oidc" {
 		fmt.Fprintln(f.IOStreams.ErrOut,
-			"warning: this is an OIDC context — the embedded access token expires shortly and the kubeconfig has no way to refresh it.")
+			"warning: this is an OIDC context, so the embedded access token expires shortly and the kubeconfig cannot refresh it.")
 		fmt.Fprintln(f.IOStreams.ErrOut,
 			"  re-run with --exec for a token-free kubeconfig that refreshes automatically (safe to commit).")
 	}

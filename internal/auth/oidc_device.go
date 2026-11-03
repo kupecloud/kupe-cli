@@ -45,7 +45,7 @@ func DeviceFlow(ctx context.Context, prompt DevicePrompt, issuer, clientID, scop
 		return OIDCTokenSet{}, err
 	}
 	if disc.DeviceAuthorizationEndpoint == "" {
-		return OIDCTokenSet{}, fmt.Errorf("issuer %s does not advertise a device_authorization_endpoint — device flow is unsupported by this provider, use --method token instead", issuer)
+		return OIDCTokenSet{}, fmt.Errorf("issuer %s does not advertise a device_authorization_endpoint, so it does not support device login; use --method token instead", issuer)
 	}
 
 	cfg := &oauth2.Config{

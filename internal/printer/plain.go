@@ -64,5 +64,5 @@ func PrintTemplate(w io.Writer, v any, tmpl string) error {
 // keeps the -o jsonpath=... flag present on the help text while we decide
 // whether to lift k8s.io/client-go/util/jsonpath or ship a lighter impl.
 func PrintJSONPath(_ io.Writer, _ any, _ string) error {
-	return errors.New("jsonpath output is not yet implemented — use -o go-template=... or -o json piped to jq for now")
+	return errors.New("jsonpath output is not yet implemented; use -o go-template=... or -o json piped to jq for now")
 }

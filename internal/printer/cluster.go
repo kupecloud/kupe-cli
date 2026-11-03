@@ -113,11 +113,11 @@ func haDetailDisplay(c *client.Cluster) string {
 	st := statusOf(c)
 	switch st.HAPhase {
 	case "ha-healthy":
-		return "healthy " + haReadyCount(st) + " — enabled at " + st.HAEnabledAt
+		return "healthy " + haReadyCount(st) + ", enabled at " + st.HAEnabledAt
 	case "ha-degraded":
-		return "degraded " + haReadyCount(st) + " — API still serving, enabled at " + st.HAEnabledAt
+		return "degraded " + haReadyCount(st) + ", API still serving, enabled at " + st.HAEnabledAt
 	case "ha-unavailable":
-		return "degraded " + haReadyCount(st) + " — quorum lost, API not serving, enabled at " + st.HAEnabledAt
+		return "degraded " + haReadyCount(st) + ", quorum lost, API not serving, enabled at " + st.HAEnabledAt
 	case "pending":
 		return "pending (waiting for 3/3 CP and etcd replicas to be ready)"
 	}
@@ -126,9 +126,9 @@ func haDetailDisplay(c *client.Cluster) string {
 	case !st.HAConfigured:
 		return "pending (waiting for 3/3 replicas to be ready)"
 	case st.Phase != client.PhaseRunning:
-		return "degraded — enabled at " + st.HAEnabledAt
+		return "degraded, enabled at " + st.HAEnabledAt
 	default:
-		return "healthy — enabled at " + st.HAEnabledAt
+		return "healthy, enabled at " + st.HAEnabledAt
 	}
 }
 

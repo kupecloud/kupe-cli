@@ -15,7 +15,7 @@ func newSetCmd(f *cli.Factory) *cobra.Command {
 		Use:   "set KEY VALUE",
 		Short: "Write a single config value by dotted key",
 		Long: `Set a single config value. Accepted keys match "kupe config get".
-Tokens cannot be set via this command — use "kupe auth login" or
+Tokens cannot be set via this command. Use "kupe auth login" or
 "kupe config set-context --token" so the secret goes to the right backend.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {

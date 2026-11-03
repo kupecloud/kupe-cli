@@ -212,7 +212,7 @@ func loadExisting(path string) (*clientcmdapi.Config, error) {
 		return nil, err
 	}
 	if cfg == nil {
-		return nil, errors.New("kubeconfig parsed to nil — treating as corrupt")
+		return nil, errors.New("kubeconfig parsed to nil; treating as corrupt")
 	}
 	return cfg, nil
 }

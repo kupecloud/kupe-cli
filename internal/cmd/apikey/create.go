@@ -39,21 +39,21 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Mint a new API key",
-		Long: `Create a new API key. The raw kupe_... token is printed ONCE on stdout —
-store it somewhere safe; it cannot be retrieved again.
+		Long: `Create a new API key. The raw kupe_... token is printed ONCE on stdout.
+Store it somewhere safe; it cannot be retrieved again.
 
 On a TTY, key metadata (ID, role, expiry) is additionally printed on
 stderr. In non-interactive mode (pipe, CI), only the raw token appears on
 stdout so "TOKEN=$(kupe apikey create ...)" works cleanly.
 
 --expires-at accepts either a duration from now (any number followed by
-d for days, h for hours, or m for minutes — e.g. 90d, 24h, 30m) or an
+d for days, h for hours, or m for minutes, e.g. 90d, 24h, 30m) or an
 absolute date-time in ISO 8601 form (e.g. 2026-12-31T23:59:59Z). Omit
 the flag entirely for a key that never expires.`,
-		Example: `  # Interactive — metadata to stderr, token to stdout
+		Example: `  # Interactive: metadata to stderr, token to stdout
   kupe apikey create --name "CI Pipeline" --role admin --expires-at 90d
 
-  # Scripted — capture just the token
+  # Scripted: capture just the token
   TOKEN=$(kupe apikey create --name ci-$CI_COMMIT --role admin --expires-at 7d)
 
   # Full JSON including metadata
@@ -120,7 +120,7 @@ func renderCreateText(f *cli.Factory, key *client.APIKey) error {
 	}
 	if f.IOStreams.IsStderrTTY() {
 		fmt.Fprintln(f.IOStreams.ErrOut)
-		fmt.Fprintf(f.IOStreams.ErrOut, "  Copy the token above now — it is shown only once.\n\n")
+		fmt.Fprintf(f.IOStreams.ErrOut, "  Copy the token above now. It is shown only once.\n\n")
 		fmt.Fprintf(f.IOStreams.ErrOut, "  ID:      %s\n", key.ID)
 		fmt.Fprintf(f.IOStreams.ErrOut, "  Name:    %s\n", key.DisplayName)
 		fmt.Fprintf(f.IOStreams.ErrOut, "  Role:    %s\n", key.Role)

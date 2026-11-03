@@ -1,0 +1,289 @@
+{
+  "server.databasePostgres": {
+    "type": "object",
+    "properties": {
+      "databases": {
+        "description": "PostgreSQL databases and schemas, including the first database. Add-only: PATCH must retain every existing database and schema. An omitted list keeps its value; an empty list is refused.",
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/server.logicalDatabase"
+        }
+      },
+      "extensions": {
+        "description": "Extensions installed in the database, from the platform's allowlist. Each name is unique.",
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/server.databaseExtensionSpec"
+        }
+      },
+      "roles": {
+        "description": "Declared group roles. Each name is unique, at most 63 characters, and starts with a lowercase letter;\nremaining characters are lowercase letters, numbers or _. The platform grants them no privileges.\nDeclared role names ending in _owner, _readwrite or _readonly are reserved for database logins.",
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/server.databaseRoleSpec"
+        }
+      }
+    }
+  },
+  "server.logicalDatabase": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "description": "PostgreSQL name: lowercase letters, numbers and _, starting with a letter, at most 53 characters.",
+        "type": "string",
+        "example": "analytics"
+      },
+      "schemas": {
+        "description": "Schemas to create. Add-only, at most 20 per database; names are at most 63 characters. public, information_schema and pg_ names are reserved.",
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/server.databaseSchema"
+        }
+      }
+    }
+  },
+  "server.databaseSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "example": "reporting"
+      }
+    }
+  },
+  "server.logicalDatabaseStatus": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string",
+        "example": ""
+      },
+      "name": {
+        "type": "string",
+        "example": "analytics"
+      },
+      "phase": {
+        "type": "string",
+        "enum": [
+          "Pending",
+          "Ready",
+          "Failed"
+        ],
+        "example": "Pending"
+      }
+    }
+  },
+  "server.databaseStatus": {
+    "type": "object",
+    "properties": {
+      "backupSizeBytes": {
+        "description": "Bytes every full backup and all WAL kept for the database take up in storage, manual backups included.\n0 until measured.",
+        "type": "integer",
+        "example": 5368709120
+      },
+      "conditions": {
+        "description": "Conditions include CredentialsRotating: True (reason RotationPending)\nwhile a requested rotation is not yet applied, and, on a restored\ndatabase, Restored: True once the restore has finished.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "currentVersion": {
+        "description": "CurrentVersion is the full engine version running.",
+        "type": "string",
+        "example": "18.6"
+      },
+      "databases": {
+        "description": "Progress for each PostgreSQL database. Ready covers provisioning and delivery; tenant SQL grants are separate.",
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/server.logicalDatabaseStatus"
+        }
+      },
+      "instancesDesired": {
+        "type": "integer",
+        "example": 1
+      },
+      "instancesReady": {
+        "type": "integer",
+        "example": 1
+      },
+      "lastBackupAt": {
+        "description": "When the newest full backup finished (RFC 3339). Empty until the first backup completes.",
+        "type": "string",
+        "example": "2026-10-21T03:17:00Z"
+      },
+      "observedGeneration": {
+        "description": "ObservedGeneration is the generation the operator last reconciled.",
+        "type": "integer",
+        "example": 3
+      },
+      "phase": {
+        "type": "string",
+        "enum": [
+          "Pending",
+          "Provisioning",
+          "Running",
+          "Upgrading",
+          "Degraded",
+          "Terminating"
+        ],
+        "example": "Running"
+      },
+      "previousVersion": {
+        "description": "PreviousVersion is set while a major upgrade is in progress.",
+        "type": "string",
+        "example": ""
+      },
+      "recoveryWindow": {
+        "description": "The oldest and newest points you can recover the database to. Null until the backups report them.",
+        "allOf": [
+          {
+            "$ref": "#/definitions/server.databaseRecoveryWindow"
+          }
+        ]
+      },
+      "rotations": {
+        "description": "Rotations is the credential rotation state of each role. Wait for a\nrotation by polling until rotations.{role}.appliedAt equals the\nrequestedAt the rotate-credentials call returned and delivered is\ntrue. If requestedAt moves to another token first, a newer rotation\nreplaced it: wait for that one instead.",
+        "allOf": [
+          {
+            "$ref": "#/definitions/server.databaseRotations"
+          }
+        ]
+      }
+    }
+  },
+  "server.createDatabaseBindingRequest": {
+    "type": "object",
+    "properties": {
+      "cluster": {
+        "description": "Cluster to bind into. It may not exist yet; the binding stays Pending until it does.",
+        "type": "string",
+        "example": "prod"
+      },
+      "credentials": {
+        "description": "Give each listed namespace its own login and password. Required for custom; unavailable for owner.",
+        "allOf": [
+          {
+            "$ref": "#/definitions/server.bindingCredentials"
+          }
+        ]
+      },
+      "logicalDatabase": {
+        "description": "PostgreSQL database to bind. Omit to use the instance's first database. Immutable.",
+        "type": "string",
+        "example": "analytics"
+      },
+      "name": {
+        "description": "Binding name (DNS-safe, 1-63 characters)",
+        "type": "string",
+        "example": "orders-db-prod-readwrite"
+      },
+      "namespaces": {
+        "description": "Namespaces inside the cluster that receive the Service and credentials Secret: 1 to 10, each listed once,\nnone kube-* or argocd. PATCH the binding to add or remove namespaces.",
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "example": [
+          "orders-api",
+          "orders-worker"
+        ]
+      },
+      "role": {
+        "description": "Role granted: owner (changes the schema), readwrite (reads and writes data), readonly (reads data), or custom (a declared role).",
+        "type": "string",
+        "enum": [
+          "owner",
+          "readwrite",
+          "readonly",
+          "custom"
+        ],
+        "example": "readwrite"
+      },
+      "roleName": {
+        "description": "Declared role to grant when role is custom. Required for custom; omitted for built-in roles.",
+        "type": "string",
+        "example": "reporting"
+      },
+      "secretName": {
+        "description": "Name of the credentials Secret in every listed namespace. Defaults to {database}-{role} for the first PostgreSQL database, or {database}-{logicalDatabase}-{role} for an added database. Logical names and custom roleName replace _ with -. A taken default is refused; set secretName to another name.",
+        "type": "string",
+        "example": "orders-db-readwrite"
+      }
+    }
+  },
+  "server.databaseBindingResponse": {
+    "type": "object",
+    "properties": {
+      "cluster": {
+        "type": "string",
+        "example": "prod"
+      },
+      "createdAt": {
+        "type": "string",
+        "example": "2026-10-09T10:05:00Z"
+      },
+      "credentials": {
+        "$ref": "#/definitions/server.bindingCredentials"
+      },
+      "database": {
+        "type": "string",
+        "example": "orders-db"
+      },
+      "generation": {
+        "description": "Generation of the binding's requested settings; compare with status.observedGeneration.",
+        "type": "integer",
+        "example": 3
+      },
+      "logicalDatabase": {
+        "description": "Effective PostgreSQL database, including the source identity of a restored instance. Immutable.",
+        "type": "string",
+        "example": "analytics"
+      },
+      "name": {
+        "type": "string",
+        "example": "orders-db-prod-readwrite"
+      },
+      "namespaces": {
+        "description": "Namespaces are the namespaces the binding delivers into (1 to 10).",
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "example": [
+          "orders-api",
+          "orders-worker"
+        ]
+      },
+      "resourceVersion": {
+        "type": "string",
+        "example": "582020"
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "readwrite",
+          "readonly",
+          "custom"
+        ],
+        "example": "readwrite"
+      },
+      "roleName": {
+        "description": "Declared role granted by a custom binding; empty for built-in roles.",
+        "type": "string",
+        "example": "reporting"
+      },
+      "secretName": {
+        "description": "SecretName as requested. For the first PostgreSQL database, defaults to {database}-{role}; for an added database, {database}-{logicalDatabase}-{role}. Logical names and custom roleName replace _ with -. A taken default is refused; set secretName to another name.",
+        "type": "string",
+        "example": "orders-db-readwrite"
+      },
+      "status": {
+        "$ref": "#/definitions/server.databaseBindingStatus"
+      }
+    }
+  }
+}

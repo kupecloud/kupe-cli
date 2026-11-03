@@ -202,3 +202,16 @@ func translateBackupCreateErr(err error, database string) error {
 	}
 	return translateErr(err, database)
 }
+
+// An older API must never trigger a retry with requested settings removed.
+func logicalFeatureErr(err error, requested bool) error {
+	var apiErr *client.APIError
+	if requested && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && apiErr.Code == "" {
+		for _, field := range []string{"databases", "logicalDatabase", "postgres"} {
+			if strings.HasSuffix(strings.TrimSpace(apiErr.Message), `json: unknown field "`+field+`"`) {
+				return cli.WrapAPI(cli.ExitUnavailable, "the platform does not offer logical databases yet", err).WithHint("the platform does not offer logical databases yet")
+			}
+		}
+	}
+	return err
+}

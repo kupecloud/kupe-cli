@@ -97,6 +97,18 @@ func TestDatabaseLifecycle(t *testing.T) {
 		t.Errorf("storage not grown: %+v", updated["resources"])
 	}
 
+	var logical map[string]any
+	runCLIJSON(t, &logical, "db", "update", name, "--add-logical-database", "analytics", "--add-schema", "analytics.reporting", "--wait=false")
+	pg, _ := logical["postgres"].(map[string]any)
+	databases, _ := pg["databases"].([]any)
+	if len(databases) != 2 {
+		t.Fatalf("logical databases = %+v", pg)
+	}
+	added, _ := databases[1].(map[string]any)
+	if added["name"] != "analytics" {
+		t.Fatalf("added logical database = %+v", added)
+	}
+
 	for _, role := range []string{"owner", "readwrite", "readonly"} {
 		out := runCLIExpectOK(t, "db", "rotate-credentials", name, "--role", role, "--yes", "--wait=false")
 		if !strings.Contains(out, "rotation requested") {

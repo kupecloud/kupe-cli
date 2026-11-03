@@ -86,8 +86,15 @@ func postgresWaitErr(err error, db *client.Database) error {
 	if db == nil || db.Status == nil || !errors.As(err, &out) {
 		return err
 	}
+	if logicalFailed(db) {
+		for _, st := range db.Status.Databases {
+			if st.Phase == client.PhaseFailed && st.Message != "" {
+				return out.WithHint(st.Message + "\n" + out.Hint)
+			}
+		}
+	}
 	for _, condition := range db.Status.Conditions {
-		if (condition.Type == "RolesReady" || condition.Type == "ExtensionsReady") && condition.Status == "False" && condition.Message != "" {
+		if (condition.Type == "RolesReady" || condition.Type == "ExtensionsReady" || condition.Type == "DatabasesReady") && condition.Status == "False" && condition.Message != "" {
 			return out.WithHint(condition.Message + "\n" + out.Hint)
 		}
 	}

@@ -304,6 +304,8 @@ func TestWaitForConverged(t *testing.T) {
 		{"degraded fails at once without a grace", []observed{{client.PhaseDegraded, 5, false}}, 0, 5, client.PhaseDegraded},
 		{"degraded within the grace is ridden out", []observed{{client.PhaseDegraded, 5, false}, running(5, true)}, time.Hour, 5, ""},
 		{"degraded beyond the grace fails", []observed{{client.PhaseDegraded, 5, false}}, time.Millisecond, 5, client.PhaseDegraded},
+		{"failed at the accepted generation ends the wait", []observed{{client.PhaseFailed, 5, false}}, time.Hour, 5, client.PhaseFailed},
+		{"stale failed status is waited out", []observed{{client.PhaseFailed, 4, false}, running(5, true)}, 0, 5, ""},
 		{"terminating fails", []observed{{client.PhaseTerminating, 5, false}}, time.Hour, 5, client.PhaseTerminating},
 		// The first poll reads the status from before the PATCH: a Degraded
 		// the operator has not yet acted on must not fail a zero-grace

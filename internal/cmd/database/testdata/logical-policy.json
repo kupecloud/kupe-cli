@@ -1,0 +1,25 @@
+{
+  "postgresReservedNames": [
+    "all",
+    "sameuser",
+    "samerole",
+    "samegroup",
+    "replication",
+    "postgres",
+    "template0",
+    "template1"
+  ],
+  "postgresReservedLogicalNames": [
+    "app"
+  ],
+  "postgresReservedLogicalPrefixes": [
+    "pg_",
+    "cnpg_",
+    "mdbb_",
+    "mdba_",
+    "mdbl_"
+  ],
+  "maxLogicalDatabases": 10,
+  "maxSchemasPerDatabase": 20,
+  "maxLogicalNameLength": 53
+}

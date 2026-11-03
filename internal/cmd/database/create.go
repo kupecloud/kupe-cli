@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -14,23 +15,24 @@ import (
 )
 
 type createOpts struct {
-	roles                []string
-	extensions           []string
-	engine               string
-	version              string
-	cpu                  string
-	memory               string
-	storage              string
-	highAvailability     bool
-	noDeletionProtection bool
-	backupRetention      int32
-	backupSchedule       string
-	fromBackup           string
-	from                 string
-	pointInTime          string
-	wait                 bool
-	waitTimeout          time.Duration
-	output               string
+	logicalDatabases, schemas []string
+	roles                     []string
+	extensions                []string
+	engine                    string
+	version                   string
+	cpu                       string
+	memory                    string
+	storage                   string
+	highAvailability          bool
+	noDeletionProtection      bool
+	backupRetention           int32
+	backupSchedule            string
+	fromBackup                string
+	from                      string
+	pointInTime               string
+	wait                      bool
+	waitTimeout               time.Duration
+	output                    string
 }
 
 func newCreateCmd(f *cli.Factory) *cobra.Command {
@@ -64,7 +66,14 @@ for example 2026-10-30T09:00:00Z); without --point-in-time, the latest point.
 The new database runs the source's major version: leave out --version, or
 give that one. Its storage must be at least the source's; --storage defaults
 to the source's. The source is unchanged, and the new database counts against
-your plan's database limit like any other.`,
+your plan's database limit like any other.
+
+--logical-database adds a PostgreSQL database after the first; repeat it for
+more. --schema [DATABASE.]SCHEMA adds a schema, to the first database when
+DATABASE is omitted. Entries and schemas cannot be removed. These flags
+cannot be combined with --from or --from-backup: restore first, then append
+with "kupe database update". With these flags the wait also checks that the
+logical databases are ready.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Smallest database, wait for Running
   kupe database create orders-db --cpu 250m --memory 512Mi --storage 5Gi
@@ -86,6 +95,24 @@ your plan's database limit like any other.`,
 				return err
 			}
 			source := restoreSource(opts)
+			if source != nil && logicalRequested(opts.logicalDatabases, opts.schemas) {
+				return cli.MisuseError("--logical-database and --schema cannot be combined with --from or --from-backup").WithHint("restore first, then add logical databases or schemas with kupe database update")
+			}
+			postgres := postgresFromNames(opts.roles, opts.extensions, cmd.Flags().Changed("roles"), cmd.Flags().Changed("extensions"))
+			if logicalRequested(opts.logicalDatabases, opts.schemas) {
+				first := strings.ReplaceAll(name, "-", "_")
+				if err := validateLogicalName(first); err != nil {
+					return err
+				}
+				list, _, err := appendLogical([]client.LogicalDatabase{{Name: first, Schemas: []client.DatabaseSchema{}}}, opts.logicalDatabases, opts.schemas)
+				if err != nil {
+					return err
+				}
+				if postgres == nil {
+					postgres = &client.DatabasePostgres{}
+				}
+				postgres.Databases = &list
+			}
 			backup, err := backupFromFlags(cmd.Flags(), opts.backupRetention, opts.backupSchedule)
 			if err != nil {
 				return err
@@ -114,7 +141,7 @@ your plan's database limit like any other.`,
 				HighAvailability: opts.highAvailability,
 				Backup:           backup,
 				Source:           source,
-				Postgres:         postgresFromNames(opts.roles, opts.extensions, cmd.Flags().Changed("roles"), cmd.Flags().Changed("extensions")),
+				Postgres:         postgres,
 			}
 			if opts.noDeletionProtection {
 				off := false
@@ -128,7 +155,7 @@ your plan's database limit like any other.`,
 
 			created, _, err := api.Databases().Create(cmd.Context(), req)
 			if err != nil {
-				return translateCreateErr(err, name, source)
+				return logicalFeatureErr(translateCreateErr(err, name, source), logicalRequested(opts.logicalDatabases, opts.schemas))
 			}
 			if !opts.wait {
 				return printer.Database.One(f.IOStreams, format, created)
@@ -136,7 +163,13 @@ your plan's database limit like any other.`,
 
 			final, werr := service.WaitForPhase(cmd.Context(), f.IOStreams, api, name, client.PhaseRunning, opts.waitTimeout)
 			if werr != nil {
-				return cmdutil.MapWaitErr(werr, noun, name, "create")
+				return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "create"), final)
+			}
+			if req.Postgres != nil && req.Postgres.Databases != nil {
+				final, werr = waitForLogicalConverged(cmd.Context(), f.IOStreams, api, name, created.Generation, opts.waitTimeout)
+				if werr != nil {
+					return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "create"), final)
+				}
 			}
 			if final == nil {
 				final = created
@@ -145,6 +178,8 @@ your plan's database limit like any other.`,
 		},
 	}
 
+	cmd.Flags().StringArrayVar(&opts.logicalDatabases, "logical-database", nil, "PostgreSQL database to add after the first; repeat for each (unavailable with restore flags)")
+	cmd.Flags().StringArrayVar(&opts.schemas, "schema", nil, "Schema to create as [DATABASE.]SCHEMA; default the first database; repeat for each (unavailable with restore flags)")
 	cmd.Flags().StringSliceVar(&opts.roles, "roles", nil, "Declared group roles, comma-separated; the platform grants them no privileges")
 	cmd.Flags().StringSliceVar(&opts.extensions, "extensions", nil, "PostgreSQL extensions, comma-separated; the platform checks its allowlist")
 	cmd.Flags().StringVar(&opts.engine, "engine", "postgres", "Database engine (only postgres is supported)")

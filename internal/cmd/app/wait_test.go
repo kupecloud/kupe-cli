@@ -28,9 +28,9 @@ func TestWaitUsesRequestedReleaseOutcomeIncludingRecoveryAndSupersession(t *test
 		phrase                string
 	}{
 		{"success", "Succeeded", "", 0, ""},
-		{"failed", "Failed", "", 1, "failed"},
-		{"recovered", "Failed", "Succeeded", 1, "previous release is serving again"},
-		{"recovering", "Failed", "Deploying", 1, "recovery: Deploying"},
+		{"failed", "Failed", "", 1, "release shop-production-2 failed"},
+		{"recovered", "Failed", "Succeeded", 1, "release shop-production-2 failed; the previous release is serving again"},
+		{"recovering", "Failed", "Deploying", 1, "release shop-production-2 failed; recovery: Deploying"},
 		{"superseded", "Superseded", "", 1, "current requested release is shop-production-3"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,6 +62,11 @@ func TestWaitUsesRequestedReleaseOutcomeIncludingRecoveryAndSupersession(t *test
 				t.Fatalf("err=%v", err)
 			}
 			if tc.phase == "Failed" {
+				// The failure is printed once: the sentence, without the
+				// terminal phase repeated after it.
+				if err.Error() != tc.phrase {
+					t.Fatalf("err=%q, want %q", err, tc.phrase)
+				}
 				var terminal *cmdutil.TerminalPhaseError
 				if !errors.As(err, &terminal) || terminal.Name != target.Name {
 					t.Fatalf("failed release lost terminal identity: %v", err)

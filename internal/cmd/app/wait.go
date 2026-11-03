@@ -159,7 +159,7 @@ func waitForRelease(ctx context.Context, io *cli.IOStreams, api client.Interface
 			} else if recovery != "" {
 				message += "; recovery: " + recovery
 			}
-			outcome = cli.Wrap(cli.ExitGeneral, message, &cmdutil.TerminalPhaseError{Noun: "release", Name: target.name, Phase: "Failed"})
+			outcome = cli.Wrap(cli.ExitGeneral, "", &releaseFailedError{message: message, terminal: &cmdutil.TerminalPhaseError{Noun: "release", Name: target.name, Phase: "Failed"}})
 			return current, client.PhaseDegraded, nil
 		case "Superseded":
 			message := "release " + target.name + " was superseded"
@@ -280,3 +280,13 @@ func effectiveReleaseWeb(web client.AppWeb) client.AppWeb {
 	}
 	return web
 }
+
+// releaseFailedError prints only its sentence, so a failed release is not
+// reported twice, and keeps the TerminalPhaseError for errors.As.
+type releaseFailedError struct {
+	message  string
+	terminal *cmdutil.TerminalPhaseError
+}
+
+func (e *releaseFailedError) Error() string { return e.message }
+func (e *releaseFailedError) Unwrap() error { return e.terminal }

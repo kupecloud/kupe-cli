@@ -147,30 +147,32 @@ func printDeleteTenantWarning(io *cli.IOStreams, name string, cascade bool, clus
 }
 
 // mapDeleteErr translates the API's DELETE /tenants/{tenant} refusals into
-// typed CLI errors with a next step. Anything not matched keeps the client's
-// default mapping (404 → 4, 401 → 3, 5xx → 1).
+// typed CLI errors with a next step. Where kupe-api's message already says
+// what the CLI would, it is shown alone (cli.WrapAPI) so the refusal is not
+// printed twice. Anything not matched keeps the client's default mapping
+// (404 → 4, 401 → 3, 5xx → 1).
 func mapDeleteErr(err error, name string) error {
 	code := client.ErrorCode(err)
 	switch {
 	case client.IsForbidden(err):
-		return cli.Wrap(cli.ExitAuth, fmt.Sprintf("only the tenant owner may delete tenant %q", name), err).
+		return cli.WrapAPI(cli.ExitAuth, fmt.Sprintf("only the tenant owner may delete tenant %q", name), err).
 			WithHint("the owner is the contact email shown by \"kupe tenant get\"; log in with OIDC as that user (kupe auth login) and retry")
 	case client.IsConflict(err) && code == client.TenantDeleteCodeClustersExist:
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q still has clusters", name), err).
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q still has clusters", name), err).
 			WithHint(fmt.Sprintf("delete them first (kupe cluster list / kupe cluster delete NAME) or pass --cascade:\n  kupe tenant delete --confirm %s --cascade", name))
 	case client.IsConflict(err) && code == client.TenantDeleteCodeDatabasesExist:
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q still has databases; --cascade never deletes them", name), err).
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q still has databases; --cascade never deletes them", name), err).
 			WithHint("delete each database first:\n  kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME")
 	case client.IsConflict(err) && code == client.TenantDeleteCodeRegistriesExist:
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q still has a registry; --cascade never deletes it", name), err).
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q still has a registry; --cascade never deletes it", name), err).
 			WithHint("delete the registry first:\n  kupe registry update --deletion-protection=false\n  kupe registry delete")
 	case client.IsConflict(err) && code == client.TenantDeleteCodeAlreadyTerminating:
-		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("tenant %q is already being deleted", name), err).
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q is already being deleted", name), err).
 			WithHint("\"kupe tenant get\" shows Phase Terminating until it is gone, then exits 4")
 	case client.IsConflict(err):
 		return cli.Wrap(cli.ExitConflict, fmt.Sprintf("cannot delete tenant %q", name), err)
 	case client.IsRateLimited(err):
-		return cli.Wrap(cli.ExitRateLimited, "tenant deletion is rate limited (one request per minute)", err).
+		return cli.WrapAPI(cli.ExitRateLimited, "tenant deletion is rate limited (one request per minute)", err).
 			WithHint("wait a minute and retry")
 	case client.IsValidation(err):
 		return cli.Wrap(cli.ExitMisuse, "the API rejected the confirmation", err)

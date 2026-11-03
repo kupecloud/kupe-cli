@@ -153,16 +153,19 @@ func TestDeleteErrorMapping(t *testing.T) {
 		wantMsg  string
 		wantHint string
 	}{
-		{"403 owner_required", &client.APIError{StatusCode: 403, Code: "owner_required", Message: "not the owner", RequestID: "r1"}, cli.ExitAuth, "only the tenant owner", "kupe tenant get"},
-		{"409 clusters_exist", &client.APIError{StatusCode: 409, Code: "clusters_exist", Message: "2 active clusters"}, cli.ExitConflict, "still has clusters", "--cascade"},
-		{"409 databases_exist", &client.APIError{StatusCode: 409, Code: "databases_exist", Message: "1 active database"}, cli.ExitConflict,
-			"--cascade never deletes them", "kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME"},
-		{"409 registries_exist", &client.APIError{StatusCode: 409, Code: "registries_exist", Message: "tenant has a registry; delete it first"}, cli.ExitConflict,
-			"--cascade never deletes it", "kupe registry update --deletion-protection=false\n  kupe registry delete"},
-		{"409 already_terminating", &client.APIError{StatusCode: 409, Code: "ALREADY_TERMINATING", Message: "deleting"}, cli.ExitConflict, "already being deleted", "kupe tenant get"},
-		{"409 unknown code", &client.APIError{StatusCode: 409, Message: "something else"}, cli.ExitConflict, "cannot delete tenant", ""},
-		{"429", &client.APIError{StatusCode: 429, Message: "slow down"}, cli.ExitRateLimited, "rate limited", "retry"},
-		{"400 bad confirm", &client.APIError{StatusCode: 400, Message: "confirm mismatch"}, cli.ExitMisuse, "rejected the confirmation", ""},
+		{"403 owner_required", &client.APIError{StatusCode: 403, Code: "owner_required", Message: "only the tenant owner (contactEmail) can delete the tenant", RequestID: "r1"}, cli.ExitAuth,
+			"only the tenant owner (contactEmail) can delete the tenant (request-id: r1)", "kupe tenant get"},
+		{"409 clusters_exist", &client.APIError{StatusCode: 409, Code: "clusters_exist", Message: "tenant has active clusters: prod; delete them first or set cascade=true"}, cli.ExitConflict,
+			"tenant has active clusters: prod; delete them first or set cascade=true", "--cascade"},
+		{"409 databases_exist", &client.APIError{StatusCode: 409, Code: "databases_exist", Message: "tenant has databases: orders; delete them first (cascade does not delete databases)"}, cli.ExitConflict,
+			"tenant has databases: orders; delete them first (cascade does not delete databases)", "kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME"},
+		{"409 registries_exist", &client.APIError{StatusCode: 409, Code: "registries_exist", Message: "tenant has a registry: acme; delete it first (deleting a registry deletes every image in it)"}, cli.ExitConflict,
+			"tenant has a registry: acme; delete it first (deleting a registry deletes every image in it)", "kupe registry update --deletion-protection=false\n  kupe registry delete"},
+		{"409 already_terminating", &client.APIError{StatusCode: 409, Code: "ALREADY_TERMINATING", Message: `tenant "acme" is already terminating`}, cli.ExitConflict, `tenant "acme" is already terminating`, "kupe tenant get"},
+		{"409 no message", &client.APIError{StatusCode: 409, Code: "clusters_exist"}, cli.ExitConflict, `tenant "acme" still has clusters: Conflict`, "--cascade"},
+		{"409 unknown code", &client.APIError{StatusCode: 409, Message: "something else"}, cli.ExitConflict, `cannot delete tenant "acme": something else`, ""},
+		{"429", &client.APIError{StatusCode: 429, Message: "too many tenant deletion requests; try again later"}, cli.ExitRateLimited, "too many tenant deletion requests; try again later", "retry"},
+		{"400 bad confirm", &client.APIError{StatusCode: 400, Message: "confirm mismatch"}, cli.ExitMisuse, "the API rejected the confirmation: confirm mismatch", ""},
 		{"404 gone", &client.APIError{StatusCode: 404, Message: "tenant not found"}, cli.ExitNotFound, "tenant not found", ""},
 		{"401", &client.APIError{StatusCode: 401, Message: "bad token"}, cli.ExitAuth, "bad token", ""},
 	}
@@ -178,8 +181,9 @@ func TestDeleteErrorMapping(t *testing.T) {
 			if code := cli.ExitCode(err); code != tt.wantExit {
 				t.Fatalf("exit = %d; want %d (%v)", code, tt.wantExit, err)
 			}
-			if !strings.Contains(err.Error(), tt.wantMsg) {
-				t.Fatalf("message %q missing %q", err.Error(), tt.wantMsg)
+			// The whole message is pinned so a refusal is never printed twice.
+			if err.Error() != tt.wantMsg {
+				t.Fatalf("message %q, want %q", err.Error(), tt.wantMsg)
 			}
 			var ce *cli.Error
 			if tt.wantHint != "" && (!errors.As(err, &ce) || !strings.Contains(ce.Hint, tt.wantHint)) {

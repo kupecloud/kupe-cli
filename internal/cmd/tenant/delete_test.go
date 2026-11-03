@@ -145,6 +145,40 @@ func TestDeleteCascadeListsClustersAndSendsCascade(t *testing.T) {
 	}
 }
 
+// --cascade can delete some clusters and then stop at one an app environment
+// still uses. The warning says so before the request is sent, and the
+// request itself is unchanged.
+func TestDeleteCascadeWarnsItCanStopPartWay(t *testing.T) {
+	const warning = "  - Stop at the first cluster an app environment still uses. Clusters deleted before it stay deleted, so delete your apps first (kupe app list).\n"
+	fake := clienttest.New()
+	fake.ClustersByName["prod"] = &client.Cluster{Name: "prod"}
+	fake.DeleteTenantErr = &client.APIError{StatusCode: 409, Code: "cluster_in_use", Message: "cluster prod is used by app environment shop/production"}
+	f := oidcFactory(t, fake)
+	if err := run(NewCmd(f), "delete", "--confirm", "acme", "--cascade"); cli.ExitCode(err) != cli.ExitConflict {
+		t.Fatalf("exit = %d (%v)", cli.ExitCode(err), err)
+	}
+	if !strings.Contains(stderr(f), "      prod\n"+warning) {
+		t.Fatalf("stderr should warn after the cluster list:\n%s", stderr(f))
+	}
+	if len(fake.DeleteTenantRequests) != 1 || !fake.DeleteTenantRequests[0].Cascade {
+		t.Fatalf("request = %+v; want one cascade=true request", fake.DeleteTenantRequests)
+	}
+
+	for _, args := range [][]string{{"delete", "--confirm", "acme", "--cascade"}, {"delete", "--confirm", "acme"}} {
+		fake := clienttest.New()
+		if args[len(args)-1] != "--cascade" {
+			fake.ClustersByName["prod"] = &client.Cluster{Name: "prod"}
+		}
+		f := oidcFactory(t, fake)
+		if err := run(NewCmd(f), args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if strings.Contains(stderr(f), "app environment") {
+			t.Fatalf("%v: no clusters to stop at, or no cascade, needs no warning:\n%s", args, stderr(f))
+		}
+	}
+}
+
 func TestDeleteErrorMapping(t *testing.T) {
 	tests := []struct {
 		name     string

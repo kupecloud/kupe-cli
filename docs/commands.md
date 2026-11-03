@@ -1741,7 +1741,7 @@ tenant name (mismatch or missing → exit `2`, no request made).
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
-| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. `--cascade` never deletes databases or the registry. |
+| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. Deletion stops at the first cluster an app environment still uses, and clusters deleted before it stay deleted, so delete apps first. `--cascade` never deletes databases or the registry. |
 | `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
 | `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
@@ -1754,7 +1754,9 @@ Deleting tenant "acme" will:
   - Delete 2 cluster(s), including every workload and volume inside them:
       prod (Running)
       staging (Running)
+  - Stop at the first cluster an app environment still uses. Clusters deleted before it stay deleted, so delete your apps first (kupe app list).
   - Not delete databases: --cascade never does, and the tenant is refused while it has any.
+  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.
 
 tenant/acme terminating
 ```

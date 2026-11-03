@@ -35,7 +35,9 @@ this, and only with an OIDC login — API keys are refused. --confirm must
 equal the tenant name; there is no interactive prompt.
 
 A tenant that still has clusters is refused unless --cascade is passed, in
-which case every cluster is deleted with it. --cascade never deletes
+which case every cluster is deleted with it. Deletion stops at the first
+cluster an app environment still uses, and clusters deleted before it stay
+deleted, so delete your apps first ("kupe app list"). --cascade never deletes
 databases: a tenant that still has any is refused until each one is deleted
 ("kupe db list", then "kupe db update NAME --deletion-protection=false" and
 "kupe db delete NAME"). Nor does it delete the registry: a tenant that has one
@@ -139,6 +141,7 @@ func printDeleteTenantWarning(io *cli.IOStreams, name string, cascade bool, clus
 				}
 				fmt.Fprintf(io.ErrOut, "      %s%s\n", c.Name, phase)
 			}
+			fmt.Fprintln(io.ErrOut, "  - Stop at the first cluster an app environment still uses. Clusters deleted before it stay deleted, so delete your apps first (kupe app list).")
 		}
 		fmt.Fprintln(io.ErrOut, "  - Not delete databases: --cascade never does, and the tenant is refused while it has any.")
 		fmt.Fprintln(io.ErrOut, "  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.")

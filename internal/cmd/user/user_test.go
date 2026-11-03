@@ -154,16 +154,20 @@ func TestDeleteErrorMapping(t *testing.T) {
 		wantHint string
 	}{
 		{"409 tenant_memberships", &client.TenantMembershipsError{
-			Err:     &client.APIError{StatusCode: 409, Code: "tenant_memberships", Message: "leave first"},
+			Err:     &client.APIError{StatusCode: 409, Code: "tenant_memberships", Message: "you are still a member of 2 tenant(s): leave or delete them first (acme, beta)", RequestID: "r1"},
 			Tenants: []string{"acme", "beta"},
-		}, cli.ExitConflict, "2 tenant(s): acme, beta", "kupe tenant delete"},
+		}, cli.ExitConflict, "you are still a member of 2 tenant(s): leave or delete them first (acme, beta) (request-id: r1)", "kupe tenant delete"},
 		{"409 without list", &client.TenantMembershipsError{
 			Err: &client.APIError{StatusCode: 409, Message: "you belong to tenant acme"},
-		}, cli.ExitConflict, "still belongs to one or more tenants", "kupe member remove"},
-		{"403", &client.APIError{StatusCode: 403, Message: "stale auth_time"}, cli.ExitAuth, "refused to delete", "kupe auth login"},
-		{"429", &client.APIError{StatusCode: 429, Message: "slow down"}, cli.ExitRateLimited, "rate limited", "retry"},
-		{"400", &client.APIError{StatusCode: 400, Message: "confirm mismatch"}, cli.ExitMisuse, "rejected the confirmation", "whoami"},
-		{"503", &client.APIError{StatusCode: 503, Message: "down"}, cli.ExitUnavailable, "down", ""},
+		}, cli.ExitConflict, "you belong to tenant acme", "kupe member remove"},
+		{"409 without message", &client.TenantMembershipsError{
+			Err:     &client.APIError{StatusCode: 409, Code: "tenant_memberships"},
+			Tenants: []string{"acme"},
+		}, cli.ExitConflict, "your user still belongs to 1 tenant(s): acme: Conflict", "kupe member remove"},
+		{"403", &client.APIError{StatusCode: 403, Message: "stale auth_time"}, cli.ExitAuth, "the signup service refused to delete your user: stale auth_time", "kupe auth login"},
+		{"429", &client.APIError{StatusCode: 429, Message: "too many requests"}, cli.ExitRateLimited, "too many requests", "retry"},
+		{"400", &client.APIError{StatusCode: 400, Message: "confirm mismatch"}, cli.ExitMisuse, "the signup service rejected the confirmation: confirm mismatch", "whoami"},
+		{"503", &client.APIError{StatusCode: 503, Message: "down"}, cli.ExitUnavailable, "service unavailable: down", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -177,8 +181,9 @@ func TestDeleteErrorMapping(t *testing.T) {
 			if code := cli.ExitCode(err); code != tt.wantExit {
 				t.Fatalf("exit = %d; want %d (%v)", code, tt.wantExit, err)
 			}
-			if !strings.Contains(err.Error(), tt.wantMsg) {
-				t.Fatalf("message %q missing %q", err.Error(), tt.wantMsg)
+			// The whole message is pinned so a refusal is never printed twice.
+			if err.Error() != tt.wantMsg {
+				t.Fatalf("message %q, want %q", err.Error(), tt.wantMsg)
 			}
 			var ce *cli.Error
 			if tt.wantHint != "" && (!errors.As(err, &ce) || !strings.Contains(ce.Hint, tt.wantHint)) {

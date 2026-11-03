@@ -140,13 +140,13 @@ func mapDeleteErr(err error) error {
 		if len(memberships.Tenants) > 0 {
 			msg = fmt.Sprintf("your user still belongs to %d tenant(s): %s", len(memberships.Tenants), strings.Join(memberships.Tenants, ", "))
 		}
-		return cli.Wrap(cli.ExitConflict, msg, memberships.Err).
+		return cli.WrapAPI(cli.ExitConflict, msg, memberships.Err).
 			WithHint("delete each tenant you own (kupe tenant delete --confirm NAME) or ask an admin to remove you (kupe member remove), then retry")
 	case client.IsForbidden(err):
 		return cli.Wrap(cli.ExitAuth, "the signup service refused to delete your user", err).
 			WithHint("user deletion needs a recent OIDC login by the account owner; run \"kupe auth login\" again and retry within 10 minutes")
 	case client.IsRateLimited(err):
-		return cli.Wrap(cli.ExitRateLimited, "user deletion is rate limited (one request per minute)", err).
+		return cli.WrapAPI(cli.ExitRateLimited, "user deletion is rate limited (one request per minute)", err).
 			WithHint("wait a minute and retry")
 	case client.IsValidation(err):
 		return cli.Wrap(cli.ExitMisuse, "the signup service rejected the confirmation", err).

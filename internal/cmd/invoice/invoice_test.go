@@ -111,7 +111,7 @@ func TestInvoiceGetNotFoundMapsToExit4(t *testing.T) {
 // Invoice field that decodes an amount again fails here.
 func TestInvoice_NoAmountInAnyFormat(t *testing.T) {
 	const invoiceJSON = `{"name":"acme-20260301","billingPeriod":{"start":"2026-03-01T00:00:00Z","end":"2026-04-01T00:00:00Z"},` +
-		`"paddleTransactionID":"txn_1","status":{"phase":"Paid","issuedAt":"2026-04-01T00:00:00Z","billedUntil":"2026-04-01T00:00:00Z",` +
+		`"paymentTransactionID":"txn_1","status":{"phase":"Paid","issuedAt":"2026-04-01T00:00:00Z","billedUntil":"2026-04-01T00:00:00Z",` +
 		`"lineItems":[{"description":"CPU","cluster":"prod","resourceType":"cpu","quantity":"2976.00","unitPrice":"0.0300","amount":"89.28"}],` +
 		`"subtotal":"120.00","creditsApplied":"20.00","tax":"7.77","total":"100.00","currency":"GBP"}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

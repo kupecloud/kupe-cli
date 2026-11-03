@@ -119,7 +119,7 @@ func releaseRequestError(err error, app, env string, write bool) error {
 	var api *client.APIError
 	if errors.As(err, &api) {
 		code := cli.ExitCode(err)
-		message := http.StatusText(api.StatusCode)
+		message := ""
 		switch client.ErrorCode(err) {
 		case "apps_unavailable":
 			return translateErr(err, app, env)
@@ -142,6 +142,14 @@ func releaseRequestError(err error, app, env string, write bool) error {
 		}
 		if api.StatusCode == http.StatusBadRequest && api.Field == "deploymentRevision" {
 			message = "the environment cannot be retried again; change its configuration to deploy"
+		}
+		if message == "" {
+			// kupe-api writes its refusals for tenants: show its message once
+			// (Errors rule 19), with the status text only when it sent none.
+			message = http.StatusText(api.StatusCode)
+			if strings.TrimSpace(api.Message) != "" {
+				return cli.WrapAPI(code, message, err)
+			}
 		}
 		return cli.Wrap(code, message, &safeReleaseCause{cause: err})
 	}

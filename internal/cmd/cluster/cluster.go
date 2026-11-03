@@ -132,7 +132,7 @@ func translateClusterErr(err error, name string) error {
 	case strings.Contains(msg, "spec.tenantRef is immutable"):
 		return cli.MisuseError("a cluster's tenant cannot be changed after creation")
 	case strings.Contains(msg, "tenantRef.namespace must match"):
-		return cli.MisuseError("internal: tenantRef namespace mismatch — please file an issue")
+		return cli.MisuseError("internal: tenantRef namespace mismatch; please file an issue")
 	case client.IsValidation(err) && strings.HasPrefix(msg, clusterSpecRejectedPrefix):
 		// The platform refused the spec. The API's reason is the error
 		// text; the hint names the flags that set the validated fields.

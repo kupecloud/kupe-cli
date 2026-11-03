@@ -34,13 +34,13 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 several mutations in a single request is supported but unusual.
 
 High availability is set at cluster creation and cannot be toggled via
-update — see "kupe cluster create --high-availability". Recreate the cluster
+update (see "kupe cluster create --high-availability"). Recreate the cluster
 with --high-availability set if you need HA on an existing cluster.
 
 By default the CLI checks the cluster hasn't changed since you last
 read it (read-modify-write with a server-side version check) and retries
-once on a concurrent-update collision. Pass --force to skip the check —
-rarely the right answer outside of disaster recovery.`,
+once on a concurrent-update collision. Pass --force to skip the check,
+which is rarely right outside disaster recovery.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe cluster update prod --version 1.33
   kupe cluster update prod --cpu-limit 4 --memory-limit 16Gi`,

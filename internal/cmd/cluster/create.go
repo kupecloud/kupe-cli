@@ -32,7 +32,7 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 		Short: "Create a new cluster",
 		Long: `Submit a new cluster to kupe-api and (by default) wait for it to
 reach the Running phase. Pass --wait=false to return immediately with just
-the resource name — useful in scripts that spin up many clusters in parallel.
+the resource name, for scripts that spin up many clusters in parallel.
 
 --cpu-limit, --memory-limit, and --storage-limit are required. They cap the
 resources your workloads on this cluster can consume; usage counts against
@@ -99,7 +99,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 			if opts.highAvailability {
 				fmt.Fprintf(f.IOStreams.ErrOut,
 					"Creating %q with HA control plane.\n"+
-						"HA adds an hourly charge to your bill — accrues from when 3/3 replicas are ready, not from cluster creation.\n"+
+						"HA adds an hourly charge to your bill. It accrues from when 3/3 replicas are ready, not from cluster creation.\n"+
 						"See https://kupe.cloud/pricing for the exact rate on your tier.\n\n",
 					name)
 			}

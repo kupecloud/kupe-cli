@@ -17,7 +17,7 @@ func newListCmd(f *cli.Factory) *cobra.Command {
 		Use:   "list",
 		Short: "List API keys for the current tenant",
 		Long: `List every API key for the tenant. The raw key value is never included
-in the response — only metadata (ID, name, role, last-used, age).`,
+in the response, only metadata (ID, name, role, last-used, age).`,
 		Example: `  kupe apikey list
   kupe apikey list -o wide
   kupe apikey list -o json`,

@@ -68,14 +68,14 @@ Two methods are supported:
     commands.
 
     Works identically on a laptop, an SSH session, a CI runner, or a remote
-    dev container — no localhost listener is required.
+    dev container. No localhost listener is required.
 
   --method token
     Reads a long-lived API key (format kupe_...) and stores it. Use this for
     CI machines and automation; pair with --token / KUPE_API_TOKEN to skip
     the prompt.
 
-If KUPE_API_TOKEN is already set, this command refuses to run — the env-var
+If KUPE_API_TOKEN is already set, this command refuses to run: the env-var
 path is already authenticated and a login would be a no-op.
 
 Context name defaults to the tenant name. Use --context to override when you
@@ -84,13 +84,13 @@ want more than one context per tenant (e.g., two API environments).`,
   kupe auth login --tenant acme
 
   # Same, against a non-default Authentik (dev/staging override).
-  # Bare hostnames are fine — the CLI prepends https:// when missing.
+  # Bare hostnames are fine. The CLI prepends https:// when missing.
   kupe auth login --tenant acme \
       --api-url api.dev.int.kupe.cloud \
       --oidc-base-url auth.dev.int.kupe.cloud
 
   # Store a long-lived API key as a context. Omit --token to be prompted for
-  # it without echo — passing it inline leaves the token in shell history and
+  # it without echo. Passing it inline leaves the token in shell history and
   # process listings. For pure CI auth, prefer exporting KUPE_API_TOKEN (no
   # login or config file needed at all).
   kupe auth login --method token --tenant acme --context prod --set-default`,
@@ -277,7 +277,7 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 		fmt.Fprintln(io.ErrOut, "and enter this code:")
 		fmt.Fprintf(io.ErrOut, "\n    %s\n\n", userCode)
 		if verificationURIComplete != "" && verificationURIComplete != verificationURI {
-			fmt.Fprintln(io.ErrOut, "(or open this URL — it has the code pre-filled:)")
+			fmt.Fprintln(io.ErrOut, "(or open this URL, which has the code pre-filled:)")
 			fmt.Fprintf(io.ErrOut, "    %s\n\n", verificationURIComplete)
 		}
 		if expiresIn > 0 {
@@ -375,7 +375,7 @@ func printPlaintextWarningIfFallback(f *cli.Factory, ref string) {
 	}
 	out := f.IOStreams.ErrOut
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "WARNING: OS keyring rejected the credential — fell back to a plaintext file.")
+	fmt.Fprintln(out, "WARNING: OS keyring rejected the credential; fell back to a plaintext file.")
 	fmt.Fprintf(out, "         Token written to %s (mode 0600).\n", credsPath)
 	fmt.Fprintln(out, "         Investigate the keyring failure (`security` / `secret-tool` / `wincred`)")
 	fmt.Fprintln(out, "         OR set KUPE_STORAGE=plaintext to silence this warning if intentional (e.g. CI).")
@@ -419,7 +419,7 @@ func loginValidationError(err error, apiURL, tenant string) error {
 			msg += ": " + apiErr.Message
 		}
 		return cli.AuthError(msg).
-			WithHint("OIDC login: make sure you run the latest kupe (curl -fsSL https://get.kupe.cloud | sh) — " +
+			WithHint("OIDC login: make sure you run the latest kupe (curl -fsSL https://get.kupe.cloud | sh), because " +
 				"older builds don't request the groups scope; API token login: verify the token at https://console.kupe.cloud/settings/api-keys")
 	case client.IsForbidden(err):
 		return cli.AuthError(fmt.Sprintf("token does not grant access to tenant %q at %s (403)", tenant, apiURL)).

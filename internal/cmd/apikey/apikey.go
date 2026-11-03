@@ -17,7 +17,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Long: `Manage API keys used for programmatic access to the Kupe API.
 
 Keys carry a role (admin or readonly) and optionally expire. The raw
-` + "`kupe_...`" + ` token is only returned at creation time — store it
+` + "`kupe_...`" + ` token is only returned at creation time. Store it
 securely; it cannot be retrieved later.
 
 All apikey operations require admin role; a readonly caller will exit

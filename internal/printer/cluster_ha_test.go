@@ -145,15 +145,15 @@ func TestHaDetailDisplay_HAPhaseDriven(t *testing.T) {
 	}{
 		{
 			name: "ha-healthy", phase: "ha-healthy", ready: 3, desired: 3,
-			want: "healthy (3/3) — enabled at " + enabledAt,
+			want: "healthy (3/3), enabled at " + enabledAt,
 		},
 		{
 			name: "ha-degraded", phase: "ha-degraded", ready: 2, desired: 3,
-			want: "degraded (2/3) — API still serving, enabled at " + enabledAt,
+			want: "degraded (2/3), API still serving, enabled at " + enabledAt,
 		},
 		{
 			name: "ha-unavailable", phase: "ha-unavailable", ready: 0, desired: 3,
-			want: "degraded (0/3) — quorum lost, API not serving, enabled at " + enabledAt,
+			want: "degraded (0/3), quorum lost, API not serving, enabled at " + enabledAt,
 		},
 	}
 	for _, tt := range tests {
@@ -196,7 +196,7 @@ func TestHaDetailDisplay(t *testing.T) {
 				HighAvailability: true,
 				Status:           &client.ClusterStatus{HAConfigured: true, Phase: client.PhaseRunning, HAEnabledAt: enabledAt},
 			},
-			want: "healthy — enabled at " + enabledAt,
+			want: "healthy, enabled at " + enabledAt,
 		},
 		{
 			name: "degraded with timestamp",
@@ -204,7 +204,7 @@ func TestHaDetailDisplay(t *testing.T) {
 				HighAvailability: true,
 				Status:           &client.ClusterStatus{HAConfigured: true, Phase: client.PhaseDegraded, HAEnabledAt: enabledAt},
 			},
-			want: "degraded — enabled at " + enabledAt,
+			want: "degraded, enabled at " + enabledAt,
 		},
 	}
 	for _, tt := range tests {

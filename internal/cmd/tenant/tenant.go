@@ -21,10 +21,10 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Use:   "tenant",
 		Short: "Inspect or delete the current tenant",
 		Long: `Read full details for the tenant the current context targets: plan,
-phase, resource pool, current-period usage, and member list — or, as the
-tenant owner, delete it.
+phase, resource pool, current-period usage, and member list. The tenant
+owner can also delete it.
 
-Unlike "kupe auth whoami" — a quick identity check — "kupe tenant get"
+Unlike "kupe auth whoami", a quick identity check, "kupe tenant get"
 surfaces every field the API returns so billing, capacity, and membership
 questions can be answered in one call.`,
 	}

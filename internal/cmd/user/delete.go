@@ -28,8 +28,8 @@ and tokens, and the Grafana user row. This cannot be undone.
 
 --confirm must equal the logged-in email ("kupe auth whoami"). The account
 must not belong to any tenant: delete the tenants you own ("kupe tenant
-delete") or have an admin remove you from the others first — the service
-refuses otherwise and lists them.
+delete") or have an admin remove you from the others first. Until then the
+service refuses and lists them.
 
 Requires an OIDC login (API keys are refused) and a recent authentication;
 if the service says the login is stale, run "kupe auth login" and retry.

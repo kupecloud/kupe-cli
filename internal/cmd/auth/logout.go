@@ -154,6 +154,6 @@ func RevokeOIDCRefreshToken(io *cli.IOStreams, mgr *auth.Manager, ctx *config.Co
 	rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := auth.Revoke(rctx, issuer, clientID, ts.RefreshToken, "refresh_token"); err != nil {
-		fmt.Fprintf(io.ErrOut, "  Note: refresh token revocation at %s failed (%v) — local logout proceeds.\n", issuer, err)
+		fmt.Fprintf(io.ErrOut, "  Note: refresh token revocation at %s failed (%v). Local logout proceeds.\n", issuer, err)
 	}
 }

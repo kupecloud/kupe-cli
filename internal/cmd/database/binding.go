@@ -36,7 +36,7 @@ database. Other namespaces see neither.
 
 Roles: owner can change the schema; readwrite can read and write data;
 readonly can read data. A declared role uses dedicated credentials. A
-binding's cluster, role and Secret name are fixed; its namespaces can change
+binding's cluster, logical database, role and Secret name are fixed; its namespaces can change
 and dedicated credentials can be turned on with "binding update".`,
 	}
 
@@ -50,15 +50,17 @@ and dedicated credentials can be turned on with "binding update".`,
 }
 
 type bindingAddOpts struct {
-	dedicated   bool
-	cluster     string
-	namespaces  []string
-	role        string
-	secretName  string
-	name        string
-	wait        bool
-	waitTimeout time.Duration
-	output      string
+	logicalDatabase string
+	addedLogical    bool
+	dedicated       bool
+	cluster         string
+	namespaces      []string
+	role            string
+	secretName      string
+	name            string
+	wait            bool
+	waitTimeout     time.Duration
+	output          string
 }
 
 // bindingNoun labels a binding in progress output.
@@ -88,7 +90,14 @@ namespace. Pass --wait=false to return as soon as the request is accepted.
 
 The binding name defaults to DATABASE-CLUSTER-ROLE; pass --name if that is
 longer than 63 characters. To add a namespace to a binding later, use
-"kupe database binding update".`,
+"kupe database binding update".
+
+--logical-database selects the PostgreSQL database; omitted uses the first,
+including a restore's source identity. For an added database, the binding
+name defaults to DATABASE-LOGICAL-CLUSTER-ROLE and the Secret name to
+DATABASE-LOGICAL-ROLE. Underscores in logical names and custom roles become
+hyphens. Neither default contains a namespace. A taken default is refused:
+pass --name or --secret-name. The selector cannot change later.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # The migration Job runs with the owner role, the API and its worker with the readwrite role
   kupe database binding add orders-db --cluster prod --namespace orders-migrate --role owner
@@ -118,12 +127,9 @@ longer than 63 characters. To add a namespace to a binding later, use
 			if !slices.Contains(client.DatabaseRoles, role) {
 				role, roleName, opts.dedicated = client.DatabaseRoleCustom, opts.role, true
 			}
-			name := opts.name
-			if name == "" {
-				name = fmt.Sprintf("%s-%s-%s", database, opts.cluster, strings.ReplaceAll(opts.role, "_", "-"))
-				if len(name) > maxNameLength {
-					return cli.MisuseError(fmt.Sprintf("default binding name %q is longer than %d characters", name, maxNameLength)).
-						WithHint("pass a shorter one with --name")
+			if opts.logicalDatabase != "" {
+				if err := validateLogicalName(opts.logicalDatabase); err != nil {
+					return err
 				}
 			}
 			format, err := printer.Resolve(f, opts.output)
@@ -134,14 +140,40 @@ longer than 63 characters. To add a namespace to a binding later, use
 			if err != nil {
 				return err
 			}
+			if opts.logicalDatabase != "" {
+				db, _, err := api.Databases().Get(cmd.Context(), database)
+				if err != nil {
+					return translateErr(err, database)
+				}
+				if db.Postgres == nil || db.Postgres.Databases == nil || len(*db.Postgres.Databases) == 0 {
+					return logicalNotAvailable()
+				}
+				entries := *db.Postgres.Databases
+				if !slices.ContainsFunc(entries, func(entry client.LogicalDatabase) bool { return entry.Name == opts.logicalDatabase }) {
+					return cli.MisuseError(fmt.Sprintf("logical database %q is not in database %q", opts.logicalDatabase, database))
+				}
+				opts.addedLogical = entries[0].Name != opts.logicalDatabase
+			}
+			name := opts.name
+			if name == "" {
+				name = fmt.Sprintf("%s-%s-%s", database, opts.cluster, strings.ReplaceAll(opts.role, "_", "-"))
+				if opts.addedLogical {
+					name = fmt.Sprintf("%s-%s-%s-%s", database, strings.ReplaceAll(opts.logicalDatabase, "_", "-"), opts.cluster, strings.ReplaceAll(opts.role, "_", "-"))
+				}
+				if len(name) > maxNameLength {
+					return cli.MisuseError(fmt.Sprintf("default binding name %q is longer than %d characters", name, maxNameLength)).
+						WithHint("pass a shorter one with --name")
+				}
+			}
 			b, err := api.CreateDatabaseBinding(cmd.Context(), database, client.CreateDatabaseBindingRequest{
-				Name:        name,
-				Cluster:     opts.cluster,
-				Namespaces:  opts.namespaces,
-				Role:        role,
-				RoleName:    roleName,
-				Credentials: bindingCredentials(opts.dedicated),
-				SecretName:  opts.secretName,
+				LogicalDatabase: opts.logicalDatabase,
+				Name:            name,
+				Cluster:         opts.cluster,
+				Namespaces:      opts.namespaces,
+				Role:            role,
+				RoleName:        roleName,
+				Credentials:     bindingCredentials(opts.dedicated),
+				SecretName:      opts.secretName,
 			})
 			if err != nil {
 				return translateBindingAddErr(err, database, name, opts)
@@ -159,12 +191,13 @@ longer than 63 characters. To add a namespace to a binding later, use
 		},
 	}
 
+	cmd.Flags().StringVar(&opts.logicalDatabase, "logical-database", "", "PostgreSQL database to bind (default the first database)")
 	cmd.Flags().StringVar(&opts.cluster, "cluster", "", "Cluster to bind into (required)")
 	cmd.Flags().StringArrayVar(&opts.namespaces, "namespace", nil, "Namespace inside the cluster that receives the Service and Secret; repeat for each namespace, up to 10 (required)")
 	cmd.Flags().StringVar(&opts.role, "role", "", "Role granted: owner, readwrite, readonly or a declared role (required); a declared role uses dedicated credentials")
 	cmd.Flags().BoolVar(&opts.dedicated, "dedicated", false, "Give each namespace its own login and password; unavailable for owner")
-	cmd.Flags().StringVar(&opts.secretName, "secret-name", "", "Name of the credentials Secret in every namespace (default DATABASE-ROLE)")
-	cmd.Flags().StringVar(&opts.name, "name", "", "Binding name (default DATABASE-CLUSTER-ROLE)")
+	cmd.Flags().StringVar(&opts.secretName, "secret-name", "", "Name of the credentials Secret in every namespace (default DATABASE-ROLE, or DATABASE-LOGICAL-ROLE for an added database)")
+	cmd.Flags().StringVar(&opts.name, "name", "", "Binding name (default DATABASE-CLUSTER-ROLE, or DATABASE-LOGICAL-CLUSTER-ROLE for an added database)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the binding to become Ready in every namespace before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 5*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)
@@ -224,8 +257,16 @@ func bindingPhase(b *client.DatabaseBinding) string {
 // existing binding means: most often a binding of the same role into the
 // same cluster that the namespaces can be added to.
 func translateBindingAddErr(err error, database, name string, opts *bindingAddOpts) error {
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == 400 && strings.Contains(apiErr.Message, "secret name") && strings.Contains(apiErr.Message, "is already used") {
+		return cli.WrapAPI(cli.ExitMisuse, "the credentials Secret name is already used", err).WithHint("pass --secret-name to choose another name")
+	}
+	err = logicalFeatureErr(err, opts.logicalDatabase != "")
 	if opts.name != "" || !client.IsConflict(err) || client.ErrorCode(err) != "" {
 		return translateErr(err, database)
+	}
+	if opts.addedLogical {
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("a binding named %q already exists", name), err).WithHint("pass --name to choose another binding name")
 	}
 	add := ""
 	for _, ns := range opts.namespaces {

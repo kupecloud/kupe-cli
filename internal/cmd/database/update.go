@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -12,6 +14,7 @@ import (
 )
 
 type updateOpts struct {
+	addLogicalDatabases, addSchemas                        []string
 	addRoles, removeRoles, addExtensions, removeExtensions []string
 	cpu                                                    string
 	memory                                                 string
@@ -30,10 +33,15 @@ func newUpdateCmd(f *cli.Factory) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "update NAME",
-		Short: "Change database resources, backups, roles or extensions",
+		Short: "Change database settings or append logical databases and schemas",
 		Long: `Change a database's per-instance resources, high availability, deletion
 protection, backup settings, declared roles or PostgreSQL extensions. Only
 the flags you pass are changed.
+
+--add-logical-database appends a PostgreSQL database. --add-schema
+[DATABASE.]SCHEMA adds a schema, to the first database when DATABASE is
+omitted. Repeat either flag for more. Existing entries and schemas are
+kept; they cannot be removed. After a restore, append with these flags.
 
 Changing CPU or memory rolls the instances (a highly available database
 switches over first). Storage grows online and can never shrink. The major
@@ -78,8 +86,9 @@ the change is accepted.`,
 			if err := validateListEdits(opts); err != nil {
 				return err
 			}
-			if patch.IsEmpty() && !listChanged {
-				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule, --add-role, --remove-role, --add-extension, --remove-extension")
+			logicalChanged := logicalRequested(opts.addLogicalDatabases, opts.addSchemas)
+			if patch.IsEmpty() && !listChanged && !logicalChanged {
+				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule, --add-role, --remove-role, --add-extension, --remove-extension, --add-logical-database, --add-schema")
 			}
 
 			format, err := printer.Resolve(f, opts.output)
@@ -90,12 +99,40 @@ the change is accepted.`,
 			if err != nil {
 				return err
 			}
+			var mutateErr error
+			var notes []string
 			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
 				patch.Postgres = editedPostgres(current.Postgres, opts)
+				if logicalChanged {
+					if current.Postgres == nil || current.Postgres.Databases == nil || len(*current.Postgres.Databases) == 0 {
+						mutateErr = logicalNotAvailable()
+						return nil
+					}
+					var list []client.LogicalDatabase
+					list, notes, mutateErr = appendLogical(*current.Postgres.Databases, opts.addLogicalDatabases, opts.addSchemas)
+					if mutateErr != nil {
+						return nil
+					}
+					if !reflect.DeepEqual(list, *current.Postgres.Databases) {
+						if patch.Postgres == nil {
+							patch.Postgres = &client.DatabasePostgres{}
+						}
+						patch.Postgres.Databases = &list
+					}
+				}
+				if patch.IsEmpty() {
+					return nil
+				}
 				return &patch
 			})
 			if err != nil {
-				return translateUpdateErr(err, name)
+				return logicalFeatureErr(translateUpdateErr(err, name), logicalChanged)
+			}
+			if mutateErr != nil {
+				return mutateErr
+			}
+			for _, note := range notes {
+				fmt.Fprintln(f.IOStreams.ErrOut, note)
 			}
 			// Deletion protection is read from the spec when a delete comes
 			// in, so it is in effect once the PATCH lands; every other change
@@ -107,7 +144,11 @@ the change is accepted.`,
 				return printer.Database.One(f.IOStreams, format, updated)
 			}
 			// The PATCH response carries the generation the change produced.
-			final, werr := service.WaitForConverged(cmd.Context(), f.IOStreams, api, name, updated.Generation, opts.waitTimeout)
+			wait := service.WaitForConverged
+			if logicalChanged {
+				wait = waitForLogicalConverged
+			}
+			final, werr := wait(cmd.Context(), f.IOStreams, api, name, updated.Generation, opts.waitTimeout)
 			if werr != nil {
 				return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "update"), final)
 			}
@@ -118,6 +159,8 @@ the change is accepted.`,
 		},
 	}
 
+	cmd.Flags().StringArrayVar(&opts.addLogicalDatabases, "add-logical-database", nil, "Logical database to append; repeat for each; existing entries cannot be removed")
+	cmd.Flags().StringArrayVar(&opts.addSchemas, "add-schema", nil, "Schema to append as [DATABASE.]SCHEMA; default the first database; repeat for each")
 	cmd.Flags().StringArrayVar(&opts.addRoles, "add-role", nil, "Declared role to add; repeat for each role")
 	cmd.Flags().StringArrayVar(&opts.removeRoles, "remove-role", nil, "Declared role to remove; repeat for each role")
 	cmd.Flags().StringArrayVar(&opts.addExtensions, "add-extension", nil, "Extension to add; repeat for each extension")

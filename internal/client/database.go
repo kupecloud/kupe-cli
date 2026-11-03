@@ -62,8 +62,9 @@ type RecoveryWindow struct {
 // DatabaseStatus is the observed state. Phase values match clusters:
 // Pending | Provisioning | Running | Upgrading | Degraded | Terminating.
 type DatabaseStatus struct {
-	ObservedGeneration int64  `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
-	Phase              string `json:"phase,omitempty" yaml:"phase,omitempty"`
+	Databases          []LogicalDatabaseStatus `json:"databases,omitempty" yaml:"databases,omitempty"`
+	ObservedGeneration int64                   `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+	Phase              string                  `json:"phase,omitempty" yaml:"phase,omitempty"`
 	// CurrentVersion is the full engine version running, e.g. "18.0".
 	CurrentVersion string `json:"currentVersion,omitempty" yaml:"currentVersion,omitempty"`
 	// PreviousVersion is set while a major version upgrade is in progress.
@@ -281,12 +282,13 @@ type CredentialRotation struct {
 // DatabaseBinding grants one role of a database to namespaces of one
 // cluster. Credentials are never returned.
 type DatabaseBinding struct {
-	RoleName    string              `json:"roleName,omitempty" yaml:"roleName,omitempty"`
-	Credentials *BindingCredentials `json:"credentials,omitempty" yaml:"credentials,omitempty"`
-	Generation  int64               `json:"generation,omitempty" yaml:"generation,omitempty"`
-	Name        string              `json:"name" yaml:"name"`
-	Database    string              `json:"database" yaml:"database"`
-	Cluster     string              `json:"cluster" yaml:"cluster"`
+	LogicalDatabase string              `json:"logicalDatabase,omitempty" yaml:"logicalDatabase,omitempty"`
+	RoleName        string              `json:"roleName,omitempty" yaml:"roleName,omitempty"`
+	Credentials     *BindingCredentials `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	Generation      int64               `json:"generation,omitempty" yaml:"generation,omitempty"`
+	Name            string              `json:"name" yaml:"name"`
+	Database        string              `json:"database" yaml:"database"`
+	Cluster         string              `json:"cluster" yaml:"cluster"`
 	// Namespaces are the namespaces inside the cluster the binding delivers
 	// into. Namespaces can change and dedicated credentials can be turned on.
 	Namespaces []string `json:"namespaces" yaml:"namespaces"`
@@ -414,13 +416,14 @@ func conditionTrue(conditions []Condition, t string) bool {
 // CreateDatabaseBindingRequest is the POST body. The database comes from
 // the path.
 type CreateDatabaseBindingRequest struct {
-	RoleName    string              `json:"roleName,omitempty"`
-	Credentials *BindingCredentials `json:"credentials,omitempty"`
-	Name        string              `json:"name"`
-	Cluster     string              `json:"cluster"`
-	Namespaces  []string            `json:"namespaces"`
-	Role        string              `json:"role"`
-	SecretName  string              `json:"secretName,omitempty"`
+	LogicalDatabase string              `json:"logicalDatabase,omitempty"`
+	RoleName        string              `json:"roleName,omitempty"`
+	Credentials     *BindingCredentials `json:"credentials,omitempty"`
+	Name            string              `json:"name"`
+	Cluster         string              `json:"cluster"`
+	Namespaces      []string            `json:"namespaces"`
+	Role            string              `json:"role"`
+	SecretName      string              `json:"secretName,omitempty"`
 }
 
 // RotateDatabaseCredentials requests a new password for one role (one of
@@ -608,8 +611,9 @@ type Extension struct {
 
 // DatabasePostgres holds PostgreSQL settings. Nil lists are unchanged; empty lists clear.
 type DatabasePostgres struct {
-	Roles      *[]DeclaredRole `json:"roles,omitempty" yaml:"roles,omitempty"`
-	Extensions *[]Extension    `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+	Databases  *[]LogicalDatabase `json:"databases,omitempty" yaml:"databases,omitempty"`
+	Roles      *[]DeclaredRole    `json:"roles,omitempty" yaml:"roles,omitempty"`
+	Extensions *[]Extension       `json:"extensions,omitempty" yaml:"extensions,omitempty"`
 }
 
 // BindingCredentials selects separate logins for each namespace; it contains no passwords.
@@ -652,3 +656,21 @@ const (
 	DatabaseCodeDedicatedCredentialsIrreversible = "dedicated_credentials_irreversible"
 	DatabaseCodeInvalidBindingCredentials        = "invalid_binding_credentials"
 )
+
+// LogicalDatabase is one PostgreSQL database and its add-only schemas.
+type LogicalDatabase struct {
+	Name    string           `json:"name" yaml:"name"`
+	Schemas []DatabaseSchema `json:"schemas" yaml:"schemas"`
+}
+
+// DatabaseSchema is a schema declared in one PostgreSQL database.
+type DatabaseSchema struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+// LogicalDatabaseStatus is the platform's progress for one PostgreSQL database.
+type LogicalDatabaseStatus struct {
+	Name    string `json:"name" yaml:"name"`
+	Phase   string `json:"phase" yaml:"phase"`
+	Message string `json:"message,omitempty" yaml:"message,omitempty"`
+}

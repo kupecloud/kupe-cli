@@ -10,6 +10,9 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/client"
 )
 
+// translateVaultErr gives each known Vault refusal the CLI's own sentence.
+// The sentence is shown alone, with the request id (boundedVaultError): the
+// API's text says the same thing, so wrapping it would print it twice.
 func translateVaultErr(err error, path string, version int64, purge bool) error {
 	if err == nil {
 		return nil
@@ -30,15 +33,15 @@ func translateVaultErr(err error, path string, version int64, purge bool) error 
 	case "precondition_required":
 		return cli.Wrap(cli.ExitMisuse, "a version precondition is required", err)
 	case "invalid_secret_values":
-		return cli.Wrap(cli.ExitMisuse, "values must be a non-empty JSON object with valid keys and string values (512 KiB limit)", err)
+		return boundedVaultError(cli.ExitMisuse, "values must be a non-empty JSON object with valid keys and string values (512 KiB limit)", err)
 	case "secret_write_unconfirmed":
-		return cli.Wrap(cli.ExitUnavailable, "the write may or may not have been saved", err).WithHint("run `kupe secret values get` and compare the version before deciding whether to write again")
+		return boundedVaultError(cli.ExitUnavailable, "the write may or may not have been saved", err).WithHint("run `kupe secret values get` and compare the version before deciding whether to write again")
 	case "secret_path_reserved":
-		return cli.Wrap(cli.ExitAuth, "this path is reserved by the platform", err)
+		return boundedVaultError(cli.ExitAuth, "this path is reserved by the platform", err)
 	case "vault_not_configured":
-		return cli.Wrap(cli.ExitUnavailable, "Vault is not available on this platform", err)
+		return boundedVaultError(cli.ExitUnavailable, "Vault is not available on this platform", err)
 	case "vault_unavailable":
-		e := cli.Wrap(cli.ExitUnavailable, "Vault is unavailable", err)
+		e := boundedVaultError(cli.ExitUnavailable, "Vault is unavailable", err)
 		if purge {
 			return e.WithHint("repeat the command to confirm")
 		}
@@ -47,7 +50,7 @@ func translateVaultErr(err error, path string, version int64, purge bool) error 
 		return cli.WrapAPI(cli.ExitConflict, "secret definitions still use "+path, err)
 	}
 	if api.StatusCode == http.StatusRequestEntityTooLarge {
-		return cli.Wrap(cli.ExitMisuse, "values input exceeds the 512 KiB limit", err)
+		return boundedVaultError(cli.ExitMisuse, "values input exceeds the 512 KiB limit", err)
 	}
 	if purge && api.StatusCode == http.StatusPreconditionFailed {
 		return boundedVaultError(cli.ExitConflict, path+" is no longer at the version being purged; run purge again", err)

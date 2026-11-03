@@ -363,7 +363,7 @@ func TestVaultSentWriteUnknownOutcomes(t *testing.T) {
 				args := []string{"--path", "team/db", "--expected-version", "3", "--stdin"}
 				want := "the write may or may not have been saved"
 				if failure == "vault-unavailable" {
-					want = "Vault is unavailable: service unavailable: Vault unavailable"
+					want = "Vault is unavailable"
 				}
 				if operation == "purge" {
 					cmd = newPurgeCmd(f)

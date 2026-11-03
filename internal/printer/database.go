@@ -133,6 +133,7 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Memory", Get: func(v any) string { return databaseResources(database(v)).Memory }},
 		{Name: "Storage", Get: func(v any) string { return databaseResources(database(v)).Storage }},
 		{Name: "Deletion Protection", Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
+		{Name: "Databases", OmitEmpty: true, Get: func(v any) string { return logicalDatabasesDisplay(database(v)) }},
 		{Name: "Roles", Get: func(v any) string { return postgresRoleNames(database(v)) }},
 		{Name: "Extensions", Get: func(v any) string { return postgresExtensionNames(database(v)) }},
 		{Name: "Backups", Get: func(v any) string { return backupSettings(database(v)) }},
@@ -157,6 +158,7 @@ func databaseBindingColumns(colorEnabled bool) Columns {
 			return ux.ColorPhase(bindingNamespacePhase(bindingRowOf(v).namespace), colorEnabled)
 		}},
 		{Name: "AGE", Get: func(v any) string { return ageFromRFC3339(bindingRowOf(v).binding.CreatedAt) }},
+		{Name: "LOGICAL DATABASE", Wide: true, Get: func(v any) string { return bindingRowOf(v).binding.LogicalDatabase }},
 		{Name: "ROTATION", Wide: true, Get: func(v any) string { return bindingNamespaceRotation(bindingRowOf(v)) }},
 		{Name: "HOST", Wide: true, Get: func(v any) string { return bindingRowOf(v).namespace.Status.Host }},
 		{Name: "MESSAGE", Wide: true, Get: func(v any) string { return bindingRowOf(v).namespace.Status.Message }},
@@ -183,6 +185,7 @@ func databaseBindingDetailColumns(colorEnabled bool) Columns {
 	return Columns{
 		{Name: "Name", Get: func(v any) string { return databaseBinding(v).Name }},
 		{Name: "Database", Get: func(v any) string { return databaseBinding(v).Database }},
+		{Name: "Logical Database", OmitEmpty: true, Get: func(v any) string { return databaseBinding(v).LogicalDatabase }},
 		{Name: "Cluster", Get: func(v any) string { return databaseBinding(v).Cluster }},
 		{Name: "Namespaces", Get: func(v any) string { return strings.Join(databaseBinding(v).Namespaces, ", ") }},
 		{Name: "Role", Get: func(v any) string { return bindingRole(databaseBinding(v)) }},
@@ -374,4 +377,35 @@ func bindingRotationPending(b *client.DatabaseBinding) string {
 		return ""
 	}
 	return strconv.FormatBool(b.Status.Rotation.Pending)
+}
+
+func logicalDatabasesDisplay(db *client.Database) string {
+	if db.Postgres == nil || db.Postgres.Databases == nil {
+		return ""
+	}
+	entries := *db.Postgres.Databases
+	show := len(entries) > 1
+	var rows []string
+	for _, entry := range entries {
+		value := entry.Name
+		if len(entry.Schemas) > 0 {
+			show = true
+			names := make([]string, len(entry.Schemas))
+			for i, schema := range entry.Schemas {
+				names[i] = schema.Name
+			}
+			value += " (schemas: " + strings.Join(names, ", ") + ")"
+		}
+		for _, st := range databaseStatus(db).Databases {
+			if st.Name == entry.Name {
+				value += " " + st.Phase
+				break
+			}
+		}
+		rows = append(rows, value)
+	}
+	if !show {
+		return ""
+	}
+	return strings.Join(rows, "\n")
 }

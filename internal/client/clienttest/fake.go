@@ -554,6 +554,9 @@ func applyDatabasePatch(db *client.Database, patch client.PatchDatabaseRequest) 
 		if db.Postgres == nil {
 			db.Postgres = &client.DatabasePostgres{}
 		}
+		if patch.Postgres.Databases != nil {
+			db.Postgres.Databases = copyLogicalDatabases(patch.Postgres.Databases)
+		}
 		if patch.Postgres.Roles != nil {
 			roles := slices.Clone(*patch.Postgres.Roles)
 			db.Postgres.Roles = &roles
@@ -695,15 +698,24 @@ func (f *Fake) CreateDatabaseBinding(_ context.Context, database string, req cli
 		return nil, &client.APIError{StatusCode: 409, Message: "binding already exists"}
 	}
 	b := &client.DatabaseBinding{
-		Name:        req.Name,
-		Database:    database,
-		Cluster:     req.Cluster,
-		Namespaces:  slices.Clone(req.Namespaces),
-		Role:        req.Role,
-		RoleName:    req.RoleName,
-		Credentials: req.Credentials,
-		SecretName:  req.SecretName,
-		Status:      &client.DatabaseBindingStatus{Phase: "Pending"},
+		LogicalDatabase: req.LogicalDatabase,
+		Name:            req.Name,
+		Database:        database,
+		Cluster:         req.Cluster,
+		Namespaces:      slices.Clone(req.Namespaces),
+		Role:            req.Role,
+		RoleName:        req.RoleName,
+		Credentials:     req.Credentials,
+		SecretName:      req.SecretName,
+		Status:          &client.DatabaseBindingStatus{Phase: "Pending"},
+	}
+	if b.LogicalDatabase == "" {
+		db := f.DatabasesByName[database]
+		if db.Postgres != nil && db.Postgres.Databases != nil && len(*db.Postgres.Databases) > 0 {
+			b.LogicalDatabase = (*db.Postgres.Databases)[0].Name
+		} else {
+			b.LogicalDatabase = strings.ReplaceAll(database, "-", "_")
+		}
 	}
 	f.DatabaseBindings[req.Name] = b
 	return b, nil
@@ -1028,7 +1040,7 @@ func copyDatabasePostgres(p *client.DatabasePostgres) *client.DatabasePostgres {
 	if p == nil {
 		return nil
 	}
-	out := &client.DatabasePostgres{}
+	out := &client.DatabasePostgres{Databases: copyLogicalDatabases(p.Databases)}
 	if p.Roles != nil {
 		roles := slices.Clone(*p.Roles)
 		out.Roles = &roles
@@ -1038,4 +1050,16 @@ func copyDatabasePostgres(p *client.DatabasePostgres) *client.DatabasePostgres {
 		out.Extensions = &extensions
 	}
 	return out
+}
+
+func copyLogicalDatabases(p *[]client.LogicalDatabase) *[]client.LogicalDatabase {
+	if p == nil {
+		return nil
+	}
+	out := make([]client.LogicalDatabase, len(*p))
+	for i, db := range *p {
+		out[i] = db
+		out[i].Schemas = append([]client.DatabaseSchema{}, db.Schemas...)
+	}
+	return &out
 }

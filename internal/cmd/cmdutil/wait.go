@@ -193,6 +193,10 @@ func waitForConverged[T any](ctx context.Context, streams *cli.IOStreams, subj s
 			if time.Since(degradedSince) >= converge.DegradedGrace {
 				return false, &TerminalPhaseError{Noun: subj.noun, Name: subj.name, Phase: phase}
 			}
+		case client.PhaseFailed:
+			if applied {
+				return false, &TerminalPhaseError{Noun: subj.noun, Name: subj.name, Phase: phase}
+			}
 		case client.PhaseTerminating:
 			return false, &TerminalPhaseError{Noun: subj.noun, Name: subj.name, Phase: phase}
 		case client.PhaseRunning:

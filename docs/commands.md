@@ -1112,6 +1112,8 @@ Create a database and wait for `status.phase=Running` by default.
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--logical-database NAME` | — | Add a PostgreSQL database after the first; repeat for each. Unavailable with restore flags. |
+| `--schema [DATABASE.]SCHEMA` | — | Add a schema, to the first database when unqualified; repeat for each. Unavailable with restore flags. |
 | `--roles ROLE,...` | — | Declare group roles; no privileges are granted. |
 | `--extensions EXTENSION,...` | — | Install PostgreSQL extensions from the platform allowlist. |
 | `--engine ENGINE` | `postgres` | Database engine. Only `postgres` is supported. |
@@ -1126,7 +1128,7 @@ Create a database and wait for `status.phase=Running` by default.
 | `--from-backup BACKUP` | — | Restore the new database from this manual backup. |
 | `--from DATABASE` | — | Restore the new database from this database, as it was at `--point-in-time`. |
 | `--point-in-time TIME` | the latest point | With `--from`: the moment to restore to, inside the database's restore window, in RFC 3339 (`2026-10-30T09:00:00Z`). |
-| `--wait` | `true` | Wait for `status.phase=Running`. |
+| `--wait` | `true` | Wait for `status.phase=Running`; when logical databases or schemas are requested, also wait until they are ready at the accepted generation. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
 
@@ -1253,6 +1255,8 @@ retried once, then exits `5`).
 
 | Flag | Description |
 |------|-------------|
+| `--add-logical-database NAME` | Append a PostgreSQL database; repeat for each. Existing entries are kept. |
+| `--add-schema [DATABASE.]SCHEMA` | Append a schema; default the first database. Repeat for each. |
 | `--add-role`, `--remove-role` | Edit declared roles; repeat for each name. |
 | `--add-extension`, `--remove-extension` | Edit extensions; repeat for each name. Removing the last entry sends an empty list. |
 | `--cpu`, `--memory`, `--storage` | New per-instance resources. Storage grows only. |
@@ -1296,6 +1300,60 @@ like any other change.
 **Exit codes (waiting):** `1` when the database stays `Degraded` for 5 minutes
 once the change is applied, or starts being deleted, `7` lost contact with kupe-api, `8` on timeout, `130` Ctrl+C
 (the change continues).
+
+#### Logical databases
+
+A database instance can hold up to ten PostgreSQL databases, including its first,
+and up to 20 declared schemas per PostgreSQL database. They share the instance's
+resources and its cap of 20 bound namespaces. They do not consume separate plan
+database slots. The platform can publish smaller limits; its refusal is shown
+with the API's message.
+
+Logical names start with a lowercase letter, contain only lowercase letters,
+numbers and underscores, and have at most 53 characters. PostgreSQL reserves
+`all`, `sameuser`, `samerole`, `samegroup`, `replication`, `postgres`, `template0`
+and `template1`. Added names also reserve `app`, the prefixes `pg_`, `cnpg_`,
+`mdba_`, `mdbb_`, `mdbl_`, and those prefix words on their own. The first database
+keeps its existing identity and does not use those added-name restrictions.
+Schema names follow the same character pattern with at most 63 characters;
+`public`, `information_schema` and names beginning `pg_` are reserved.
+
+```bash
+kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi \
+  --logical-database analytics --schema sales --schema analytics.reporting
+kupe db update orders-db --add-logical-database warehouse \
+  --add-schema warehouse.rollups
+```
+
+For an ordinary create, the first PostgreSQL name is the instance name with
+hyphens replaced by underscores (`orders_db` above). A restore keeps the source's
+first name. `--logical-database` and `--schema` cannot be combined with `--from`
+or `--from-backup`: restore first, then append with `database update`.
+The restore's source and its declared roles and extensions keep their existing
+request behaviour.
+
+Updates read the effective list and append to it, repeating the append on a fresh
+read after a version conflict. Existing databases and schemas cannot be removed
+or renamed. Repeating an existing name leaves it unchanged and prints a note on
+stderr. A schema can target a database added in the same command; an unknown
+target exits 2 and lists the available names. A platform that does not report the
+effective list is refused before a PATCH; requested settings are never dropped.
+
+The wait checks the accepted generation, the Ready condition and each logical
+database's state. A failed logical database ends the wait with the platform's
+explanation. `database get` adds a `Databases` detail row when there is more than
+one entry or any declared schema, showing each name, schemas and phase. JSON and
+YAML retain `postgres.databases` and `status.databases`.
+
+```text
+Databases:  orders_db (schemas: sales) Ready
+            analytics (schemas: reporting) Ready
+```
+
+Inside an added database, connect through its owner binding to grant schema and
+table privileges to its readwrite and readonly roles and set default privileges
+for future objects created by that owner. Ready confirms provisioning and
+credential delivery; it does not verify those tenant grants.
 
 ### `kupe database delete NAME`
 
@@ -1405,8 +1463,8 @@ credentials, rotate the role afterwards to revoke knowledge of its password.
 
 | Command | Description |
 |---------|-------------|
-| `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly\|DECLARED [--dedicated] [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--name` defaults to `DATABASE-CLUSTER-ROLE` (must fit 63 characters); `--secret-name` defaults server-side to `DATABASE-ROLE`. The cluster may not exist yet. |
-| `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `CREDENTIALS`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds the namespace's `ROTATION`, `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
+| `kupe db binding add DATABASE --cluster C --namespace NS [--namespace NS2 ...] --role owner\|readwrite\|readonly\|DECLARED [--dedicated] [--logical-database LOGICAL] [--secret-name S] [--name N]` | Create a binding and wait for it to become `Ready` in every namespace (see below). `--namespace` repeats, 1 to 10 times; more exits `2` before a request is sent. `--logical-database` defaults to the first PostgreSQL database. For the first, `--name` defaults to `DATABASE-CLUSTER-ROLE` and the Secret to `DATABASE-ROLE`; added-database defaults include `LOGICAL` (below). Binding names must fit 63 characters. The cluster may not exist yet. |
+| `kupe db binding list DATABASE` | One row per namespace of each binding: `NAME`, `CLUSTER`, `NAMESPACE`, `ROLE`, `CREDENTIALS`, `SECRET`, `PHASE`, `AGE`; `-o wide` adds `LOGICAL DATABASE` and the namespace's `ROTATION`, `HOST` and `MESSAGE`. `-o json` and `-o yaml` print the bindings as the API returns them. Exits `4` if the database doesn't exist. |
 | `kupe db binding get DATABASE BINDING` | Details including the Secret name and requested/applied/pending rotation state, then a table of its namespaces with each one's phase, rotation progress, in-cluster host and message. A binding of another database exits `4`. |
 | `kupe db binding update DATABASE BINDING [--add-namespace NS]... [--remove-namespace NS]... [--dedicated]` | Change the namespaces a binding lists or turn on dedicated credentials and wait until every listed one is `Ready` and every removed one is withdrawn (see below). |
 | `kupe db binding rotate-credentials DATABASE BINDING` | Rotate dedicated logins for every listed namespace and wait for delivery; `--yes` in automation. |
@@ -1553,6 +1611,23 @@ database is being deleted (`409 terminating`), the binding kept changing
 (`412` twice), or a listed namespace is `Failed` on a name conflict, `1`
 `Failed` for any other reason, `7` lost contact with kupe-api while waiting,
 `8` wait timeout, `130` Ctrl+C while waiting (the change was accepted).
+
+For `binding add`, `--logical-database NAME` selects a PostgreSQL database;
+omitting it selects the first, including a restore's source identity. Explicitly
+selecting the first has the same default names as omitting the selector. For an
+added database, `--name` defaults to `DATABASE-LOGICAL-CLUSTER-ROLE` and the
+server's Secret default is `DATABASE-LOGICAL-ROLE`. Underscores in logical names
+and custom role names become hyphens. Neither default includes a namespace. A
+default binding name over 63 characters exits 2 with a `--name` hint. A taken
+added-database binding name is refused with a `--name` hint; a taken Secret
+default retains the platform's message with a `--secret-name` hint. The logical
+database selector is immutable. Binding detail includes `Logical Database`, and
+JSON and YAML retain `logicalDatabase`.
+
+```bash
+kupe db binding add orders-db --logical-database analytics --cluster prod \
+  --namespace reports --role readonly
+```
 
 ### `kupe database backup` — Manual backups
 

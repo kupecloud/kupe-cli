@@ -458,7 +458,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--cpu-limit QUANTITY` | required | CPU limit (e.g., `2`, `500m`, `1.5`). |
 | `--memory-limit QUANTITY` | required | Memory limit (e.g., `8Gi`, `512Mi`). |
 | `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
-| `--wait` | `true` | Wait for `status.phase=Running`; when logical databases or schemas are requested, also wait until they are ready at the accepted generation. |
+| `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`, `jsonpath=...` (`jsonpath` currently returns a not-implemented error). |
 
@@ -1128,7 +1128,7 @@ Create a database and wait for `status.phase=Running` by default.
 | `--from-backup BACKUP` | — | Restore the new database from this manual backup. |
 | `--from DATABASE` | — | Restore the new database from this database, as it was at `--point-in-time`. |
 | `--point-in-time TIME` | the latest point | With `--from`: the moment to restore to, inside the database's restore window, in RFC 3339 (`2026-10-30T09:00:00Z`). |
-| `--wait` | `true` | Wait for `status.phase=Running`. |
+| `--wait` | `true` | Wait for `status.phase=Running`; when logical databases or schemas are requested, also wait until they are ready at the accepted generation. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
 

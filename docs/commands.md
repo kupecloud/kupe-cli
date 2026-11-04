@@ -874,7 +874,7 @@ kupe app env list shop
 kupe app env get shop production -o json
 kupe app env create shop production -f environment.yaml
 kupe app env create shop staging -f - < environment.yaml
-kupe app env update shop production --env LOG_LEVEL=info
+kupe app env update shop production --set-env LOG_LEVEL=info
 kupe app env update shop production --unset-env OLD_SETTING
 ```
 
@@ -891,7 +891,7 @@ Files are bounded to 1 MiB.
 | `--port N`, `--replicas N` | Web port and replica count (1–10). |
 | `--cpu`, `--memory` | CPU and memory requests per replica. |
 | `--cpu-limit`, `--memory-limit` | CPU and memory limits per replica. |
-| `--env NAME=VALUE` | Set or replace a literal variable; repeatable. |
+| `--set-env NAME=VALUE` | Set or replace a literal variable; repeatable. |
 | `--secret NAME=VAULT_PATH` | Declare a Vault reference; repeatable. |
 | `--secret-env VAR=SECRET:KEY` | Use a declared secret key; repeatable. |
 | `--domain HOST` | Add an exact hostname; repeatable. |
@@ -900,6 +900,10 @@ Files are bounded to 1 MiB.
 | `--no-deletion-protection` | Turn deletion protection off. |
 | `--deletion-protection=BOOL` | Turn protection on or off on update. |
 | `--wait`, `--wait-timeout` | Wait by default; timeout defaults to 30m. |
+
+`--env` remains a hidden, deprecated alias for `--set-env` on create and update.
+Passing both is refused. Use `--set-env` in scripts; the alias will be removed
+at the next breaking CLI release.
 
 On create, unset resources default to requests `250m`/`256Mi` and limits `1`/`512Mi`.
 On update, unset fields keep their current values. A request cannot exceed its
@@ -931,29 +935,94 @@ and exits 7. A plain missing app or environment exits 4.
 ### `kupe app deploy`
 
 ```bash
-kupe app deploy shop production --image ghcr.io/kupecloud/hello-kupe:1.8.3
+kupe app deploy --image ghcr.io/kupecloud/hello-kupe:1.8.3 --yes
 kupe app deploy shop production --image "$IMAGE_DIGEST" --set-env LOG_LEVEL=info --port 8080 --replicas 2 --yes
 ```
 
-A tag is resolved once. The review on stderr shows the tag and immutable digest;
-the deploy submits only the digest. A digest reference is used as supplied.
-The change keeps the environment's current resource requests, limits, variables,
-secret references, probes, commands and arguments. Repeat `--set-env NAME=VALUE`
-to set literal variables. `--port` and `--replicas` change those fields in the same
-release. Domains, secret declarations and deletion protection are kept.
+<!-- Generated from kupe app deploy --help. -->
+```text
+Deploy an image, creating its app and environment when needed.
+With no arguments in a terminal, choose an image, app, environment and cluster.
+Flags provide the same inputs without questions. New environments default to
+production. A missing cluster is created only with --create-cluster or an
+explicit interactive choice. Every write follows one review and confirmation.
 
-Review the configuration and type `yes` to confirm, or pass `--yes` (required
-without a TTY). A version conflict prints the current configuration again and
-exits 5. Run the command again after reviewing it; `--yes` does not resubmit a
-stale review. An unchanged configuration creates no release.
+An existing environment keeps its configuration unless --image, --set-env,
+--port or --replicas changes it. Use app env update for other changes.
+--dry-run checks and reviews the configuration without writing anything.
+By default, wait for this release's outcome; recovery still counts as failure.
+Success prints the HTTPS address, or one compact result with -o json.
 
-Deploy waits for the requested release by default. `--wait=false` returns the
-accepted environment, and `--wait-timeout` defaults to 15m. A failed release exits 1,
-including when recovery succeeds and the previous release is serving again.
+Usage:
+  kupe app deploy [APP [ENV]] [--image IMAGE] [flags]
 
-For `deploy`, `retry`, `wait` and `releases`, omit ENV when the app has exactly
-one environment. If it has several, the command exits 2 and lists their names.
-The `app env` CRUD commands retain their explicit environment arguments.
+Flags:
+      --cluster string           Cluster for a new environment
+      --cpu string               CPU request per replica
+      --cpu-limit string         CPU limit per replica
+      --create-cluster           Create the named cluster if missing (default dev)
+      --domain stringArray       Add an exact hostname
+      --dry-run                  Check and review the deployment without writing
+  -h, --help                     help for deploy
+      --image string             Image tag or digest reference
+      --memory string            Memory request per replica
+      --memory-limit string      Memory limit per replica
+  -o, --output string            Output format: table | json | yaml | go-template=...
+      --port int32               Web port (1-65535)
+      --readiness string         Readiness check: tcp or http:/path
+      --replicas int32           Number of replicas (1-10) (default 1)
+      --secret stringArray       Declare a Vault reference: NAME=VAULT_PATH
+      --secret-env stringArray   Set a secret reference: VAR=SECRET:KEY
+      --set-env stringArray      Set a literal environment variable: NAME=VALUE
+      --wait                     Wait for the requested release (default true)
+      --wait-timeout duration    Give up waiting after this long (default 15m0s)
+  -y, --yes                      Confirm the reviewed deploy
+```
+
+Without APP, the image repository's last segment supplies the app name. The
+command reuses an existing app or creates it. Without ENV, it uses the app's
+only environment, or `production` when there are none. Several environments
+need an interactive choice or an explicit ENV.
+
+For a new environment, one existing cluster is selected automatically. Several
+clusters need a choice or `--cluster`. A missing named cluster is refused unless
+`--create-cluster` was passed; that flag defaults the cluster name to `dev`.
+A terminal can offer to create `dev` when no clusters exist. Cluster creation
+uses the plan's defaults and waits up to 30m for Running before proceeding.
+Use `kupe cluster create` to choose cluster sizing or HA. New environments use
+the image's only exposed TCP port; images with none or several require `--port`
+or a terminal answer. Resource defaults match `app env create`. The review previews the hostname
+prefix when the tenant is known; the platform assigns the domain. The final
+HTTPS address comes from environment status after deployment.
+
+An existing environment keeps its resources, secrets, probes, commands,
+arguments, domains and deletion protection. Only image, literal variables,
+port and replicas may change here. Other runtime flags are refused with a
+pointer to `app env update`. Its cluster stays fixed. A tag resolves once;
+a digest on the existing-environment path is used as supplied. New environments
+resolve tags and digests through the image policy check.
+
+A stale review prints the current configuration and exits 5, including with
+`--yes`. Run the command again after reviewing it. An unchanged configuration
+requests no release; with `--wait`, it waits for the current requested release.
+A failed release exits 1 even when recovery restores the previous release.
+A partial failure keeps created resources and prints a resume command. Literal
+variable values are omitted; set the named variables locally before resuming.
+
+The default output is one HTTPS address. `--wait=false` prints the currently
+known address, which may be empty before deployment settles. All forms now use
+this compact `-o json` result, including explicit APP ENV invocations:
+
+```json
+{"app":"shop","environment":"production","cluster":"europe","release":"shop-production-1","image":"ghcr.io/acme/api@sha256:...","address":"https://shop.example.test","created":{"app":true,"environment":true,"cluster":false}}
+```
+
+For the full environment object, use `kupe app env get APP ENV -o json`.
+Review and progress go to stderr; stdout contains only the result. `--dry-run`
+shows the checks and review on stderr with no stdout result or writes.
+
+For `retry`, `wait` and `releases`, omit ENV when the app has exactly one
+environment. The `app env` CRUD commands retain explicit environment arguments.
 
 ### `kupe app retry`
 

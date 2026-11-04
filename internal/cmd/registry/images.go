@@ -505,3 +505,10 @@ environments).`,
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip interactive confirmation")
 	return cmd
 }
+
+// AllItems applies the registry commands' bounded pagination policy to a
+// resource picker using the same paged API.
+func AllItems[T any](ctx context.Context, fetch func(context.Context, int, int) (*client.Page[T], error)) ([]T, error) {
+	items, _, err := collect(ctx, pageOpts{all: true}, fetch)
+	return items, err
+}

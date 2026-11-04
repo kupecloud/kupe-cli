@@ -1,0 +1,37 @@
+package app
+
+import (
+	"github.com/kupecloud/kupe-cli/internal/cli"
+	"github.com/spf13/cobra"
+)
+
+const setEnvHelp = "Set a literal environment variable: NAME=VALUE"
+const secretEnvHelp = "Set a secret reference: VAR=SECRET:KEY"
+const unsetEnvHelp = "Remove an environment variable by name"
+
+func registerLiteralVariables(cmd *cobra.Command, o *envOptions, legacy bool) {
+	cmd.Flags().StringArrayVar(&o.env, "set-env", nil, setEnvHelp)
+	if legacy {
+		cmd.Flags().StringArrayVar(&o.env, "env", nil, setEnvHelp)
+		_ = cmd.Flags().MarkDeprecated("env", "use --set-env")
+		_ = cmd.Flags().MarkHidden("env")
+	}
+}
+
+func normalizeVariableFlags(cmd *cobra.Command, o *envOptions) error {
+	if cmd.Flags().Changed("env") && cmd.Flags().Changed("set-env") {
+		return cli.MisuseError("pass --set-env or the deprecated --env, not both")
+	}
+	o.literalFlag = "--set-env"
+	if cmd.Flags().Changed("env") {
+		o.literalFlag = "--env"
+	}
+	return nil
+}
+
+func literalVariableFlag(o *envOptions) string {
+	if o.literalFlag != "" {
+		return o.literalFlag
+	}
+	return "--set-env"
+}

@@ -123,6 +123,17 @@ kupe cluster create "ci-$GITHUB_SHA" \
 
 The CLI auto-detects non-TTY environments and switches off colors, spinners, and prompts. See [docs/design.md](./docs/design.md) for the full interactive-vs-CI contract.
 
+Deploy an image with one existing cluster:
+
+```bash
+kupe app deploy --image ghcr.io/kupecloud/hello-kupe:1.8.3 --yes
+```
+
+This creates the app and its `production` environment when needed, waits for the
+release and prints its HTTPS address. Add `--cluster dev --create-cluster` to
+create a cluster too. Run `kupe app deploy` in a terminal for the guided flow,
+or add `--dry-run` to check and review a deployment without writing.
+
 ## Command overview
 
 | Command | Purpose |
@@ -133,6 +144,7 @@ The CLI auto-detects non-TTY environments and switches off colors, spinners, and
 | `kupe cluster create NAME` | Create a new cluster |
 | `kupe cluster kubeconfig NAME` | Fetch or merge a kubeconfig |
 | `kupe cluster delete NAME` | Delete a cluster |
+| `kupe app deploy --image IMAGE --yes` | Deploy an image, creating its app and environment when needed |
 | `kupe app create NAME` | Create an app |
 | `kupe app env create APP ENV -f FILE` | Create an environment from YAML or JSON |
 | `kupe app env get APP ENV` | Show configuration, deployment and recovery |

@@ -286,3 +286,16 @@ func TestMarkMisuseHooks(t *testing.T) {
 		})
 	}
 }
+
+func TestDeployIsOnlyAnAppCommand(t *testing.T) {
+	stderr, err := runRoot(t, nil, "deploy")
+	if cli.ExitCode(err) != cli.ExitGeneral || !strings.Contains(stderr, `unknown command "deploy" for "kupe"`) {
+		t.Fatalf("err=%v stderr=%s", err, stderr)
+	}
+	streams, _, _ := cli.Test()
+	root := newRootCmd(streams, &cli.GlobalFlags{})
+	command, _, err := root.Find([]string{"app", "deploy"})
+	if err != nil || command.CommandPath() != "kupe app deploy" || len(command.Aliases) != 0 {
+		t.Fatalf("command=%v err=%v", command, err)
+	}
+}

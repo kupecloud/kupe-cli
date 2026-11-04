@@ -257,7 +257,7 @@ func splitAssignment(value, flag string) (string, string, error) {
 }
 func applyEnvironmentLists(req *client.CreateAppEnvironmentRequest, o *envOptions) error {
 	for _, entry := range o.env {
-		n, v, err := splitAssignment(entry, "--env")
+		n, v, err := splitAssignment(entry, literalVariableFlag(o))
 		if err != nil {
 			return err
 		}

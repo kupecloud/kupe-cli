@@ -44,7 +44,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 		}
 		app, env, err := selectEnvironment(cmd.Context(), api, args)
 		if err != nil {
-			if len(args) == 1 && strings.Contains(err.Error(), "app has no environments") {
+			if len(args) == 1 && (deployMissing(err) || strings.Contains(err.Error(), "app has no environments")) {
 				return &deployLookupError{err}
 			}
 			return err

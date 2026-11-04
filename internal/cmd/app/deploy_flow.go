@@ -468,6 +468,13 @@ func deployPartialFailure(cmd *cobra.Command, streams *cli.IOStreams, app, env, 
 	fmt.Fprintln(streams.ErrOut, "Created "+strings.Join(names, ", ")+"; these resources were kept.")
 	resume := []string{"kupe", "app", "deploy", shellArgument(app), shellArgument(env), "--image", shellArgument(image), "--yes"}
 	appendFlag := func(name, value string) { resume = append(resume, "--"+name, shellArgument(value)) }
+	// Retain only explicitly supplied non-secret target selectors. Never copy
+	// --token or authentication values into a command that may be logged.
+	for _, name := range []string{"context", "tenant", "api-url", "config"} {
+		if flag := cmd.Flag(name); flag != nil && flag.Changed {
+			appendFlag(name, flag.Value.String())
+		}
+	}
 	appendFlag("cluster", clusterName)
 	if !created.Environment {
 		appendFlag("port", strconv.Itoa(int(o.port)))
@@ -484,14 +491,16 @@ func deployPartialFailure(cmd *cobra.Command, streams *cli.IOStreams, app, env, 
 				appendFlag(pair.name, value)
 			}
 		}
-		for _, entry := range o.env {
+		for i, entry := range o.env {
 			name, _, _ := strings.Cut(entry, "=")
-			// Names were validated before any write. Require local values explicitly;
-			// never reveal entered values or silently substitute an unset variable.
-			resume = append(resume, "--set-env", `"`+name+`=${`+name+`?set `+name+` before retrying}"`)
+			placeholder := fmt.Sprintf("KUPE_DEPLOY_VALUE_%d", i+1)
+			// App variable names may contain dots and hyphens; shell parameters
+			// need portable generated identifiers. Keep their mapping explicit.
+			fmt.Fprintf(streams.ErrOut, "Set %s locally for app variable %s before retrying.\n", placeholder, name)
+			resume = append(resume, "--set-env", `"`+name+`=${`+placeholder+`?set `+placeholder+` before retrying}"`)
 		}
 		if len(o.env) > 0 {
-			fmt.Fprintln(streams.ErrOut, "Set each named variable locally before running the resume command; literal values are omitted.")
+			fmt.Fprintln(streams.ErrOut, "Literal values are omitted from the resume command.")
 		}
 	}
 	if !o.wait {

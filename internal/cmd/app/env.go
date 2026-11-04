@@ -232,7 +232,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	// IOStreams.Out directly, so keep notices away from structured stdout.
 	cmd.SetOut(f.IOStreams.ErrOut)
 	registerLiteralVariables(cmd, o, true)
-	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, secretEnvHelp)
+	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, envReferenceHelp)
 	cmd.Flags().StringArrayVar(&o.secrets, "secret", nil, "Declare a Vault reference: NAME=VAULT_PATH")
 	cmd.Flags().StringArrayVar(&o.domains, "domain", nil, "Add an exact hostname")
 	cmd.Flags().StringVar(&o.readiness, "readiness", "", "Readiness check: tcp or http:/path")

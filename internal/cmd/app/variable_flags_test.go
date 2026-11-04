@@ -14,9 +14,9 @@ import (
 func TestVariableFlagCommandTree(t *testing.T) {
 	root := NewCmd(factoryWith(clienttest.New()))
 	expected := map[string]map[string]string{
-		"app deploy":     {"set-env": setEnvHelp, "secret-env": secretEnvHelp},
-		"app env create": {"set-env": setEnvHelp, "secret-env": secretEnvHelp},
-		"app env update": {"set-env": setEnvHelp, "secret-env": secretEnvHelp, "unset-env": unsetEnvHelp},
+		"app deploy":     {"set-env": setEnvHelp, "secret-env": envReferenceHelp},
+		"app env create": {"set-env": setEnvHelp, "secret-env": envReferenceHelp},
+		"app env update": {"set-env": setEnvHelp, "secret-env": envReferenceHelp, "unset-env": unsetEnvHelp},
 	}
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {

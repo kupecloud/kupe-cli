@@ -93,7 +93,7 @@ Success prints the HTTPS address, or one compact result with -o json.`
 	cmd.Flags().BoolVar(&p.dryRun, "dry-run", false, "Check and review the deployment without writing")
 	cmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create the named cluster if missing (default dev)")
 	cmd.Flags().StringVar(&o.cluster, "cluster", "", "Cluster for a new environment")
-	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, secretEnvHelp)
+	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, envReferenceHelp)
 	cmd.Flags().StringArrayVar(&o.secrets, "secret", nil, "Declare a Vault reference: NAME=VAULT_PATH")
 	cmd.Flags().StringArrayVar(&o.domains, "domain", nil, "Add an exact hostname")
 	cmd.Flags().StringVar(&o.readiness, "readiness", "", "Readiness check: tcp or http:/path")
@@ -104,7 +104,7 @@ Success prints the HTTPS address, or one compact result with -o json.`
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		// Preserve the reviewed RMW path, its single read and preconditions for the
 		// established command form. Only a missing lookup may enter creation.
-		if len(args) > 0 && o.image != "" && !newDeployFlags(cmd) && !p.dryRun && !(interactiveDeploy(f.IOStreams) && len(args) < 2) {
+		if len(args) > 0 && o.image != "" && !newDeployFlags(cmd) && !p.dryRun && (!interactiveDeploy(f.IOStreams) || len(args) >= 2) {
 			err := update(cmd, args)
 			var missing *deployLookupError
 			if !errors.As(err, &missing) {
@@ -514,7 +514,7 @@ func deployPartialFailure(cmd *cobra.Command, streams *cli.IOStreams, app, env, 
 
 func shellArgument(value string) string {
 	if value != "" && strings.IndexFunc(value, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_./:@=+-", r))
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune("_./:@=+-", r)
 	}) < 0 {
 		return value
 	}

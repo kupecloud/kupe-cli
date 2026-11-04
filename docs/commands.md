@@ -1018,7 +1018,9 @@ this compact `-o json` result, including explicit APP ENV invocations:
 {"app":"shop","environment":"production","cluster":"europe","release":"shop-production-1","image":"ghcr.io/acme/api@sha256:...","address":"https://shop.example.test","created":{"app":true,"environment":true,"cluster":false}}
 ```
 
-For the full environment object, use `kupe app env get APP ENV -o json`.
+YAML and Go templates retain the full environment object on every deploy form,
+including `.Web.Image` in templates. For the full environment as JSON, use
+`kupe app env get APP ENV -o json`.
 Review and progress go to stderr; stdout contains only the result. `--dry-run`
 shows the checks and review on stderr with no stdout result or writes.
 

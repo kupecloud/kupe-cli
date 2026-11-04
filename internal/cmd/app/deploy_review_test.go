@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -10,6 +12,9 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/printer"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDeployAppOnlyMissingParentList404StartsCreation(t *testing.T) {
@@ -104,6 +109,72 @@ func TestDeployResumePreservesOnlyExplicitSafeTargetFlags(t *testing.T) {
 	for _, flag := range []string{"--context", "--tenant", "--api-url", "--config", "--token"} {
 		if strings.Contains(notes, flag) {
 			t.Fatal(notes)
+		}
+	}
+}
+
+func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		for _, output := range []string{"yaml", "go-template={{.Web.Image}}", "json", "name", "jsonpath={.web.image}"} {
+			t.Run(fmt.Sprintf("existing=%v/%s", existing, output), func(t *testing.T) {
+				fake := flowFake()
+				args := []string{"deploy"}
+				if existing {
+					fake = releaseFake()
+					args = append(args, "shop", "production")
+				}
+				args = append(args, "--image", nextDigest, "--yes", "--wait=false", "-o", output)
+				out, _, err := run(factoryWith(fake), args...)
+				if strings.HasPrefix(output, "jsonpath=") {
+					streams, _, _ := cli.Test()
+					format, _ := printer.Parse(output)
+					legacyErr := printer.AppEnvironment.One(streams, format, releaseEnvironment())
+					if legacyErr == nil || err == nil || err.Error() != legacyErr.Error() || out != "" {
+						t.Fatalf("err=%v legacy=%v out=%s", err, legacyErr, out)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch output {
+				case "yaml":
+					var item client.AppEnvironment
+					if err := yaml.Unmarshal([]byte(out), &item); err != nil || item.Web == nil || item.Web.Image != nextDigest || item.UID == "" || item.Generation == 0 {
+						t.Fatalf("err=%v item=%+v out=%s", err, item, out)
+					}
+					var raw map[string]any
+					if err := yaml.Unmarshal([]byte(out), &raw); err != nil {
+						t.Fatal(err)
+					}
+					if _, flat := raw["image"]; flat {
+						t.Fatalf("compact YAML: %s", out)
+					}
+				case "go-template={{.Web.Image}}":
+					if out != nextDigest+"\n" {
+						t.Fatalf("template out=%q", out)
+					}
+				case "name":
+					if out != "production\n" {
+						t.Fatalf("name output=%q", out)
+					}
+				case "json":
+					var raw map[string]json.RawMessage
+					if err := json.Unmarshal([]byte(out), &raw); err != nil {
+						t.Fatal(err)
+					}
+					if _, full := raw["web"]; full || raw["image"] == nil || raw["created"] == nil {
+						t.Fatalf("JSON shape: %s", out)
+					}
+					var result deployResult
+					if err := json.Unmarshal([]byte(out), &result); err != nil || result.Image != nextDigest || result.Created.App == existing || result.Created.Environment == existing {
+						t.Fatalf("err=%v result=%+v", err, result)
+					}
+				}
+				if existing && len(fake.AppEnvironmentPatches) != 1 {
+					t.Fatalf("legacy PATCH contract lost: %v", fake.Calls)
+				}
+			})
 		}
 	}
 }

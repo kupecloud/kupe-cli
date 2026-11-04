@@ -305,7 +305,7 @@ func TestDeployFlowResumePreservesFlagsWithoutLiteralValues(t *testing.T) {
 	fake := flowFake()
 	fake.CreateAppEnvironmentErr = errors.New("synthetic failure")
 	_, notes, err := run(factoryWith(fake), "deploy", "--image", nextDigest, "--yes", "--wait=false", "--set-env", "TOKEN=never-print-this", "--port", "9090", "--cpu", "500m", "--domain", "api.example.test")
-	if err == nil || strings.Contains(notes, "never-print-this") || !strings.Contains(notes, `--set-env "TOKEN=${TOKEN?set TOKEN before retrying}"`) || !strings.Contains(notes, "--port 9090") || !strings.Contains(notes, "--cpu 500m") || !strings.Contains(notes, "--domain api.example.test") || !strings.Contains(notes, "--wait=false") {
+	if err == nil || strings.Contains(notes, "never-print-this") || !strings.Contains(notes, `--set-env "TOKEN=${KUPE_DEPLOY_VALUE_1?set KUPE_DEPLOY_VALUE_1 before retrying}"`) || !strings.Contains(notes, "--port 9090") || !strings.Contains(notes, "--cpu 500m") || !strings.Contains(notes, "--domain api.example.test") || !strings.Contains(notes, "--wait=false") {
 		t.Fatalf("err=%v notes=%s", err, notes)
 	}
 	if shellArgument("a'b $(bad)") != `'a'"'"'b $(bad)'` {
@@ -458,7 +458,7 @@ func TestDeployFlowResumeAllowsEmptyButRejectsUnsetVariables(t *testing.T) {
 		command := exec.CommandContext(ctx, "/bin/sh", "-c", "kupe() { printf '%s\\n' \"$@\"; }; "+strings.TrimSpace(resume))
 		command.Env = []string{}
 		if set {
-			command.Env = []string{"TOKEN="}
+			command.Env = []string{"KUPE_DEPLOY_VALUE_1="}
 		}
 		out, err := command.Output()
 		cancel()

@@ -1007,7 +1007,8 @@ A stale review prints the current configuration and exits 5, including with
 requests no release; with `--wait`, it waits for the current requested release.
 A failed release exits 1 even when recovery restores the previous release.
 A partial failure keeps created resources and prints a resume command. Literal
-variable values are omitted; set the named variables locally before resuming.
+variable values are omitted; set the mapped local placeholders before resuming.
+Explicit context, tenant, API URL and config flags are retained. Tokens are omitted.
 
 The default output is one HTTPS address. `--wait=false` prints the currently
 known address, which may be empty before deployment settles. All forms now use

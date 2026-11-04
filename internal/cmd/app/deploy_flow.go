@@ -53,12 +53,8 @@ func (p *deployPresentation) render(f *cli.Factory, format *printer.Format, app,
 	switch format.Kind {
 	case printer.JSON:
 		return printer.PrintJSON(f.IOStreams.Out, result)
-	case printer.YAML:
-		return printer.PrintYAML(f.IOStreams.Out, result)
-	case printer.Template:
-		return printer.PrintTemplate(f.IOStreams.Out, result, format.Template)
-	case printer.JSONPath:
-		return printer.PrintJSONPath(f.IOStreams.Out, result, format.Path)
+	case printer.YAML, printer.Template, printer.JSONPath, printer.Name:
+		return printer.AppEnvironment.One(f.IOStreams, format, item)
 	default:
 		_, err := fmt.Fprintln(f.IOStreams.Out, result.Address)
 		return err

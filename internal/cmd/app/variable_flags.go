@@ -6,7 +6,7 @@ import (
 )
 
 const setEnvHelp = "Set a literal environment variable: NAME=VALUE"
-const secretEnvHelp = "Set a secret reference: VAR=SECRET:KEY"
+const envReferenceHelp = "Set a secret reference: VAR=SECRET:KEY"
 const unsetEnvHelp = "Remove an environment variable by name"
 
 func registerLiteralVariables(cmd *cobra.Command, o *envOptions, legacy bool) {

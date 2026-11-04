@@ -268,7 +268,12 @@ func TestDeployAndRetryUseSharedReleaseWait(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := json.Unmarshal([]byte(out), &got); err != nil || got.Generation != 2 || requestedRelease(&got) != "shop-production-2" {
+			if verb == "deploy" {
+				var result deployResult
+				if err := json.Unmarshal([]byte(out), &result); err != nil || result.Release != "shop-production-2" || result.Image != nextDigest {
+					t.Fatalf("out=%s err=%v", out, err)
+				}
+			} else if err := json.Unmarshal([]byte(out), &got); err != nil || got.Generation != 2 || requestedRelease(&got) != "shop-production-2" {
 				t.Fatalf("out=%s err=%v", out, err)
 			}
 		})

@@ -14,9 +14,7 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
-func newDeployCmd(f *cli.Factory) *cobra.Command {
-	o := &envOptions{}
-	var yes bool
+func deployUpdateCommand(f *cli.Factory, o *envOptions, yes *bool, presentation *deployPresentation) *cobra.Command {
 	cmd := &cobra.Command{Use: "deploy APP [ENV] --image IMAGE", Short: "Deploy an image to an app environment", Long: `Resolve an image tag to its immutable digest, review the change, then deploy.
 Keep the current configuration unless --set-env, --port or --replicas changes it.
 When the app has one environment, ENV may be omitted. Non-interactive use needs
@@ -46,6 +44,9 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 		}
 		app, env, err := selectEnvironment(cmd.Context(), api, args)
 		if err != nil {
+			if len(args) == 1 && strings.Contains(err.Error(), "app has no environments") {
+				return &deployLookupError{err}
+			}
 			return err
 		}
 		source := o.image
@@ -93,9 +94,16 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 			if !reflect.DeepEqual(current.Web.Env, req.Web.Env) {
 				changed = append(changed, "web.env")
 			}
-			reviewRelease(f.IOStreams, "Review deploy", app, env, source, current, req.Web, changed)
+			if presentation.review != nil {
+				presentation.review(current, req.Web, changed)
+			} else {
+				reviewRelease(f.IOStreams, "Review deploy", app, env, source, current, req.Web, changed)
+			}
 			first, expected = current, req.Web
-			if confirmErr := cli.ConfirmAction(f.IOStreams, yes, "deploy", "Deploy this configuration?"); confirmErr != nil {
+			if presentation.dryRun {
+				return nil
+			}
+			if confirmErr := cli.ConfirmAction(f.IOStreams, *yes, "deploy", "Deploy this configuration?"); confirmErr != nil {
 				mutationErr = confirmErr
 				return nil
 			}
@@ -106,6 +114,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 			if reflect.DeepEqual(current.Web, req.Web) {
 				return nil
 			}
+			fmt.Fprintf(f.IOStreams.ErrOut, "deploying %s\n", req.Web.Image)
 			changedRuntime = true
 			return &client.PatchAppEnvironmentRequest{Web: req.Web}
 		}
@@ -125,28 +134,44 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 			return mutationErr
 		}
 		if err != nil {
+			if first == nil && deployMissing(err) {
+				return &deployLookupError{err}
+			}
 			return releaseRequestError(err, app, env, true)
+		}
+		if presentation.dryRun {
+			return nil
 		}
 		if !changedRuntime {
 			fmt.Fprintln(f.IOStreams.ErrOut, "Configuration unchanged; no release requested.")
-			return printer.AppEnvironment.One(f.IOStreams, format, item)
+			if o.wait {
+				target := releaseTarget{uid: item.UID, name: requestedRelease(item), revision: deploymentRevision(item), web: item.Web, secrets: item.Secrets, notice: deployReleaseNotice(f.IOStreams)}
+				if target.name == "" {
+					target.generation = item.Generation
+				}
+				item, err = waitForRelease(cmd.Context(), f.IOStreams, api, app, env, target, o.waitTimeout)
+				if err != nil {
+					return err
+				}
+			}
+			return presentation.render(f, format, app, env, item)
 		}
 		if item == nil || item.UID != first.UID || item.Generation <= first.Generation {
 			return cli.New(cli.ExitUnavailable, "deploy was accepted without a verifiable environment generation; inspect its releases before retrying")
 		}
 		if o.wait {
-			item, err = waitForRelease(cmd.Context(), f.IOStreams, api, app, env, releaseTarget{uid: item.UID, generation: item.Generation, revision: deploymentRevision(item), previous: requestedRelease(first), web: expected, secrets: item.Secrets}, o.waitTimeout)
+			item, err = waitForRelease(cmd.Context(), f.IOStreams, api, app, env, releaseTarget{uid: item.UID, generation: item.Generation, revision: deploymentRevision(item), previous: requestedRelease(first), web: expected, secrets: item.Secrets, notice: deployReleaseNotice(f.IOStreams)}, o.waitTimeout)
 			if err != nil {
 				return err
 			}
 		}
-		return printer.AppEnvironment.One(f.IOStreams, format, item)
+		return presentation.render(f, format, app, env, item)
 	}}
 	cmd.Flags().StringVar(&o.image, "image", "", "Image tag or digest reference (required)")
-	cmd.Flags().StringArrayVar(&o.env, "set-env", nil, "Set a literal environment variable: NAME=VALUE")
+	registerLiteralVariables(cmd, o, false)
 	cmd.Flags().Int32Var(&o.port, "port", 0, "Web port (1-65535)")
 	cmd.Flags().Int32Var(&o.replicas, "replicas", 1, "Number of replicas (1-10)")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Confirm the reviewed deploy")
+	cmd.Flags().BoolVarP(yes, "yes", "y", false, "Confirm the reviewed deploy")
 	cmd.Flags().BoolVar(&o.wait, "wait", true, "Wait for the requested release")
 	cmd.Flags().DurationVar(&o.waitTimeout, "wait-timeout", 15*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "", printer.OutputHelpGet)

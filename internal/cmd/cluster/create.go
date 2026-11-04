@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -104,31 +105,11 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 					name)
 			}
 
-			created, _, err := api.Clusters().Create(cmd.Context(), req)
+			item, err := CreateAndWait(cmd.Context(), f.IOStreams, api, req, opts.wait, opts.waitTimeout)
 			if err != nil {
-				return translateClusterErr(err, name)
+				return err
 			}
-
-			// Render any advisory warnings the API attached to the response
-			// (e.g. HA_K8S_VERSION_RETIRING). Advisory — never fails the
-			// command. Printed to ErrOut to match the HA pre-create style
-			// above and to keep -o json/yaml clean.
-			for _, w := range created.Warnings {
-				fmt.Fprintf(f.IOStreams.ErrOut, "⚠ %s\n", w.Message)
-			}
-
-			if !opts.wait {
-				return printer.Cluster.One(f.IOStreams, fmtp, created)
-			}
-
-			final, werr := service.WaitForPhase(cmd.Context(), f.IOStreams, api, name, client.PhaseRunning, opts.waitTimeout)
-			if werr != nil {
-				return cmdutil.MapWaitErr(werr, "cluster", name, "create")
-			}
-			if final == nil {
-				final = created
-			}
-			return printer.Cluster.One(f.IOStreams, fmtp, final)
+			return printer.Cluster.One(f.IOStreams, fmtp, item)
 		},
 	}
 
@@ -182,4 +163,31 @@ func quantityFlags(cpu, memory, storage string, required bool) []cmdutil.Quantit
 		{Name: "--memory-limit", Value: memory, Required: required, Example: "8Gi"},
 		{Name: "--storage-limit", Value: storage, Required: required, Example: "50Gi"},
 	}
+}
+
+// CreateAndWait shares cluster creation, refusal handling and convergence with
+// flows that create a cluster before creating another resource. A nil Resources
+// request leaves sizing to the platform defaults.
+func CreateAndWait(ctx context.Context, streams *cli.IOStreams, api client.Interface, req client.CreateClusterRequest, wait bool, timeout time.Duration) (*client.Cluster, error) {
+	created, _, err := api.Clusters().Create(ctx, req)
+	if err != nil {
+		return nil, translateClusterErr(err, req.Name)
+	}
+	if created == nil {
+		return nil, cli.New(cli.ExitUnavailable, "cluster create returned no cluster; inspect it before retrying")
+	}
+	for _, warning := range created.Warnings {
+		fmt.Fprintf(streams.ErrOut, "⚠ %s\n", warning.Message)
+	}
+	if !wait {
+		return created, nil
+	}
+	final, err := service.WaitForPhase(ctx, streams, api, req.Name, client.PhaseRunning, timeout)
+	if err != nil {
+		return created, cmdutil.MapWaitErr(err, "cluster", req.Name, "create")
+	}
+	if final == nil {
+		final = created
+	}
+	return final, nil
 }

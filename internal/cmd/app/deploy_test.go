@@ -95,8 +95,8 @@ func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *t
 	if !strings.Contains(review, "hello-kupe:release → "+nextDigest) || strings.Contains(review, privateValue) || !strings.Contains(review, "DB_PASSWORD (secret reference)") {
 		t.Fatalf("review=%s", review)
 	}
-	var result client.AppEnvironment
-	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Web.Image != nextDigest || result.Cluster != current.Cluster || !result.DeletionProtection {
+	var result deployResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Image != nextDigest || result.Cluster != current.Cluster || result.App != "shop" || result.Environment != "production" || result.Created != (deployCreated{}) {
 		t.Fatalf("out=%s err=%v", out, err)
 	}
 }

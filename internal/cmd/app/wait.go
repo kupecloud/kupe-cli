@@ -25,6 +25,7 @@ type releaseTarget struct {
 	name, previous       string
 	web                  *client.AppWeb
 	secrets              []client.AppSecret
+	notice               func(int64)
 }
 
 func newWaitCmd(f *cli.Factory) *cobra.Command {
@@ -134,6 +135,10 @@ func waitForRelease(ctx context.Context, io *cli.IOStreams, api client.Interface
 		if pinned != nil && !matchesRelease(pinned, target) {
 			outcome = cli.New(cli.ExitGeneral, "release no longer matches the requested deployment; inspect the environment before waiting again")
 			return current, client.PhaseDegraded, nil
+		}
+		if pinned != nil && target.notice != nil {
+			target.notice(pinned.Number)
+			target.notice = nil
 		}
 		phase := ""
 		if pinned != nil {

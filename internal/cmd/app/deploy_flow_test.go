@@ -480,3 +480,48 @@ func TestDeployFlowReviewUsesTruthfulAddressPreview(t *testing.T) {
 		t.Fatalf("err=%v notes=%s", err, notes)
 	}
 }
+
+func TestDeployFlowTTYImageUsesResolutionWithoutNamePrompts(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new app", true: "single environment"}[existing], func(t *testing.T) {
+			fake := flowFake()
+			if existing {
+				fake.AppsByName["api"] = &client.App{Name: "api"}
+				fake.AppEnvironmentsByApp["api"] = map[string]*client.AppEnvironment{"staging": releaseEnvironment()}
+				fake.AppEnvironmentsByApp["api"]["staging"].Environment = "staging"
+			}
+			streams, _, _ := cli.TestTTY()
+			streams.PromptsEnabled = true
+			streams.In = strings.NewReader("")
+			f := factoryWith(fake)
+			f.IOStreams = streams
+			out, notes, err := run(f, "deploy", "--image", "ghcr.io/acme/api:1.4", "--yes", "--wait=false", "-o", "json")
+			if err != nil || !json.Valid([]byte(out)) || strings.Contains(notes, "App [") || strings.Contains(notes, "Environment [") {
+				t.Fatalf("err=%v stdout=%s stderr=%s", err, out, notes)
+			}
+			var result deployResult
+			if err := json.Unmarshal([]byte(out), &result); err != nil {
+				t.Fatal(err)
+			}
+			wantEnv := "production"
+			if existing {
+				wantEnv = "staging"
+			}
+			if result.App != "api" || result.Environment != wantEnv || result.Cluster != "europe" {
+				t.Fatalf("result=%+v", result)
+			}
+		})
+	}
+}
+
+func TestDeployFlowExistingRefusesCreateCluster(t *testing.T) {
+	for _, flags := range [][]string{{"--create-cluster"}, {"--create-cluster=false"}, {"--create-cluster", "--cluster", "europe"}} {
+		fake := releaseFake()
+		fake.AppsByName["shop"] = &client.App{Name: "shop"}
+		args := append([]string{"deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"}, flags...)
+		_, _, err := run(factoryWith(fake), args...)
+		if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "kupe app env update") || len(writes(fake)) != 0 {
+			t.Fatalf("flags=%v err=%v calls=%v", flags, err, fake.Calls)
+		}
+	}
+}

@@ -86,9 +86,9 @@ production. A missing cluster is created only with --create-cluster or an
 explicit interactive choice. Every write follows one review and confirmation.
 
 An existing environment keeps its configuration unless --image, --set-env,
---port or --replicas changes it. Use app env update for other changes.
+--port or --replicas changes it. Use kupe app env update for other changes.
 --dry-run checks and reviews the configuration without writing anything.
-By default, wait for this release's outcome; recovery still counts as failure.
+By default, wait for this release's outcome. Recovery still counts as failure.
 Success prints the HTTPS address, or one compact result with -o json.`
 	cmd.Flags().BoolVar(&p.dryRun, "dry-run", false, "Check and review the deployment without writing")
 	cmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create the named cluster if missing (default dev)")
@@ -138,6 +138,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 		return err
 	}
 	interactive := interactiveDeploy(f.IOStreams)
+	chooseNames := o.image == ""
 	if o.image == "" {
 		if !interactive {
 			return cli.MisuseError("pass --image to deploy")
@@ -154,7 +155,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 	appName := deriveAppName(source)
 	if len(args) > 0 {
 		appName = args[0]
-	} else if interactive {
+	} else if interactive && chooseNames {
 		appName, err = cli.PromptLine(cmd.Context(), f.IOStreams, "App", appName)
 		if err != nil {
 			return err
@@ -198,7 +199,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 				return err
 			}
 		}
-		if interactive && len(environments) <= 1 {
+		if interactive && chooseNames && len(environments) <= 1 {
 			envName, err = cli.PromptLine(cmd.Context(), f.IOStreams, "Environment", envName)
 			if err != nil {
 				return err
@@ -328,7 +329,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 }
 
 func existingDeployFlags(cmd *cobra.Command, o *envOptions, e *client.AppEnvironment) error {
-	for _, name := range []string{"secret-env", "secret", "domain", "readiness", "cpu", "memory", "cpu-limit", "memory-limit"} {
+	for _, name := range []string{"create-cluster", "secret-env", "secret", "domain", "readiness", "cpu", "memory", "cpu-limit", "memory-limit"} {
 		if cmd.Flags().Changed(name) {
 			return cli.MisuseError("--" + name + " changes an existing environment; use kupe app env update")
 		}

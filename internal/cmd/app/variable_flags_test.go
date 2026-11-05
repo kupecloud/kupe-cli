@@ -18,6 +18,12 @@ func TestVariableFlagCommandTree(t *testing.T) {
 		"app env create": {"set-env": setEnvHelp, "secret-env": envReferenceHelp},
 		"app env update": {"set-env": setEnvHelp, "secret-env": envReferenceHelp, "unset-env": unsetEnvHelp},
 	}
+	// Keep the non-variable flags explicit too: an invented variable flag must
+	// fail this check even when its name and help never mention "env".
+	nonVariable := map[string]bool{}
+	for _, name := range strings.Fields("cluster cpu cpu-limit create-cluster deletion-protection domain dry-run file for help image memory memory-limit no-deletion-protection number output phase port readiness remove-domain remove-secret replicas secret timeout wait wait-timeout yes") {
+		nonVariable[name] = true
+	}
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
 		flags := expected[cmd.CommandPath()]
@@ -28,11 +34,11 @@ func TestVariableFlagCommandTree(t *testing.T) {
 			}
 		}
 		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
-			if !strings.Contains(flag.Name, "env") {
+			if nonVariable[flag.Name] {
 				return
 			}
 			if flag.Name == "env" {
-				if flags == nil || cmd.Name() == "deploy" || !flag.Hidden || !strings.Contains(flag.Deprecated, "use --set-env") {
+				if flags == nil || cmd.Name() == "deploy" || !flag.Hidden {
 					t.Errorf("unexpected alias on %s", cmd.CommandPath())
 				}
 			} else if _, ok := flags[flag.Name]; !ok {
@@ -65,7 +71,10 @@ func TestVariableAliasMatchesCanonicalAndReportsTypedFlag(t *testing.T) {
 				if !json.Valid([]byte(out)) {
 					t.Fatalf("structured stdout polluted: %s", out)
 				}
-				if flag == "--env" && !strings.Contains(notes, "use --set-env") {
+				if flag == "--env" && strings.Count(notes, "Flag --env has been deprecated, use --set-env") != 1 {
+					t.Fatal(notes)
+				}
+				if flag == "--set-env" && strings.Contains(notes, "deprecated") {
 					t.Fatal(notes)
 				}
 				var value string
@@ -93,5 +102,19 @@ func TestVariableAliasMatchesCanonicalAndReportsTypedFlag(t *testing.T) {
 		if cli.ExitCode(err) != cli.ExitMisuse || len(writes(fake)) != 0 {
 			t.Fatalf("err=%v calls=%v", err, fake.Calls)
 		}
+	}
+}
+
+func TestEnvironmentHelpGoesToStdout(t *testing.T) {
+	for _, verb := range []string{"create", "update"} {
+		t.Run(verb, func(t *testing.T) {
+			out, notes, err := run(factoryWith(clienttest.New()), "env", verb, "--help")
+			if err != nil || !strings.Contains(out, "Usage:") || !strings.Contains(out, "--set-env") || notes != "" {
+				t.Fatalf("err=%v stdout=%q stderr=%q", err, out, notes)
+			}
+			if strings.Contains(out, "--env ") {
+				t.Fatal("deprecated alias appeared in help")
+			}
+		})
 	}
 }

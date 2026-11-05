@@ -948,9 +948,9 @@ production. A missing cluster is created only with --create-cluster or an
 explicit interactive choice. Every write follows one review and confirmation.
 
 An existing environment keeps its configuration unless --image, --set-env,
---port or --replicas changes it. Use app env update for other changes.
+--port or --replicas changes it. Use kupe app env update for other changes.
 --dry-run checks and reviews the configuration without writing anything.
-By default, wait for this release's outcome; recovery still counts as failure.
+By default, wait for this release's outcome. Recovery still counts as failure.
 Success prints the HTTPS address, or one compact result with -o json.
 
 Usage:
@@ -986,28 +986,28 @@ need an interactive choice or an explicit ENV.
 
 For a new environment, one existing cluster is selected automatically. Several
 clusters need a choice or `--cluster`. A missing named cluster is refused unless
-`--create-cluster` was passed; that flag defaults the cluster name to `dev`.
+`--create-cluster` was passed. That flag defaults the cluster name to `dev`.
 A terminal can offer to create `dev` when no clusters exist. Cluster creation
 uses the plan's defaults and waits up to 30m for Running before proceeding.
 Use `kupe cluster create` to choose cluster sizing or HA. New environments use
-the image's only exposed TCP port; images with none or several require `--port`
+the image's only exposed TCP port. Images with none or several require `--port`
 or a terminal answer. Resource defaults match `app env create`. The review previews the hostname
-prefix when the tenant is known; the platform assigns the domain. The final
+prefix when the tenant is known. The platform assigns the domain. The final
 HTTPS address comes from environment status after deployment.
 
 An existing environment keeps its resources, secrets, probes, commands,
 arguments, domains and deletion protection. Only image, literal variables,
 port and replicas may change here. Other runtime flags are refused with a
-pointer to `app env update`. Its cluster stays fixed. A tag resolves once;
-a digest on the existing-environment path is used as supplied. New environments
+pointer to `kupe app env update`. Its cluster stays fixed. A tag resolves once.
+A digest on the existing-environment path is used as supplied. New environments
 resolve tags and digests through the image policy check.
 
 A stale review prints the current configuration and exits 5, including with
 `--yes`. Run the command again after reviewing it. An unchanged configuration
-requests no release; with `--wait`, it waits for the current requested release.
+requests no release. With `--wait`, it waits for the current requested release.
 A failed release exits 1 even when recovery restores the previous release.
 A partial failure keeps created resources and prints a resume command. Literal
-variable values are omitted; set the mapped local placeholders before resuming.
+variable values are omitted. Set the mapped local placeholders before resuming.
 Explicit context, tenant, API URL and config flags are retained. Tokens are omitted.
 
 The default output is one HTTPS address. `--wait=false` prints the currently
@@ -1021,7 +1021,7 @@ this compact `-o json` result, including explicit APP ENV invocations:
 YAML and Go templates retain the full environment object on every deploy form,
 including `.Web.Image` in templates. For the full environment as JSON, use
 `kupe app env get APP ENV -o json`.
-Review and progress go to stderr; stdout contains only the result. `--dry-run`
+Review and progress go to stderr. Stdout contains only the result. `--dry-run`
 shows the checks and review on stderr with no stdout result or writes.
 
 For `retry`, `wait` and `releases`, omit ENV when the app has exactly one

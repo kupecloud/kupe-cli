@@ -114,7 +114,7 @@ Updates retain list entries unless you replace them in a file or remove them
 with --unset-env, --remove-secret or --remove-domain. The cluster and environment
 name cannot change. By default, wait until the new generation is observed and
 the environment settles. --wait=false returns as soon as the change is accepted.`, Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := normalizeVariableFlags(cmd, o); err != nil {
+		if err := normalizeVariableFlags(cmd, o, f.IOStreams); err != nil {
 			return err
 		}
 		parent, name := args[0], args[1]
@@ -228,9 +228,6 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().StringVar(&o.memory, "memory", "", "Memory request per replica")
 	cmd.Flags().StringVar(&o.cpuLimit, "cpu-limit", "", "CPU limit per replica")
 	cmd.Flags().StringVar(&o.memoryLimit, "memory-limit", "", "Memory limit per replica")
-	// Cobra sends deprecation notices to command output; resource output uses
-	// IOStreams.Out directly, so keep notices away from structured stdout.
-	cmd.SetOut(f.IOStreams.ErrOut)
 	registerLiteralVariables(cmd, o, true)
 	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, envReferenceHelp)
 	cmd.Flags().StringArrayVar(&o.secrets, "secret", nil, "Declare a Vault reference: NAME=VAULT_PATH")

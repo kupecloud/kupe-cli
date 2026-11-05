@@ -33,7 +33,9 @@ func TestVariableFlagCommandTree(t *testing.T) {
 				t.Errorf("%s --%s: %v", cmd.CommandPath(), name, flag)
 			}
 		}
-		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
+		// LocalFlags includes this command's persistent declarations; walking
+		// every parent checks those inherited by its descendants as well.
+		cmd.LocalFlags().VisitAll(func(flag *pflag.Flag) {
 			if nonVariable[flag.Name] {
 				return
 			}

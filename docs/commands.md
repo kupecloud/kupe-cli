@@ -330,7 +330,7 @@ Create or update a context. If NAME exists, merge the provided fields.
 
 ```bash
 $ kupe config set-context staging --api-url https://api.staging.kupe.cloud --tenant acme-staging
-$ kupe config set-context dev --api-url api.dev.int.kupe.cloud --signup-url signup.dev.int.kupe.cloud
+$ kupe config set-context dev --api-url api.staging.kupe.cloud --signup-url signup.staging.kupe.cloud
 ```
 
 ### `kupe config delete-context NAME`
@@ -355,7 +355,7 @@ Preference keys: `output`, `color`, `wait`, `waitTimeout`.
 $ kupe config get contexts.prod.apiUrl
 https://api.kupe.cloud
 
-$ kupe config set contexts.dev.signupUrl signup.dev.int.kupe.cloud
+$ kupe config set contexts.dev.signupUrl signup.staging.kupe.cloud
 
 $ kupe config set preferences.waitTimeout 15m
 

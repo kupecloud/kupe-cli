@@ -118,8 +118,8 @@ Lives at [`test/live/`](../test/live/). Mirrors the [kupe-api `test/live/` conve
 # Required:
 export KUPE_API_TOKEN=kupe_…           # admin key on the testing tenant,
                                         # OR an OIDC JWT bearer
-# Optional (defaults shown):
-export KUPE_API_URL=https://api.dev.int.kupe.cloud
+export KUPE_API_URL=https://api.kupe.cloud   # the API under test (required)
+# Optional (default shown):
 export KUPE_TEST_TENANT=kupe-test
 # Slow lifecycle test (5-8 min); off by default:
 export KUPE_LIVE_CLUSTER=1
@@ -154,14 +154,14 @@ Patterns to follow when adding a test:
 
 **Auth-mode parity (OIDC vs apikey):** the same suite runs unmodified for either token type — the CLI's `--token` / `KUPE_API_TOKEN` path doesn't care if the bearer is a `kupe_...` API key or an OIDC access token. To verify both auth paths end-to-end, run `make test-live` twice: once with an API key and once with an access token from `kupe auth login --method oidc`.
 
-**Manual OIDC smoke test:** the device-code login itself can't be automated in `go test` — it needs a real Authentik to issue a code and a real human to approve. Test it interactively against dev:
+**Manual OIDC smoke test:** the device-code login itself can't be automated in `go test` — it needs an OIDC provider to issue a code and a real human to approve. Test it interactively against a non-production environment:
 
 ```bash
 unset KUPE_API_TOKEN
 ./bin/kupe auth login \
     --tenant kupe-test \
-    --api-url https://api.dev.int.kupe.cloud \
-    --oidc-base-url https://auth.dev.int.kupe.cloud
+    --api-url https://api.staging.kupe.cloud \
+    --oidc-base-url https://auth.staging.kupe.cloud
 ./bin/kupe auth whoami        # should report your email + the tenant
 ./bin/kupe cluster list       # any authenticated noun proves the JWT path
 ```

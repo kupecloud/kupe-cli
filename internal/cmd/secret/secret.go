@@ -1,5 +1,5 @@
 // Package secret wires the "kupe secret" subcommand tree for managed
-// tenant secrets. Values are stored in OpenBao; the CLI
+// tenant secrets. Values are stored in Vault; the CLI
 // also handles versioned value writes, Vault path pointers, and per-cluster/
 // -namespace sync targets.
 package secret

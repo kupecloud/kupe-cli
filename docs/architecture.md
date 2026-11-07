@@ -25,7 +25,7 @@ graph TD
     CLI --> GW[Cilium Gateway<br/>api.kupe.cloud]
     GW --> API[kupe-api]
     API --> K8s[Kubernetes API]
-    K8s --> CRDs[Tenant, ManagedCluster,<br/>ManagedSecret, APIKey CRDs]
+    K8s --> CRDs[Tenant, ManagedCluster,<br/>secret definition, APIKey CRDs]
     CRDs -. "async" .-> Operator[kupe-control-operator]
 
     style CLI fill:#4a90d9,color:#fff

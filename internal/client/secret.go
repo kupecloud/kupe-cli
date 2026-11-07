@@ -6,8 +6,8 @@ import (
 	"net/http"
 )
 
-// Secret mirrors kupe-api's managedSecretResponse. The server stores the
-// actual secret material in OpenBao (see kupe-control-operator) and only
+// Secret mirrors the API's secret definition response. The server stores the
+// actual secret material in Vault and only
 // returns metadata: the Vault path pointer plus a list of clusters/
 // namespaces the secret is synced to.
 type Secret struct {
@@ -68,7 +68,7 @@ type CreateSecretRequest struct {
 
 // PatchSecretRequest updates a secret. Only the sync list is mutable via
 // the API — secretPath is immutable post-create (the CRD is too, because
-// the secret is seeded once into OpenBao).
+// the secret is seeded once into Vault).
 type PatchSecretRequest struct {
 	Sync []SyncTarget `json:"sync"`
 }

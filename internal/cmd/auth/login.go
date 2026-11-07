@@ -83,11 +83,11 @@ want more than one context per tenant (e.g., two API environments).`,
 		Example: `  # Interactive OIDC login on your laptop
   kupe auth login --tenant acme
 
-  # Same, against a non-default Authentik (dev/staging override).
+  # Same, against a different environment (override the API and OIDC hosts).
   # Bare hostnames are fine. The CLI prepends https:// when missing.
   kupe auth login --tenant acme \
-      --api-url api.dev.int.kupe.cloud \
-      --oidc-base-url auth.dev.int.kupe.cloud
+      --api-url api.staging.kupe.cloud \
+      --oidc-base-url auth.staging.kupe.cloud
 
   # Store a long-lived API key as a context. Omit --token to be prompted for
   # it without echo. Passing it inline leaves the token in shell history and

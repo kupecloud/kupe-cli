@@ -364,7 +364,7 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 			return cli.MisuseError("invalid " + entry.flag + " limit quantity")
 		}
 		if request.Cmp(limit) > 0 {
-			return cli.MisuseError(fmt.Sprintf("--%s %s exceeds the %s limit %s; raise it with --%s-limit", entry.flag, entry.request, entry.label, entry.limit, entry.flag))
+			return cli.MisuseError(fmt.Sprintf("%s request %s exceeds the %s limit %s; lower the request or raise the limit", entry.label, entry.request, entry.label, entry.limit))
 		}
 	}
 	for _, list := range [][]string{w.Command, w.Args} {
@@ -441,7 +441,9 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 	return nil
 }
 
-var vaultReferencePath = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
+// vaultReferencePath is the grammar kupe-api accepts for a Vault path
+// (secretPathPattern in handler_secret.go).
+var vaultReferencePath = regexp.MustCompile(`^[a-zA-Z0-9]([-a-zA-Z0-9_./]*[a-zA-Z0-9])?$`)
 var validDomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 // changedTargets compares only user-edited fields, leaving unrelated concurrent

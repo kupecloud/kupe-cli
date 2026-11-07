@@ -99,7 +99,7 @@ func TestBuildIssuerURL(t *testing.T) {
 	}{
 		{"https://auth.kupe.cloud", "kupe-cli", "https://auth.kupe.cloud/application/o/kupe-cli/"},
 		{"https://auth.kupe.cloud/", "kupe-cli", "https://auth.kupe.cloud/application/o/kupe-cli/"},
-		{"https://auth.dev.int.kupe.cloud//", "other-app", "https://auth.dev.int.kupe.cloud/application/o/other-app/"},
+		{"https://auth.staging.kupe.cloud//", "other-app", "https://auth.staging.kupe.cloud/application/o/other-app/"},
 		{"", "kupe-cli", ""},
 		{"https://auth.kupe.cloud", "", ""},
 	}
@@ -115,15 +115,15 @@ func TestResolveComputesOIDCIssuerFromBase(t *testing.T) {
 	cfg := &Config{
 		CurrentContext: "dev",
 		Contexts: []Context{
-			{Name: "dev", APIURL: "https://api.dev.int.kupe.cloud", Tenant: "kupe-test",
-				OIDCBaseURL: "https://auth.dev.int.kupe.cloud"},
+			{Name: "dev", APIURL: "https://api.staging.kupe.cloud", Tenant: "kupe-test",
+				OIDCBaseURL: "https://auth.staging.kupe.cloud"},
 		},
 	}
 	r := Resolve(Flags{}, Env{}, cfg)
-	if r.OIDCBaseURL != "https://auth.dev.int.kupe.cloud" {
+	if r.OIDCBaseURL != "https://auth.staging.kupe.cloud" {
 		t.Errorf("OIDCBaseURL = %q", r.OIDCBaseURL)
 	}
-	if r.OIDCIssuer != "https://auth.dev.int.kupe.cloud/application/o/kupe-cli/" {
+	if r.OIDCIssuer != "https://auth.staging.kupe.cloud/application/o/kupe-cli/" {
 		t.Errorf("OIDCIssuer = %q", r.OIDCIssuer)
 	}
 }
@@ -165,7 +165,7 @@ func TestValidateKupeURL(t *testing.T) {
 	}{
 		{"empty accepted", "", false},
 		{"prod api", "https://api.kupe.cloud", false},
-		{"dev internal", "https://api.dev.int.kupe.cloud", false},
+		{"dev internal", "https://api.staging.kupe.cloud", false},
 		{"bare kupe.cloud", "https://kupe.cloud", false},
 		{"http scheme on kupe.cloud rejected", "http://api.kupe.cloud", true},
 		{"with port", "https://api.kupe.cloud:8443", false},
@@ -190,14 +190,14 @@ func TestResolveSignupURLPrecedence(t *testing.T) {
 		CurrentContext: "prod",
 		Contexts: []Context{
 			{Name: "prod", APIURL: "https://api.kupe.cloud", Tenant: "acme"},
-			{Name: "dev", APIURL: "https://api.dev.int.kupe.cloud", Tenant: "acme", SignupURL: "signup.dev.int.kupe.cloud"},
+			{Name: "dev", APIURL: "https://api.staging.kupe.cloud", Tenant: "acme", SignupURL: "signup.staging.kupe.cloud"},
 		},
 	}
 	if r := Resolve(Flags{}, Env{}, cfg); r.SignupURL != DefaultSignupURL {
 		t.Errorf("default: SignupURL = %q; want %q", r.SignupURL, DefaultSignupURL)
 	}
 	// Context value wins over the default and gets a scheme prepended.
-	if r := Resolve(Flags{Context: "dev"}, Env{}, cfg); r.SignupURL != "https://signup.dev.int.kupe.cloud" {
+	if r := Resolve(Flags{Context: "dev"}, Env{}, cfg); r.SignupURL != "https://signup.staging.kupe.cloud" {
 		t.Errorf("context: SignupURL = %q", r.SignupURL)
 	}
 	// Env wins over the context.

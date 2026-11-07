@@ -118,7 +118,7 @@ Lives at [`test/live/`](../test/live/). Mirrors the [kupe-api `test/live/` conve
 # Required:
 export KUPE_API_TOKEN=kupe_…           # admin key on the testing tenant,
                                         # OR an OIDC JWT bearer
-export KUPE_API_URL=https://api.kupe.cloud   # the API under test (required)
+export KUPE_API_URL=https://YOUR-TEST-API   # a non-production API (required): the suite creates real resources
 # Optional (default shown):
 export KUPE_TEST_TENANT=kupe-test
 # Slow lifecycle test (5-8 min); off by default:

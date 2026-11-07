@@ -17,7 +17,9 @@ func newRetryCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{Use: "retry APP [ENV]", Short: "Deploy the current configuration again", Long: `Review the current configuration and request a new Retry release.
 When the app has one environment, ENV may be omitted. Non-interactive use needs
 --yes. A stale review is shown again and requires a new command, even with --yes.
-By default, wait for the requested release; successful recovery still exits 1.`, Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
+By default, wait for the requested release; successful recovery still exits 1.
+A retry fetches fresh secret values, so it also applies values saved since the
+last release to running pods.`, Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cobra.Command, args []string) error {
 		if timeout <= 0 {
 			return cli.MisuseError("--wait-timeout must be positive")
 		}

@@ -441,8 +441,8 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 	return nil
 }
 
-// vaultReferencePath is the grammar kupe-api accepts for a Vault path
-// (secretPathPattern in handler_secret.go).
+// vaultReferencePath is the grammar the API accepts for a Vault path: it
+// starts and ends with a letter or digit.
 var vaultReferencePath = regexp.MustCompile(`^[a-zA-Z0-9]([-a-zA-Z0-9_./]*[a-zA-Z0-9])?$`)
 var validDomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 

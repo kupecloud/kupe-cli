@@ -141,7 +141,7 @@ func TestEnvironmentInputByteLimitAndStrictParsingRemain(t *testing.T) {
 	}
 }
 
-// The Vault path grammar matches kupe-api's secretPathPattern: it starts and
+// The Vault path grammar matches the API's: it starts and
 // ends with a letter or digit, and allows - _ . / between.
 func TestSecretReferencePathGrammarMatchesAPI(t *testing.T) {
 	for path, ok := range map[string]bool{

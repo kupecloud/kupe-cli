@@ -130,6 +130,11 @@ func interactiveDeploy(streams *cli.IOStreams) bool {
 }
 
 func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool, createCluster bool, p *deployPresentation, update func(*cobra.Command, []string) error, args []string) error {
+	// A bad -o is refused first, on every path, before any API call.
+	format, err := printer.Resolve(f, o.output)
+	if err != nil {
+		return err
+	}
 	if o.waitTimeout <= 0 {
 		return cli.MisuseError("--wait-timeout must be positive")
 	}
@@ -266,10 +271,6 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 		}
 	}
 	req, err := o.build(cmd, nil, nil, envName)
-	if err != nil {
-		return err
-	}
-	format, err := printer.Resolve(f, o.output)
 	if err != nil {
 		return err
 	}

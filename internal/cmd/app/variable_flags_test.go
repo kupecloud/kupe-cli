@@ -52,46 +52,44 @@ func TestVariableFlagCommandTree(t *testing.T) {
 
 func TestSetEnvSetsVariableAndReportsTypedFlag(t *testing.T) {
 	for _, verb := range []string{"create", "update"} {
-		for _, flag := range []string{"--set-env"} {
-			t.Run(verb+flag, func(t *testing.T) {
-				fake := releaseFake()
-				if verb == "create" {
-					delete(fake.AppEnvironmentsByApp["shop"], "production")
-				}
-				args := []string{"env", verb, "shop", "production", flag, "LOG_LEVEL=info", "--wait=false", "-o", "json"}
-				if verb == "create" {
-					args = append(args, "--cluster", "europe", "--image", digest, "--port", "8080")
-				}
-				out, notes, err := run(factoryWith(fake), args...)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !json.Valid([]byte(out)) {
-					t.Fatalf("structured stdout polluted: %s", out)
-				}
-				if strings.Contains(notes, "deprecated") {
-					t.Fatal(notes)
-				}
-				var value string
-				if verb == "create" {
-					value = *fake.AppEnvironmentCreates[0].Web.Env[0].Value
-				} else {
-					for _, v := range fake.AppEnvironmentPatches[0].Web.Env {
-						if v.Name == "LOG_LEVEL" {
-							value = *v.Value
-						}
+		t.Run(verb, func(t *testing.T) {
+			fake := releaseFake()
+			if verb == "create" {
+				delete(fake.AppEnvironmentsByApp["shop"], "production")
+			}
+			args := []string{"env", verb, "shop", "production", "--set-env", "LOG_LEVEL=info", "--wait=false", "-o", "json"}
+			if verb == "create" {
+				args = append(args, "--cluster", "europe", "--image", digest, "--port", "8080")
+			}
+			out, notes, err := run(factoryWith(fake), args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !json.Valid([]byte(out)) {
+				t.Fatalf("structured stdout polluted: %s", out)
+			}
+			if strings.Contains(notes, "deprecated") {
+				t.Fatal(notes)
+			}
+			var value string
+			if verb == "create" {
+				value = *fake.AppEnvironmentCreates[0].Web.Env[0].Value
+			} else {
+				for _, v := range fake.AppEnvironmentPatches[0].Web.Env {
+					if v.Name == "LOG_LEVEL" {
+						value = *v.Value
 					}
 				}
-				if value != "info" {
-					t.Fatal(value)
-				}
-				fake = releaseFake()
-				_, _, err = run(factoryWith(fake), "env", verb, "shop", "production", flag, "broken", "--wait=false")
-				if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), flag) {
-					t.Fatalf("%v", err)
-				}
-			})
-		}
+			}
+			if value != "info" {
+				t.Fatal(value)
+			}
+			fake = releaseFake()
+			_, _, err = run(factoryWith(fake), "env", verb, "shop", "production", "--set-env", "broken", "--wait=false")
+			if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "--set-env") {
+				t.Fatalf("%v", err)
+			}
+		})
 	}
 }
 

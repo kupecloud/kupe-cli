@@ -12,6 +12,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/client/clienttest"
 
 	"gopkg.in/yaml.v3"
 )
@@ -169,19 +170,30 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 	}
 }
 
-// -o jsonpath is refused before the deploy writes anything.
-func TestDeployRefusesJSONPathBeforeWriting(t *testing.T) {
-	for _, existing := range []bool{false, true} {
-		fake := flowFake()
-		args := []string{"deploy"}
-		if existing {
-			fake = releaseFake()
-			args = append(args, "shop", "production")
-		}
-		args = append(args, "--image", nextDigest, "--yes", "--wait=false", "-o", "jsonpath={.web.image}")
-		out, _, err := run(factoryWith(fake), args...)
-		if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "-o jsonpath is not supported") || out != "" || len(writes(fake)) != 0 {
-			t.Fatalf("existing=%v err=%v out=%q calls=%v", existing, err, out, fake.Calls)
+// A bad -o is refused on every deploy path (new environment, existing
+// environment, and without --image) before any API call at all.
+func TestDeployRefusesBadOutputBeforeAnyAPICall(t *testing.T) {
+	for _, output := range []string{"jsonpath={.web.image}", "bogus"} {
+		for _, tc := range []struct {
+			name string
+			args []string
+			fake func() *clienttest.Fake
+		}{
+			{"new", []string{"deploy", "--image", nextDigest, "--yes", "--wait=false"}, flowFake},
+			{"existing", []string{"deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"}, releaseFake},
+			{"no image", []string{"deploy", "--yes"}, flowFake},
+			{"dry run", []string{"deploy", "--image", nextDigest, "--dry-run"}, flowFake},
+		} {
+			t.Run(output+"/"+tc.name, func(t *testing.T) {
+				fake := tc.fake()
+				out, _, err := run(factoryWith(fake), append(tc.args, "-o", output)...)
+				if cli.ExitCode(err) != cli.ExitMisuse || out != "" || len(fake.Calls) != 0 {
+					t.Fatalf("err=%v out=%q calls=%v", err, out, fake.Calls)
+				}
+				if output != "bogus" && !strings.Contains(err.Error(), "-o jsonpath is not supported") {
+					t.Fatal(err)
+				}
+			})
 		}
 	}
 }

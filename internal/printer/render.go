@@ -29,8 +29,6 @@ func RenderList[T any](out io.Writer, format *Format, items []T, columns Columns
 		})
 	case Template:
 		return PrintTemplate(out, items, format.Template)
-	case JSONPath:
-		return PrintJSONPath(out, items, format.Path)
 	}
 	return fmt.Errorf("unhandled output kind %v", format.Kind)
 }
@@ -56,8 +54,6 @@ func RenderOne[T any](out io.Writer, format *Format, item *T, detailColumns Colu
 		})
 	case Template:
 		return PrintTemplate(out, item, format.Template)
-	case JSONPath:
-		return PrintJSONPath(out, item, format.Path)
 	}
 	return fmt.Errorf("unhandled output kind %v", format.Kind)
 }

@@ -57,9 +57,9 @@ For OIDC end-to-end testing, see [docs/testing.md](./docs/testing.md).
   using `cli.Test()` IOStreams for command-level testing. Live tests
   (`test/live/`) are gated behind the `live` build tag and run via
   `make test-live` against a real kupe-api.
-- **No vendored deps without a reason.** Run `go mod tidy && go mod vendor`
-  if you've changed imports; the diff in `vendor/modules.txt` should be
-  clean.
+- **Dependencies are pinned by `go.sum`.** Run `go mod tidy` if you've changed
+  imports. `vendor/` is not committed (it is gitignored); the release build
+  regenerates it with `go mod vendor`, and `make vendor` does the same locally.
 - **Pre-commit hooks** are the CI gate: the PR and `main` workflows run
   `pre-commit run --all-files --hook-stage manual` as one job. A commit runs
   the fast hooks (`gofmt`, `govulncheck`, `markdownlint`, secrets). The slow

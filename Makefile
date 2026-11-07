@@ -9,7 +9,6 @@ GOARCH ?= $(shell go env GOARCH)
 
 # Go settings
 GO := go
-GOFLAGS := -mod=vendor
 GOCACHE ?= $(PWD)/.tmp/go-build
 GORELEASER_VERSION := v2.15.2
 
@@ -26,7 +25,7 @@ all: build
 ## Build
 
 build: ## Build the binary into bin/kupe for the target OS/arch
-	GOCACHE="$(GOCACHE)" CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/kupe ./cmd/kupe
+	GOCACHE="$(GOCACHE)" CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -ldflags "$(LDFLAGS)" -o bin/kupe ./cmd/kupe
 
 build-local: ## Build for local OS/arch (alias for build)
 	$(MAKE) build
@@ -47,20 +46,20 @@ vendor: tidy ## Vendor dependencies
 ## Testing
 
 test: ## Run unit tests
-	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) -v ./internal/...
+	GOCACHE="$(GOCACHE)" $(GO) test -v ./internal/...
 
 test-coverage: ## Run tests with coverage report
-	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) -v -coverprofile=coverage.out ./internal/...
+	GOCACHE="$(GOCACHE)" $(GO) test -v -coverprofile=coverage.out ./internal/...
 	GOCACHE="$(GOCACHE)" $(GO) tool cover -html=coverage.out -o coverage.html
 
 test-update: ## Update golden files
-	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) ./internal/printer -update
+	GOCACHE="$(GOCACHE)" $(GO) test ./internal/printer -update
 
 test-live: ## Run live tests against deployed kupe-api. Requires KUPE_API_TOKEN and KUPE_API_URL. See test/live/suite_test.go header.
-	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) -tags=live -timeout=45m -v ./test/live/...
+	GOCACHE="$(GOCACHE)" $(GO) test -tags=live -timeout=45m -v ./test/live/...
 
 vet-live: ## Compile-check the live suite without running it (no credentials needed); CI runs this on every PR
-	GOCACHE="$(GOCACHE)" $(GO) vet $(GOFLAGS) -tags=live ./test/live/...
+	GOCACHE="$(GOCACHE)" $(GO) vet -tags=live ./test/live/...
 
 ## Linting
 

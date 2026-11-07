@@ -20,12 +20,11 @@
 //         CLI surface but with the OIDC token validation path on the
 //         server. The CLI itself doesn't care which is set.
 //  3. The runner has network reach to the API — usually via WireGuard
-//     to the private dev API (api.dev.int.kupe.cloud).
+//     to a non-public API.
 //
 // Environment variables
 //
-//	KUPE_API_URL         Base URL of the deployed API.
-//	                     Default: https://api.dev.int.kupe.cloud
+//	KUPE_API_URL         Required. Base URL of the deployed API.
 //	KUPE_API_TOKEN       Required. API key or OIDC bearer.
 //	KUPE_TEST_TENANT     Tenant slug the tests target.
 //	                     Default: kupe-test
@@ -58,10 +57,7 @@ import (
 	"time"
 )
 
-const (
-	defaultAPIURL = "https://api.dev.int.kupe.cloud"
-	defaultTenant = "kupe-test"
-)
+const defaultTenant = "kupe-test"
 
 var (
 	apiBaseURL string
@@ -71,10 +67,14 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	apiBaseURL = envOrDefault("KUPE_API_URL", defaultAPIURL)
+	apiBaseURL = os.Getenv("KUPE_API_URL")
 	testTenant = envOrDefault("KUPE_TEST_TENANT", defaultTenant)
 	apiToken = os.Getenv("KUPE_API_TOKEN")
 
+	if apiBaseURL == "" {
+		fmt.Fprintln(os.Stderr, "KUPE_API_URL not set — see test/live/suite_test.go header for setup")
+		os.Exit(2)
+	}
 	if apiToken == "" {
 		fmt.Fprintln(os.Stderr, "KUPE_API_TOKEN not set — see test/live/suite_test.go header for setup")
 		os.Exit(2)

@@ -792,7 +792,9 @@ Use either a definition name or `--path`, and `-o json|yaml` for structured outp
 
 Replace all values. Keys left out of the input are removed. Read the current
 version with `values get`, review it, then supply `--expected-version N`.
-Version `0` creates an entry only if it does not exist.
+Version `0` creates an entry only if it does not exist. Saving updates the copy
+in each cluster. An app's running pods keep the old values until you run
+`kupe app retry` or redeploy from the console.
 
 Exactly one of `--file FILE` or `--stdin` is required. Input must be a non-empty
 JSON object with unique keys and string values, at most 512 KiB. Keys must be
@@ -1043,7 +1045,8 @@ kupe app retry shop production --yes --wait=false -o json
 ```
 
 Retry reviews the current configuration and requests another deployment with its
-reviewed version. It creates a Retry release by increasing the deployment revision.
+reviewed version. It creates a Retry release by increasing the deployment revision,
+which fetches fresh secret values and so applies values saved since the last release.
 Confirmation, stale-review handling and wait defaults match `deploy`. With
 `--wait=false`, output contains the accepted app, environment, generation and
 deployment revision. An uncertain request outcome is never resubmitted; inspect

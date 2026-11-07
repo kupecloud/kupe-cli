@@ -52,7 +52,9 @@ func newValuesSetCmd(f *cli.Factory) *cobra.Command {
 	var version int64
 	cmd := &cobra.Command{Use: "set (NAME | --path PATH) --expected-version N (--file FILE | --stdin)", Short: "Replace secret values with a version check", Long: `Replace all values at a Vault path. Keys omitted from the input are removed.
 Read a JSON object of string values from a file or stdin, up to 512 KiB.
-Use version 0 to create an entry only if it does not exist. No values are shown.`, Example: `  kupe secret values set orders --expected-version 3 --file values.json
+Use version 0 to create an entry only if it does not exist. No values are shown.
+Saving updates the copy in each cluster. An app's running pods keep the old values
+until you run kupe app retry or redeploy from the console.`, Example: `  kupe secret values set orders --expected-version 3 --file values.json
   kupe secret values set --path team/orders --expected-version 0 --stdin <<'JSON'
   {"FIELD_A": "synthetic-example"}
   JSON`, RunE: func(cmd *cobra.Command, args []string) error {

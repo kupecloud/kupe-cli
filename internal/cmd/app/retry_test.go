@@ -110,3 +110,10 @@ func TestNewAppCommandsPreserveAppsUnavailableMessageAndFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestRetryHelpSaysItAppliesSavedValues(t *testing.T) {
+	cmd := newRetryCmd(nil)
+	if !strings.Contains(cmd.Long, "fetches fresh secret values") {
+		t.Fatal(cmd.Long)
+	}
+}

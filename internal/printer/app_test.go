@@ -41,3 +41,25 @@ func TestAppEnvironmentFailedDeploymentAndRecoveredActive(t *testing.T) {
 		}
 	}
 }
+
+func TestAppEnvironmentShowsSecretChanges(t *testing.T) {
+	const message = "secret changed since this release: payments. Pods started before the change keep the old value until you redeploy"
+	for _, tc := range []struct {
+		name   string
+		status string
+		want   bool
+	}{{"changed", "True", true}, {"not true", "False", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			io, _, _ := cli.Test()
+			io.Out = &bytes.Buffer{}
+			env := &client.AppEnvironment{App: "shop", Environment: "production", Status: &client.AppEnvironmentStatus{Conditions: []client.Condition{{Type: "SecretsChanged", Status: tc.status, Message: message}}}}
+			if err := AppEnvironment.One(io, &Format{Kind: Table}, env); err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(strings.Fields(io.Out.(*bytes.Buffer).String()), " ")
+			if strings.Contains(got, message) != tc.want || !strings.Contains(got, "Secret changes:") {
+				t.Fatalf("got %s", got)
+			}
+		})
+	}
+}

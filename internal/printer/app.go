@@ -77,6 +77,14 @@ func appEnvironmentDetailColumns(color bool) Columns {
 		}
 		return strings.Join(rows, "\n")
 	})
+	add("Secret changes", func(e *client.AppEnvironment) string {
+		for _, c := range valueOf(e.Status).Conditions {
+			if c.Type == "SecretsChanged" && c.Status == "True" {
+				return c.Message
+			}
+		}
+		return ""
+	})
 	for i := range cols {
 		get := cols[i].Get
 		cols[i].Get = func(v any) string {

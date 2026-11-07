@@ -503,3 +503,10 @@ func TestVaultBoundedWriteErrorRetainsRequestIDAndCause(t *testing.T) {
 		t.Fatalf("err=%v cause=%#v", err, api)
 	}
 }
+
+func TestValuesSetHelpSaysRunningPodsKeepOldValues(t *testing.T) {
+	long := strings.Join(strings.Fields(newValuesSetCmd(nil).Long), " ")
+	if !strings.Contains(long, "running pods keep the old values until you run kupe app retry or redeploy from the console") {
+		t.Fatal(long)
+	}
+}

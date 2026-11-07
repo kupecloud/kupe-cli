@@ -56,7 +56,7 @@ test-coverage: ## Run tests with coverage report
 test-update: ## Update golden files
 	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) ./internal/printer -update
 
-test-live: ## Run live tests against deployed kupe-api. Requires KUPE_API_TOKEN; KUPE_API_URL defaults to api.dev.int.kupe.cloud. See test/live/suite_test.go header.
+test-live: ## Run live tests against deployed kupe-api. Requires KUPE_API_TOKEN and KUPE_API_URL. See test/live/suite_test.go header.
 	GOCACHE="$(GOCACHE)" $(GO) test $(GOFLAGS) -tags=live -timeout=45m -v ./test/live/...
 
 vet-live: ## Compile-check the live suite without running it (no credentials needed); CI runs this on every PR

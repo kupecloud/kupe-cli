@@ -14,7 +14,7 @@ import (
 //
 //	create → list (contains it) → get → update (replace sync) → get (verify) → delete
 //
-// We don't actually populate the OpenBao path — the API+operator
+// We don't actually populate the Vault path — the API+operator
 // reconcile based on the metadata alone, and the secret will sit in the
 // "Pending" phase forever without a backing KV value. That's fine for a
 // CRUD smoke test; the cluster_test does end-to-end Ready waiting.

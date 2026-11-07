@@ -199,11 +199,11 @@ make snapshot    # Build a release locally (no publish)
 make manpages    # Generate completions and man(1) pages
 ```
 
-Hit a live development environment:
+Hit a live environment with a test tenant:
 
 ```bash
 export KUPE_API_TOKEN=kupe_…
-export KUPE_API_URL=https://api.dev.int.kupe.cloud
+export KUPE_API_URL=https://api.kupe.cloud
 export KUPE_TENANT=kupe-test
 go run ./cmd/kupe cluster list
 ```

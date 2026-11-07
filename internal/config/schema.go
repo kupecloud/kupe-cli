@@ -61,8 +61,8 @@ type Context struct {
 	AuthMethod string `yaml:"authMethod,omitempty"`
 
 	// OIDCBaseURL overrides build.OIDCBaseURL for this context. Set on
-	// dev/staging contexts pointing at the internal Authentik
-	// (e.g. https://auth.dev.int.kupe.cloud). The full issuer URL the
+	// contexts for a non-default environment
+	// (e.g. https://auth.staging.kupe.cloud). The full issuer URL the
 	// CLI uses is {OIDCBaseURL}/application/o/{OIDCClientID}/.
 	OIDCBaseURL string `yaml:"oidcBaseUrl,omitempty"`
 

@@ -25,7 +25,7 @@ func TestAppWaitFailuresOnlySuggestAvailableCommands(t *testing.T) {
 	}{
 		{"app delete", "kupe app get shop", "", []string{"delete", "shop", "--yes"}, false},
 		{"environment create", "kupe app env get shop production", "kupe app wait shop production", []string{"env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080"}, true},
-		{"environment update", "kupe app env get shop production", "kupe app wait shop production", []string{"env", "update", "shop", "production", "--port", "9090"}, true},
+		{"environment update", "kupe app env get shop production", "", []string{"env", "update", "shop", "production", "--port", "9090"}, true},
 		{"environment delete", "kupe app env get shop production", "", []string{"env", "delete", "shop", "production", "--yes"}, true},
 	} {
 		for _, interrupted := range []bool{false, true} {
@@ -96,9 +96,9 @@ func TestAppWaitFailuresOnlySuggestAvailableCommands(t *testing.T) {
 func TestAppLostContactWaitHintsKeepErrorAndAvailableGuidance(t *testing.T) {
 	cause := &client.APIError{StatusCode: http.StatusServiceUnavailable, Message: "temporarily unavailable"}
 	for _, verb := range []string{"create", "update", "delete"} {
-		err := environmentHint(cmdutil.MapWaitErr(cause, "environment", "production", verb), "shop")
+		err := environmentHint(cmdutil.MapWaitErr(cause, "environment", "production", verb), "shop", verb)
 		want := "check status:  kupe app env get shop production"
-		if verb != "delete" {
+		if verb == "create" {
 			want += "\nresume wait:   kupe app wait shop production"
 		}
 		var ce *cli.Error

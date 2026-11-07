@@ -81,7 +81,7 @@ the environment name to confirm, or use --yes. By default, wait until it is gone
 			if err := actual.ParseFlags(forwarded); err != nil {
 				return cli.Wrap(cli.ExitMisuse, "", err)
 			}
-			return environmentHint(actual.RunE(cmd, args[1:]), args[0])
+			return environmentHint(actual.RunE(cmd, args[1:]), args[0], child.Name())
 		}
 		cmd.AddCommand(child)
 	}
@@ -283,7 +283,7 @@ func renderEnvironmentWrite(cmd *cobra.Command, f *cli.Factory, api client.Inter
 		}
 		final, err := cmdutil.WaitForConverged(cmd.Context(), f.IOStreams, "environment", name, observing, service.Converge, item.Generation, o.waitTimeout)
 		if err != nil {
-			return environmentHint(service.MapWaitErr(err, name, verb), parent)
+			return environmentHint(service.MapWaitErr(err, name, verb), parent, verb)
 		}
 		if final != nil {
 			item = final
@@ -316,10 +316,12 @@ func availableWaitHint(err error) error {
 
 // Shared wait helpers use the resource noun; this nested command adds its app
 // argument to the existing hints without changing polling or error classes.
-// A resume hint points at kupe app wait, which watches a release; waiting for
-// an environment to be deleted is not something it can do, so that hint is
-// dropped.
-func environmentHint(err error, parent string) error {
+// Only a create keeps a resume hint, pointing at kupe app wait: that command
+// watches the release the environment currently requests, so after an update
+// whose generation was not yet observed it can report the previous release as
+// done, and it cannot wait for a deletion. Those hints are dropped and the
+// check-status line (kupe app env get) remains.
+func environmentHint(err error, parent, verb string) error {
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint == "" {
 		return err
@@ -328,7 +330,7 @@ func environmentHint(err error, parent string) error {
 	for _, line := range strings.Split(ce.Hint, "\n") {
 		if strings.HasPrefix(line, "resume wait:") {
 			fields := strings.Fields(line)
-			if strings.Contains(line, "--for=Deleted") || len(fields) < 5 {
+			if verb != "create" || strings.Contains(line, "--for=Deleted") || len(fields) < 5 {
 				continue
 			}
 			line = "resume wait:   kupe app wait " + parent + " " + fields[len(fields)-1]

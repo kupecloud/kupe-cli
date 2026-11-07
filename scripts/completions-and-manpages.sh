@@ -28,17 +28,18 @@ rm -rf completions manpages
 mkdir -p completions manpages
 
 # Build flags must match Makefile so the version embedded in --version
-# output matches the rest of the release.
-GOFLAGS="-mod=vendor"
+# output matches the rest of the release. No -mod flag: vendor/ is gitignored,
+# so go uses it when `go mod vendor` has run (goreleaser's before hook) and the
+# module cache otherwise.
 LDFLAGS="-s -w \
   -X github.com/kupecloud/kupe-cli/internal/build.Version=${VERSION:-dev} \
   -X github.com/kupecloud/kupe-cli/internal/build.Commit=${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)} \
   -X github.com/kupecloud/kupe-cli/internal/build.Date=${DATE:-$(git log -1 --format=%cI 2>/dev/null || echo unknown)}"
 
 for sh in bash zsh fish; do
-  go run $GOFLAGS -ldflags "$LDFLAGS" ./cmd/kupe completion "$sh" \
+  go run -ldflags "$LDFLAGS" ./cmd/kupe completion "$sh" \
     > "completions/kupe.$sh"
 done
 
-go run $GOFLAGS -ldflags "$LDFLAGS" ./cmd/kupe man manpages
+go run -ldflags "$LDFLAGS" ./cmd/kupe man manpages
 gzip -n -f manpages/*.1

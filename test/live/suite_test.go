@@ -95,8 +95,7 @@ func TestMain(m *testing.M) {
 // buildBinary compiles `cmd/kupe` into a temp file and returns its path.
 // We build once per `go test` invocation; reusing across subtests keeps
 // the suite fast. Build flags match the production Makefile loosely
-// (-mod=vendor, no ldflags — the live tests don't care about Version
-// strings).
+// (no ldflags — the live tests don't care about Version strings).
 func buildBinary() (string, error) {
 	dir, err := os.MkdirTemp("", "kupe-cli-live-")
 	if err != nil {
@@ -117,7 +116,7 @@ func buildBinary() (string, error) {
 		return "", fmt.Errorf("could not locate kupe-cli module root from %s", wd)
 	}
 
-	cmd := exec.Command("go", "build", "-mod=vendor", "-o", out, "./cmd/kupe") //#nosec G204 -- fixed args under test
+	cmd := exec.Command("go", "build", "-o", out, "./cmd/kupe") //#nosec G204 -- fixed args under test
 	cmd.Dir = root
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

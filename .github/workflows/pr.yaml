@@ -7,14 +7,13 @@ on:
   pull_request:
     branches:
       - main
-    # Every file a hook reads: Go code and modules, the vendor tree, workflows
+    # Every file a hook reads: Go code and modules, workflows
     # and hook scripts, configs the hooks use, and the text files that the
     # whitespace, codespell, markdownlint and secret hooks check.
     paths:
       - "go.mod"
       - "go.sum"
       - "**.go"
-      - "vendor/**"
       - "cmd/**"
       - "internal/**"
       - "test/**"

@@ -9,16 +9,12 @@ repos:
     hooks:
       - id: detect-private-key
       - id: check-added-large-files
-        exclude: ^vendor/
       - id: check-json
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-yaml
-        exclude: ^vendor/
       - id: end-of-file-fixer
-        exclude: ^vendor/
       - id: trailing-whitespace
-        exclude: ^vendor/
 
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: 3db014c16a9d31997ab8c07a4d61fcce936c8f0d
@@ -45,7 +41,7 @@ repos:
       - id: codespell
         args:
           - --write-changes
-        exclude: ^(vendor/|go\.sum|coverage\.out|testdata/)
+        exclude: ^(go\.sum|coverage\.out|testdata/)
 
   - repo: local
     hooks:
@@ -61,7 +57,6 @@ repos:
         language: system
         types:
           - go
-        exclude: ^vendor/
       - id: govulncheck
         name: govulncheck
         entry: bash -c 'GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...'
@@ -107,7 +102,7 @@ repos:
         entry: bash .github/hooks/go-unit-tests.sh
         language: system
         pass_filenames: false
-        files: ^(.*\.go|go\.(mod|sum)|vendor/modules\.txt|.*/testdata/.*|\.github/hooks/go-unit-tests\.sh)$
+        files: ^(.*\.go|go\.(mod|sum)|.*/testdata/.*|\.github/hooks/go-unit-tests\.sh)$
         stages:
           - manual
       - id: go-mod-tidy
@@ -122,10 +117,10 @@ repos:
       # never compiles it. Compile only, never run (same as `make vet-live`).
       - id: go-vet-live
         name: go vet live suite (compile only)
-        entry: bash -c 'GOWORK=off go vet -mod=vendor -tags=live ./test/live/...'
+        entry: bash -c 'GOWORK=off go vet -tags=live ./test/live/...'
         language: system
         pass_filenames: false
-        files: ^(.*\.go|go\.(mod|sum)|vendor/modules\.txt)$
+        files: ^(.*\.go|go\.(mod|sum))$
         stages:
           - manual
 

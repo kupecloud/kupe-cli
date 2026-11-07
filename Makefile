@@ -9,6 +9,9 @@ GOARCH ?= $(shell go env GOARCH)
 
 # Go settings
 GO := go
+# Local targets ignore a vendor/ left behind by `make vendor` (it goes stale and
+# fails with "inconsistent vendoring"); only the image build uses -mod=vendor.
+export GOFLAGS := -mod=readonly
 GOCACHE ?= $(PWD)/.tmp/go-build
 GORELEASER_VERSION := v2.15.2
 

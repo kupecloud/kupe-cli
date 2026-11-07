@@ -33,7 +33,7 @@ Missing values or selected keys can be fixed while the command waits. A
 wait timeout leaves the definition in place and delivery continues.
 Pass --wait=false to return once the definition is created.
 
-Seed the values with kupe secret values set NAME --expected-version 0
+Seed the values with kupe secret values set --path PATH --expected-version 0
 --file values.json before adding sync targets. Values must exist before
 the operator can mirror them.`,
 		Args: cobra.ExactArgs(1),

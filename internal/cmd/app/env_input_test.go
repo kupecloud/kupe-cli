@@ -140,3 +140,21 @@ func TestEnvironmentInputByteLimitAndStrictParsingRemain(t *testing.T) {
 		})
 	}
 }
+
+// The Vault path grammar matches the API's: it starts and
+// ends with a letter or digit, and allows - _ . / between.
+func TestSecretReferencePathGrammarMatchesAPI(t *testing.T) {
+	for path, ok := range map[string]bool{
+		"apps/shop/api": true, "a": true, "a-b_c.d/e": true, "A1/b2": true,
+		"/apps/api": false, "apps/api/": false, "-apps": false, "apps-": false, ".hidden": false, "apps/../x": false, "a b": false, "": false,
+	} {
+		replicas := int32(1)
+		req := client.CreateAppEnvironmentRequest{Cluster: "europe", Web: &client.AppWeb{Image: digest, Port: 8080, Replicas: &replicas, Resources: &client.AppResources{
+			Requests: client.AppQuantities{CPU: "250m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "1", Memory: "512Mi"}}}}
+		req.Secrets = []client.AppSecret{{Name: "db", Path: path}}
+		err := validateEnvironment(req)
+		if (err == nil) != ok {
+			t.Errorf("path %q: ok=%v err=%v", path, ok, err)
+		}
+	}
+}

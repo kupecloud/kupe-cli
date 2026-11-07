@@ -12,7 +12,6 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
-	"github.com/kupecloud/kupe-cli/internal/printer"
 
 	"gopkg.in/yaml.v3"
 )
@@ -115,7 +114,7 @@ func TestDeployResumePreservesOnlyExplicitSafeTargetFlags(t *testing.T) {
 
 func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 	for _, existing := range []bool{false, true} {
-		for _, output := range []string{"yaml", "go-template={{.Web.Image}}", "json", "name", "jsonpath={.web.image}"} {
+		for _, output := range []string{"yaml", "go-template={{.Web.Image}}", "json", "name"} {
 			t.Run(fmt.Sprintf("existing=%v/%s", existing, output), func(t *testing.T) {
 				fake := flowFake()
 				args := []string{"deploy"}
@@ -125,15 +124,6 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 				}
 				args = append(args, "--image", nextDigest, "--yes", "--wait=false", "-o", output)
 				out, _, err := run(factoryWith(fake), args...)
-				if strings.HasPrefix(output, "jsonpath=") {
-					streams, _, _ := cli.Test()
-					format, _ := printer.Parse(output)
-					legacyErr := printer.AppEnvironment.One(streams, format, releaseEnvironment())
-					if legacyErr == nil || err == nil || err.Error() != legacyErr.Error() || out != "" {
-						t.Fatalf("err=%v legacy=%v out=%s", err, legacyErr, out)
-					}
-					return
-				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -175,6 +165,23 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 					t.Fatalf("legacy PATCH contract lost: %v", fake.Calls)
 				}
 			})
+		}
+	}
+}
+
+// -o jsonpath is refused before the deploy writes anything.
+func TestDeployRefusesJSONPathBeforeWriting(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		fake := flowFake()
+		args := []string{"deploy"}
+		if existing {
+			fake = releaseFake()
+			args = append(args, "shop", "production")
+		}
+		args = append(args, "--image", nextDigest, "--yes", "--wait=false", "-o", "jsonpath={.web.image}")
+		out, _, err := run(factoryWith(fake), args...)
+		if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "-o jsonpath is not supported") || out != "" || len(writes(fake)) != 0 {
+			t.Fatalf("existing=%v err=%v out=%q calls=%v", existing, err, out, fake.Calls)
 		}
 	}
 }

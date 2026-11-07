@@ -460,7 +460,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
-| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`, `jsonpath=...` (`jsonpath` currently returns a not-implemented error). |
+| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`. `-o jsonpath` is not supported and is refused. |
 
 Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
 

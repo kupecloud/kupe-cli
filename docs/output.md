@@ -21,11 +21,13 @@ List/get-style commands that expose `-o` / `--output` accept these values:
 | `yaml` | `yaml.v3` marshal | No | Same schema as `json`. |
 | `name` | Bare resource names, one per line | No | Pipe-friendly: `kupe cluster list -o name \| xargs …`. |
 | `go-template=...` | Go `text/template` | No | e.g., `-o go-template='{{.Status.Phase}}'`. |
-| `jsonpath=...` | Parsed for flag compatibility but currently returns a helpful not-implemented error directing users to `go-template=...` or `-o json \| jq`. | No | Deferred; see `internal/printer/plain.go`. |
 
-The file-based variants kubectl supports (`go-template-file=PATH`,
-`jsonpath-file=PATH`) are not yet wired to the `-o` flag. Pass the template
-inline for now.
+The file-based variant kubectl supports (`go-template-file=PATH`) is not wired
+to the `-o` flag. Pass the template inline for now.
+
+`-o jsonpath=...` and `-o jsonpath-file=...` are not supported. The CLI refuses
+them with exit code 2 before the command does anything; use `-o go-template=...`
+or pipe `-o json` to `jq`.
 
 Toggle commands such as `kupe version`, `kupe auth whoami`, `kupe apikey create`
 and `kupe registry token create` accept only `text` (default) and `json`.

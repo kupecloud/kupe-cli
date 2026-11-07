@@ -293,8 +293,9 @@ func renderEnvironmentWrite(cmd *cobra.Command, f *cli.Factory, api client.Inter
 	return printer.AppEnvironment.One(f.IOStreams, format, item)
 }
 
-// Standalone waits are a separate App command slice. Keep the shared wait
-// error classes and inspection guidance without advertising absent commands.
+// An App delete has no standalone wait command (kupe app wait watches a
+// release). Keep the shared wait error classes and inspection guidance without
+// advertising it.
 func availableWaitHint(err error) error {
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint == "" {
@@ -315,13 +316,26 @@ func availableWaitHint(err error) error {
 
 // Shared wait helpers use the resource noun; this nested command adds its app
 // argument to the existing hints without changing polling or error classes.
+// A resume hint points at kupe app wait, which watches a release; waiting for
+// an environment to be deleted is not something it can do, so that hint is
+// dropped.
 func environmentHint(err error, parent string) error {
-	err = availableWaitHint(err)
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint == "" {
 		return err
 	}
-	hint := ce.Hint
+	var lines []string
+	for _, line := range strings.Split(ce.Hint, "\n") {
+		if strings.HasPrefix(line, "resume wait:") {
+			fields := strings.Fields(line)
+			if strings.Contains(line, "--for=Deleted") || len(fields) < 5 {
+				continue
+			}
+			line = "resume wait:   kupe app wait " + parent + " " + fields[len(fields)-1]
+		}
+		lines = append(lines, line)
+	}
+	hint := strings.Join(lines, "\n")
 	for _, verb := range []string{"get", "delete", "update"} {
 		hint = strings.ReplaceAll(hint, "kupe environment "+verb+" ", "kupe app env "+verb+" "+parent+" ")
 	}

@@ -227,7 +227,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.26.3" }
-      - run: make vendor
       - run: make lint
       - run: make test                   # layers 1 + 2 + 3
       - run: make gosec

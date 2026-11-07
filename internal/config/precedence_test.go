@@ -165,7 +165,7 @@ func TestValidateKupeURL(t *testing.T) {
 	}{
 		{"empty accepted", "", false},
 		{"prod api", "https://api.kupe.cloud", false},
-		{"dev internal", "https://api.staging.kupe.cloud", false},
+		{"staging host", "https://api.staging.kupe.cloud", false},
 		{"bare kupe.cloud", "https://kupe.cloud", false},
 		{"http scheme on kupe.cloud rejected", "http://api.kupe.cloud", true},
 		{"with port", "https://api.kupe.cloud:8443", false},

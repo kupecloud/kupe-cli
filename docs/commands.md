@@ -460,7 +460,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
-| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`, `jsonpath=...` (`jsonpath` currently returns a not-implemented error). |
+| `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`. `-o jsonpath` is not supported and is refused. |
 
 Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
 
@@ -909,9 +909,8 @@ Files are bounded to 1 MiB.
 | `--deletion-protection=BOOL` | Turn protection on or off on update. |
 | `--wait`, `--wait-timeout` | Wait by default; timeout defaults to 30m. |
 
-`--env` remains a hidden, deprecated alias for `--set-env` on create and update.
-Passing both is refused. Use `--set-env` in scripts.
-The alias will be removed at the next breaking CLI release.
+The hidden `--env` alias for `--set-env` has been removed. Use `--set-env` on
+create, update and deploy; `--env` is now refused as an unknown flag.
 
 On create, unset resources default to requests `250m`/`256Mi` and limits `1`/`512Mi`.
 On update, unset fields keep their current values. A request cannot exceed its

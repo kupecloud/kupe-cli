@@ -3,12 +3,12 @@
 // parse the user's -o value once via Parse, then dispatch to the matching
 // helper.
 //
-// jsonpath is a planned Phase 3.x add-on — for now Parse recognises the
-// flag value so help text stays accurate, and PrintJSONPath returns a
-// "not yet implemented" error directing users to go-template or json+jq.
+// jsonpath is not supported: Parse refuses it with a clear error, before a
+// command does any work, and points to go-template or json piped to jq.
 package printer
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -26,7 +26,6 @@ const (
 	YAML
 	Name
 	Template
-	JSONPath
 )
 
 // Format is the parsed -o value.
@@ -35,8 +34,6 @@ type Format struct {
 	// Template holds the template string for Kind=Template (source from
 	// `go-template=...`).
 	Template string
-	// Path holds the jsonpath expression for Kind=JSONPath.
-	Path string
 }
 
 // MustParse wraps Parse, converting any error into a cli.MisuseError
@@ -76,10 +73,8 @@ func Resolve(f *cli.Factory, raw string) (*Format, error) {
 //	OutputHelpGet    — single-resource get commands (table, json, yaml, ...)
 //	OutputHelpToggle — commands with text-or-json toggle (whoami, get-token-style)
 //
-// jsonpath= is intentionally absent here: PrintJSONPath is still a
-// placeholder, so advertising it in --help would promise a format that always
-// errors (KC-17). Parse still recognises jsonpath= so users who try it get a
-// friendly "not yet implemented" message rather than "unsupported format".
+// jsonpath= is intentionally absent here: it is not supported, and Parse
+// refuses it with a specific message rather than "unsupported format".
 const (
 	OutputHelpList   = "Output format: table | wide | json | yaml | name | go-template=..."
 	OutputHelpGet    = "Output format: table | json | yaml | go-template=..."
@@ -104,8 +99,8 @@ func Parse(flag string) (*Format, error) {
 	if tpl, ok := strings.CutPrefix(flag, "go-template="); ok {
 		return &Format{Kind: Template, Template: tpl}, nil
 	}
-	if path, ok := strings.CutPrefix(flag, "jsonpath="); ok {
-		return &Format{Kind: JSONPath, Path: path}, nil
+	if flag == "jsonpath" || strings.HasPrefix(flag, "jsonpath=") || strings.HasPrefix(flag, "jsonpath-file=") {
+		return nil, errors.New("-o jsonpath is not supported; use -o go-template=... or -o json piped to jq")
 	}
-	return nil, fmt.Errorf("unsupported output format %q (expected one of: table, wide, json, yaml, name, go-template=..., jsonpath=...)", flag)
+	return nil, fmt.Errorf("unsupported output format %q (expected one of: table, wide, json, yaml, name, go-template=...)", flag)
 }

@@ -165,6 +165,24 @@ func TestCreateRejectsInvalidRole(t *testing.T) {
 	}
 }
 
+// A bad -o must be refused before the key is minted; afterwards the token
+// would exist but never be shown.
+func TestCreateRejectsInvalidOutputBeforeCreating(t *testing.T) {
+	for _, output := range []string{"yaml", "jsonpath={.key}", "bogus"} {
+		fake := clienttest.New()
+		f := factoryWith(t, fake)
+		err := executeCmd(newCreateCmd(f), "--name", "x", "--role", "admin", "-o", output)
+		if cli.ExitCode(err) != cli.ExitMisuse {
+			t.Fatalf("%s: exit = %d err=%v; want %d", output, cli.ExitCode(err), err, cli.ExitMisuse)
+		}
+		for _, call := range fake.Calls {
+			if strings.HasPrefix(call, "CreateAPIKey") {
+				t.Fatalf("%s: key was created: %v", output, fake.Calls)
+			}
+		}
+	}
+}
+
 func TestDeleteNonInteractiveRequiresYes(t *testing.T) {
 	fake := clienttest.New()
 	fake.APIKeys["id1"] = &client.APIKey{ID: "id1", DisplayName: "x", Role: "admin"}

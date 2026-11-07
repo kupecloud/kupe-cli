@@ -12,7 +12,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
-	"github.com/kupecloud/kupe-cli/internal/printer"
+	"github.com/kupecloud/kupe-cli/internal/client/clienttest"
 
 	"gopkg.in/yaml.v3"
 )
@@ -115,7 +115,7 @@ func TestDeployResumePreservesOnlyExplicitSafeTargetFlags(t *testing.T) {
 
 func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 	for _, existing := range []bool{false, true} {
-		for _, output := range []string{"yaml", "go-template={{.Web.Image}}", "json", "name", "jsonpath={.web.image}"} {
+		for _, output := range []string{"yaml", "go-template={{.Web.Image}}", "json", "name"} {
 			t.Run(fmt.Sprintf("existing=%v/%s", existing, output), func(t *testing.T) {
 				fake := flowFake()
 				args := []string{"deploy"}
@@ -125,15 +125,6 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 				}
 				args = append(args, "--image", nextDigest, "--yes", "--wait=false", "-o", output)
 				out, _, err := run(factoryWith(fake), args...)
-				if strings.HasPrefix(output, "jsonpath=") {
-					streams, _, _ := cli.Test()
-					format, _ := printer.Parse(output)
-					legacyErr := printer.AppEnvironment.One(streams, format, releaseEnvironment())
-					if legacyErr == nil || err == nil || err.Error() != legacyErr.Error() || out != "" {
-						t.Fatalf("err=%v legacy=%v out=%s", err, legacyErr, out)
-					}
-					return
-				}
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -173,6 +164,34 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 				}
 				if existing && len(fake.AppEnvironmentPatches) != 1 {
 					t.Fatalf("legacy PATCH contract lost: %v", fake.Calls)
+				}
+			})
+		}
+	}
+}
+
+// A bad -o is refused on every deploy path (new environment, existing
+// environment, and without --image) before any API call at all.
+func TestDeployRefusesBadOutputBeforeAnyAPICall(t *testing.T) {
+	for _, output := range []string{"jsonpath={.web.image}", "bogus"} {
+		for _, tc := range []struct {
+			name string
+			args []string
+			fake func() *clienttest.Fake
+		}{
+			{"new", []string{"deploy", "--image", nextDigest, "--yes", "--wait=false"}, flowFake},
+			{"existing", []string{"deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"}, releaseFake},
+			{"no image", []string{"deploy", "--yes"}, flowFake},
+			{"dry run", []string{"deploy", "--image", nextDigest, "--dry-run"}, flowFake},
+		} {
+			t.Run(output+"/"+tc.name, func(t *testing.T) {
+				fake := tc.fake()
+				out, _, err := run(factoryWith(fake), append(tc.args, "-o", output)...)
+				if cli.ExitCode(err) != cli.ExitMisuse || out != "" || len(fake.Calls) != 0 {
+					t.Fatalf("err=%v out=%q calls=%v", err, out, fake.Calls)
+				}
+				if output != "bogus" && !strings.Contains(err.Error(), "-o jsonpath is not supported") {
+					t.Fatal(err)
 				}
 			})
 		}

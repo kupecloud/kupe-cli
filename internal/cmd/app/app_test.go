@@ -75,7 +75,7 @@ func TestAppCRUDAndTypedDelete(t *testing.T) {
 }
 
 func TestAppsUnavailableOnEveryCommand(t *testing.T) {
-	for _, args := range [][]string{{"list"}, {"get", "shop"}, {"create", "shop"}, {"update", "shop", "--deletion-protection=false"}, {"delete", "shop", "--yes"}, {"env", "list", "shop"}, {"env", "get", "shop", "production"}, {"env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080", "--wait=false"}, {"env", "update", "shop", "production", "--env", "A=new"}, {"env", "delete", "shop", "production", "--yes"}} {
+	for _, args := range [][]string{{"list"}, {"get", "shop"}, {"create", "shop"}, {"update", "shop", "--deletion-protection=false"}, {"delete", "shop", "--yes"}, {"env", "list", "shop"}, {"env", "get", "shop", "production"}, {"env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080", "--wait=false"}, {"env", "update", "shop", "production", "--set-env", "A=new"}, {"env", "delete", "shop", "production", "--yes"}} {
 		t.Run(strings.Join(args, "/"), func(t *testing.T) {
 			for _, message := range []string{"apps are not available on this platform", "apps are temporarily unavailable for this tenant", "", " \t "} {
 				fake := clienttest.New()

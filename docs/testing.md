@@ -67,7 +67,7 @@ For each command:
 
 Printer tests live in `internal/printer/`. They cover:
 
-- `printer.Parse` for `table`, `wide`, `json`, `yaml`, `name`, `go-template=...`, and `jsonpath=...`.
+- `printer.Parse` for `table`, `wide`, `json`, `yaml`, `name`, `go-template=...`, and the refusal of `jsonpath=...`.
 - Narrow vs wide table behavior.
 - Empty table rendering.
 - ANSI-colored cell alignment.

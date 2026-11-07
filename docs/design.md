@@ -98,7 +98,7 @@ A caller running `kupe cluster list -o json | jq` should never see progress text
 | `-h, --help` | — | — | Show help |
 | `--version` | — | — | Show version |
 
-`-o` / `--output` is local to each command, not a global flag. List/get-style commands accept `table`, `wide` where applicable, `json`, `yaml`, `name`, `go-template=...`, and `jsonpath=...`; `jsonpath` is parsed but currently returns a not-implemented error. Toggle commands such as `kupe version`, `kupe auth whoami`, and `kupe apikey create` accept only `text` and `json`. See [output.md](./output.md) for the full spec.
+`-o` / `--output` is local to each command, not a global flag. List/get-style commands accept `table`, `wide` where applicable, `json`, `yaml`, `name`, and `go-template=...`. `jsonpath` is not supported and is refused with a usage error. Toggle commands such as `kupe version`, `kupe auth whoami`, and `kupe apikey create` accept only `text` and `json`. See [output.md](./output.md) for the full spec.
 
 ## Per-command flags
 
@@ -176,7 +176,7 @@ With `-v`, HTTP method/path/status/duration traces are printed to stderr. Errors
 | Keyring | yes | yes | no | no | no |
 | Completion | yes | yes | yes | yes | yes |
 
-The biggest divergence is `-o json` (kubectl-style) instead of `--json` (gh/fly-style). We chose `-o json` because the kubectl-style output family (`go-template`, `jsonpath`, `yaml`, `name`, `wide`) only makes sense under a single `-o` umbrella. Rendering is implemented in-house because the Kubernetes printer stack expects `runtime.Object` types.
+The biggest divergence is `-o json` (kubectl-style) instead of `--json` (gh/fly-style). We chose `-o json` because the kubectl-style output family (`go-template`, `yaml`, `name`, `wide`) only makes sense under a single `-o` umbrella. Rendering is implemented in-house because the Kubernetes printer stack expects `runtime.Object` types.
 
 ## Versioning and stability
 

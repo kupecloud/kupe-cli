@@ -2,7 +2,6 @@ package printer
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -58,11 +57,4 @@ func PrintTemplate(w io.Writer, v any, tmpl string) error {
 	}
 	fmt.Fprintln(w)
 	return nil
-}
-
-// PrintJSONPath is a placeholder for Phase 3.x. Returning a structured error
-// keeps the -o jsonpath=... flag present on the help text while we decide
-// whether to lift k8s.io/client-go/util/jsonpath or ship a lighter impl.
-func PrintJSONPath(_ io.Writer, _ any, _ string) error {
-	return errors.New("jsonpath output is not yet implemented; use -o go-template=... or -o json piped to jq for now")
 }

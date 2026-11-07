@@ -59,7 +59,7 @@ func str(s string) *string { return &s }
 func TestEnvironmentUpdateKeepsListsAndResources(t *testing.T) {
 	fake := clienttest.New()
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
-	_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--env", "A=new", "--cpu-limit", "4", "--wait=false")
+	_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--set-env", "A=new", "--cpu-limit", "4", "--wait=false")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestEnvironmentRMWRetainsUnrelatedChangesAndRefusesTargetConflict(t *testin
 			fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": next}
 			fake.GetAppEnvironmentSeq["shop"] = map[string][]*client.AppEnvironment{"production": {first, next}}
 			fake.UpdateAppEnvironmentErrors = []error{&client.APIError{StatusCode: 412, Code: "precondition_failed"}, nil}
-			_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--env", "A=new", "--wait=false")
+			_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--set-env", "A=new", "--wait=false")
 			if targetChanged {
 				if cli.ExitCode(err) != 5 || len(fake.AppEnvironmentPatches) > 0 {
 					t.Fatalf("err=%v patches=%v", err, fake.AppEnvironmentPatches)
@@ -211,7 +211,7 @@ func TestEnvironmentWaitUsesNewGenerationAndReportsRequestedRelease(t *testing.T
 	settled.Status.RequestedRelease = &client.AppReleaseReference{Name: "shop-production-2"}
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": first}
 	fake.GetAppEnvironmentSeq["shop"] = map[string][]*client.AppEnvironment{"production": {first, stale, settled}}
-	_, stderr, err := run(factoryWith(fake), "env", "update", "shop", "production", "--env", "A=new")
+	_, stderr, err := run(factoryWith(fake), "env", "update", "shop", "production", "--set-env", "A=new")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestEnvironmentWaitTimeoutNamesNestedStatusCommand(t *testing.T) {
 	current, stale := seededEnv(), seededEnv()
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": current}
 	fake.GetAppEnvironmentSeq["shop"] = map[string][]*client.AppEnvironment{"production": {current, stale}}
-	_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--env", "A=new", "--wait-timeout", "1ms")
+	_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--set-env", "A=new", "--wait-timeout", "1ms")
 	var ce *cli.Error
 	if cli.ExitCode(err) != 8 || !errors.As(err, &ce) || !strings.Contains(ce.Hint, "kupe app env get shop production") {
 		t.Fatalf("err=%v hint=%v", err, ce)

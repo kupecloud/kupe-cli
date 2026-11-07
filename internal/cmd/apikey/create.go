@@ -78,6 +78,14 @@ func runCreate(cmd *cobra.Command, f *cli.Factory, opts *createOpts) error {
 		return cli.MisuseError(fmt.Sprintf("invalid --role %q (want admin or readonly)", opts.role))
 	}
 
+	// Refuse a bad -o before the key is created: afterwards the token would be
+	// minted but never shown.
+	switch opts.output {
+	case "", "text", "json":
+	default:
+		return cli.MisuseError(fmt.Sprintf("unsupported output format %q (expected one of: text, json)", opts.output))
+	}
+
 	expires, err := resolveExpiresAt(opts.expiresAt, time.Now())
 	if err != nil {
 		return cli.MisuseError(err.Error())

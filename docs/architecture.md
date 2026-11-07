@@ -81,7 +81,7 @@ For a typical command (e.g., `kupe cluster list`):
 2. **Factory resolves configuration** using the precedence chain `flag > KUPE_* env > config context > default`, then resolves the token from `--token`/`KUPE_API_TOKEN` or the resolved context's keyring/plaintext `tokenRef`. This happens lazily — commands that don't need the API client (like `kupe version`) never touch the config.
 3. **Factory builds a client** with the resolved base URL, tenant, and bearer token. User-Agent is `kupe-cli/<version> (<os>/<arch>) <runtime.Version()>`.
 4. **Command body calls the service** (`cli.ListClusters(ctx)` etc.). Client internally handles retry/backoff on `5xx`, `Retry-After` on `429`, and typed error classification.
-5. **Command body renders via `internal/printer`**. Output format (`table`/`wide`/`json`/`yaml`/`name`/`go-template`/`jsonpath`) is chosen by the command-local `-o` flag or `preferences.output`, defaulting to `table`. Rendering writes to `f.IOStreams.Out`.
+5. **Command body renders via `internal/printer`**. Output format (`table`/`wide`/`json`/`yaml`/`name`/`go-template`) is chosen by the command-local `-o` flag or `preferences.output`, defaulting to `table`. Rendering writes to `f.IOStreams.Out`.
 6. **Exit code is mapped from the error type** via `internal/cli/exit.go` (`0` success, `3` auth, `4` not-found, `5` conflict, `1` general).
 
 Long-running commands (`cluster create|delete|update`) add a polling loop between steps 4 and 5, discussed below.
@@ -153,7 +153,6 @@ internal/
 │   ├── render.go                — Generic RenderList / RenderOne dispatcher.
 │   ├── table.go                 — Column spec + tabwriter rendering + PrintDetails.
 │   ├── plain.go                 — PrintJSON / PrintYAML / PrintNames / PrintTemplate.
-│   │                              (PrintJSONPath is a stub — see output.md.)
 │   ├── cluster.go               — Cluster column specs + age helpers.
 │   ├── apikey.go                — APIKey column specs + ID truncation.
 │   ├── secret.go                — Secret column specs + sync-target rendering.

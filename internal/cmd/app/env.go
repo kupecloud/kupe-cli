@@ -91,7 +91,6 @@ the environment name to confirm, or use --yes. By default, wait until it is gone
 
 type envOptions struct {
 	file, cluster, image, cpu, memory, cpuLimit, memoryLimit, readiness, output string
-	literalFlag                                                                 string
 	port, replicas                                                              int32
 	env, secretEnv, secrets, domains, unsetEnv, removeSecrets, removeDomains    []string
 	noProtection, protection, wait                                              bool
@@ -114,9 +113,6 @@ Updates retain list entries unless you replace them in a file or remove them
 with --unset-env, --remove-secret or --remove-domain. The cluster and environment
 name cannot change. By default, wait until the new generation is observed and
 the environment settles. --wait=false returns as soon as the change is accepted.`, Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := normalizeVariableFlags(cmd, o, f.IOStreams); err != nil {
-			return err
-		}
 		parent, name := args[0], args[1]
 		if err := validateName(parent, "app", 32); err != nil {
 			return err
@@ -228,7 +224,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().StringVar(&o.memory, "memory", "", "Memory request per replica")
 	cmd.Flags().StringVar(&o.cpuLimit, "cpu-limit", "", "CPU limit per replica")
 	cmd.Flags().StringVar(&o.memoryLimit, "memory-limit", "", "Memory limit per replica")
-	registerLiteralVariables(cmd, o, true)
+	registerLiteralVariables(cmd, o)
 	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, envReferenceHelp)
 	cmd.Flags().StringArrayVar(&o.secrets, "secret", nil, "Declare a Vault reference: NAME=VAULT_PATH")
 	cmd.Flags().StringArrayVar(&o.domains, "domain", nil, "Add an exact hostname")

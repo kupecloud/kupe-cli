@@ -39,7 +39,7 @@ func TestAppLifecycle(t *testing.T) {
 	if got["environment"] != "production" || got["cluster"] != cluster {
 		t.Fatalf("environment=%v", got)
 	}
-	runCLIExpectOK(t, "app", "env", "update", name, "production", "--env", "LOG_LEVEL=info")
+	runCLIExpectOK(t, "app", "env", "update", name, "production", "--set-env", "LOG_LEVEL=info")
 	deployed := runCLI(t, "app", "deploy", name, "production", "--image", helloAppTag, "--set-env", "LIVE_RELEASE=tag", "--yes", "-o", "json")
 	assertNoTokenLeak(t, deployed.stdout+deployed.stderr)
 	if deployed.exitCode != 0 || !strings.Contains(deployed.stderr, helloAppTag+" → "+helloAppImage) {

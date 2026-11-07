@@ -909,9 +909,8 @@ Files are bounded to 1 MiB.
 | `--deletion-protection=BOOL` | Turn protection on or off on update. |
 | `--wait`, `--wait-timeout` | Wait by default; timeout defaults to 30m. |
 
-`--env` remains a hidden, deprecated alias for `--set-env` on create and update.
-Passing both is refused. Use `--set-env` in scripts; the alias will be removed
-at the next breaking CLI release.
+The hidden `--env` alias for `--set-env` has been removed. Use `--set-env` on
+create, update and deploy; `--env` is now refused as an unknown flag.
 
 On create, unset resources default to requests `250m`/`256Mi` and limits `1`/`512Mi`.
 On update, unset fields keep their current values. A request cannot exceed its

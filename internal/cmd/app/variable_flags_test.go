@@ -39,11 +39,7 @@ func TestVariableFlagCommandTree(t *testing.T) {
 			if nonVariable[flag.Name] {
 				return
 			}
-			if flag.Name == "env" {
-				if flags == nil || cmd.Name() == "deploy" || !flag.Hidden {
-					t.Errorf("unexpected alias on %s", cmd.CommandPath())
-				}
-			} else if _, ok := flags[flag.Name]; !ok {
+			if _, ok := flags[flag.Name]; !ok {
 				t.Errorf("unexpected variable flag %s --%s", cmd.CommandPath(), flag.Name)
 			}
 		})
@@ -54,9 +50,9 @@ func TestVariableFlagCommandTree(t *testing.T) {
 	walk(root)
 }
 
-func TestVariableAliasMatchesCanonicalAndReportsTypedFlag(t *testing.T) {
+func TestSetEnvSetsVariableAndReportsTypedFlag(t *testing.T) {
 	for _, verb := range []string{"create", "update"} {
-		for _, flag := range []string{"--env", "--set-env"} {
+		for _, flag := range []string{"--set-env"} {
 			t.Run(verb+flag, func(t *testing.T) {
 				fake := releaseFake()
 				if verb == "create" {
@@ -73,10 +69,7 @@ func TestVariableAliasMatchesCanonicalAndReportsTypedFlag(t *testing.T) {
 				if !json.Valid([]byte(out)) {
 					t.Fatalf("structured stdout polluted: %s", out)
 				}
-				if flag == "--env" && strings.Count(notes, "Flag --env has been deprecated, use --set-env") != 1 {
-					t.Fatal(notes)
-				}
-				if flag == "--set-env" && strings.Contains(notes, "deprecated") {
+				if strings.Contains(notes, "deprecated") {
 					t.Fatal(notes)
 				}
 				var value string
@@ -99,10 +92,21 @@ func TestVariableAliasMatchesCanonicalAndReportsTypedFlag(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The --env alias was removed: it is refused as an unknown flag, with no write.
+func TestRemovedEnvAliasIsRefused(t *testing.T) {
+	cases := [][]string{
+		{"env", "update", "shop", "production", "--env", "A=b", "--wait=false"},
+		{"env", "create", "shop", "production", "--env", "A=b", "--cluster", "europe", "--image", digest, "--port", "8080", "--wait=false"},
+		{"deploy", "--env", "A=b", "--image", digest, "--yes", "--wait=false"},
+	}
+	for _, args := range cases {
 		fake := releaseFake()
-		_, _, err := run(factoryWith(fake), "env", verb, "shop", "production", "--env", "A=b", "--set-env", "A=c", "--wait=false")
-		if cli.ExitCode(err) != cli.ExitMisuse || len(writes(fake)) != 0 {
-			t.Fatalf("err=%v calls=%v", err, fake.Calls)
+		_, _, err := run(factoryWith(fake), args...)
+		if err == nil || !strings.Contains(err.Error(), "unknown flag: --env") || len(writes(fake)) != 0 {
+			t.Errorf("%v: err=%v calls=%v", args, err, fake.Calls)
 		}
 	}
 }
@@ -113,9 +117,6 @@ func TestEnvironmentHelpGoesToStdout(t *testing.T) {
 			out, notes, err := run(factoryWith(clienttest.New()), "env", verb, "--help")
 			if err != nil || !strings.Contains(out, "Usage:") || !strings.Contains(out, "--set-env") || notes != "" {
 				t.Fatalf("err=%v stdout=%q stderr=%q", err, out, notes)
-			}
-			if strings.Contains(out, "--env ") {
-				t.Fatal("deprecated alias appeared in help")
 			}
 		})
 	}

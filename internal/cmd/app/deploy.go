@@ -168,7 +168,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 		return presentation.render(f, format, app, env, item)
 	}}
 	cmd.Flags().StringVar(&o.image, "image", "", "Image tag or digest reference (required)")
-	registerLiteralVariables(cmd, o, false)
+	registerLiteralVariables(cmd, o)
 	cmd.Flags().Int32Var(&o.port, "port", 0, "Web port (1-65535)")
 	cmd.Flags().Int32Var(&o.replicas, "replicas", 1, "Number of replicas (1-10)")
 	cmd.Flags().BoolVarP(yes, "yes", "y", false, "Confirm the reviewed deploy")

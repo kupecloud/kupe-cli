@@ -732,7 +732,7 @@ Selected keys use 1–253 letters, digits, `-`, `_` or `.`. A key cannot be `.` 
 `..`, or start with `..`. A target accepts at most 64 distinct keys, and a
 secret accepts at most 1,024 selected keys across its targets.
 
-Seed values with `kupe secret values set NAME --expected-version 0 --file values.json`.
+Seed values with `kupe secret values set --path PATH --expected-version 0 --file values.json`.
 
 ### `kupe secret update NAME`
 

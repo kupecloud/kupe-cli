@@ -27,7 +27,7 @@ func TestEnvironmentResourceFlags(t *testing.T) {
 	}{
 		{"defaults", nil, 0, "250m", "1", ""},
 		{"request", []string{"--cpu", "500m"}, 0, "500m", "1", ""},
-		{"over-limit", []string{"--cpu", "2"}, 2, "", "", "--cpu-limit"},
+		{"over-limit", []string{"--cpu", "2"}, 2, "", "", "CPU request 2 exceeds the CPU limit 1; lower the request or raise the limit"},
 		{"raised-limit", []string{"--cpu", "2", "--cpu-limit", "2"}, 0, "2", "2", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestEnvironmentUpdateKeepsListsAndResources(t *testing.T) {
 		t.Fatal("unset env dropped/retained wrong entries")
 	}
 	_, _, err = run(factoryWith(fake), "env", "update", "shop", "production", "--memory", "1Gi", "--wait=false")
-	if cli.ExitCode(err) != 2 || !strings.Contains(err.Error(), "--memory-limit") {
+	if cli.ExitCode(err) != 2 || err.Error() != "memory request 1Gi exceeds the memory limit 512Mi; lower the request or raise the limit" {
 		t.Fatalf("err=%v", err)
 	}
 }

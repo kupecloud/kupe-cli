@@ -222,7 +222,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 		}
 	}
 	if current != nil {
-		if err := existingDeployFlags(cmd, o, current); err != nil {
+		if err := existingDeployFlags(cmd, o, current, createCluster); err != nil {
 			return err
 		}
 		if err := cmd.Flags().Set("image", o.image); err != nil {
@@ -329,8 +329,11 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 	return p.render(f, format, appName, envName, item)
 }
 
-func existingDeployFlags(cmd *cobra.Command, o *envOptions, e *client.AppEnvironment) error {
-	for _, name := range []string{"create-cluster", "secret-env", "secret", "domain", "readiness", "cpu", "memory", "cpu-limit", "memory-limit"} {
+func existingDeployFlags(cmd *cobra.Command, o *envOptions, e *client.AppEnvironment, createCluster bool) error {
+	if createCluster {
+		return cli.MisuseError("--create-cluster changes an existing environment; use kupe app env update")
+	}
+	for _, name := range []string{"secret-env", "secret", "domain", "readiness", "cpu", "memory", "cpu-limit", "memory-limit"} {
 		if cmd.Flags().Changed(name) {
 			return cli.MisuseError("--" + name + " changes an existing environment; use kupe app env update")
 		}

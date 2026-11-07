@@ -81,7 +81,7 @@ the environment name to confirm, or use --yes. By default, wait until it is gone
 			if err := actual.ParseFlags(forwarded); err != nil {
 				return cli.Wrap(cli.ExitMisuse, "", err)
 			}
-			return environmentHint(actual.RunE(cmd, args[1:]), args[0])
+			return environmentHint(actual.RunE(cmd, args[1:]), args[0], child.Name())
 		}
 		cmd.AddCommand(child)
 	}
@@ -279,7 +279,7 @@ func renderEnvironmentWrite(cmd *cobra.Command, f *cli.Factory, api client.Inter
 		}
 		final, err := cmdutil.WaitForConverged(cmd.Context(), f.IOStreams, "environment", name, observing, service.Converge, item.Generation, o.waitTimeout)
 		if err != nil {
-			return environmentHint(service.MapWaitErr(err, name, verb), parent)
+			return environmentHint(service.MapWaitErr(err, name, verb), parent, verb)
 		}
 		if final != nil {
 			item = final
@@ -289,8 +289,9 @@ func renderEnvironmentWrite(cmd *cobra.Command, f *cli.Factory, api client.Inter
 	return printer.AppEnvironment.One(f.IOStreams, format, item)
 }
 
-// Standalone waits are a separate App command slice. Keep the shared wait
-// error classes and inspection guidance without advertising absent commands.
+// An App delete has no standalone wait command (kupe app wait watches a
+// release). Keep the shared wait error classes and inspection guidance without
+// advertising it.
 func availableWaitHint(err error) error {
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint == "" {
@@ -311,13 +312,28 @@ func availableWaitHint(err error) error {
 
 // Shared wait helpers use the resource noun; this nested command adds its app
 // argument to the existing hints without changing polling or error classes.
-func environmentHint(err error, parent string) error {
-	err = availableWaitHint(err)
+// Only a create keeps a resume hint, pointing at kupe app wait: that command
+// watches the release the environment currently requests, so after an update
+// whose generation was not yet observed it can report the previous release as
+// done, and it cannot wait for a deletion. Those hints are dropped and the
+// check-status line (kupe app env get) remains.
+func environmentHint(err error, parent, verb string) error {
 	var ce *cli.Error
 	if !errors.As(err, &ce) || ce.Hint == "" {
 		return err
 	}
-	hint := ce.Hint
+	var lines []string
+	for _, line := range strings.Split(ce.Hint, "\n") {
+		if strings.HasPrefix(line, "resume wait:") {
+			fields := strings.Fields(line)
+			if verb != "create" || strings.Contains(line, "--for=Deleted") || len(fields) < 5 {
+				continue
+			}
+			line = "resume wait:   kupe app wait " + parent + " " + fields[len(fields)-1]
+		}
+		lines = append(lines, line)
+	}
+	hint := strings.Join(lines, "\n")
 	for _, verb := range []string{"get", "delete", "update"} {
 		hint = strings.ReplaceAll(hint, "kupe environment "+verb+" ", "kupe app env "+verb+" "+parent+" ")
 	}

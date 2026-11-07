@@ -19,14 +19,14 @@ import (
 
 func TestAppWaitFailuresOnlySuggestAvailableCommands(t *testing.T) {
 	for _, operation := range []struct {
-		name, status string
-		args         []string
-		environment  bool
+		name, status, resume string
+		args                 []string
+		environment          bool
 	}{
-		{"app delete", "kupe app get shop", []string{"delete", "shop", "--yes"}, false},
-		{"environment create", "kupe app env get shop production", []string{"env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080"}, true},
-		{"environment update", "kupe app env get shop production", []string{"env", "update", "shop", "production", "--port", "9090"}, true},
-		{"environment delete", "kupe app env get shop production", []string{"env", "delete", "shop", "production", "--yes"}, true},
+		{"app delete", "kupe app get shop", "", []string{"delete", "shop", "--yes"}, false},
+		{"environment create", "kupe app env get shop production", "kupe app wait shop production", []string{"env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080"}, true},
+		{"environment update", "kupe app env get shop production", "", []string{"env", "update", "shop", "production", "--port", "9090"}, true},
+		{"environment delete", "kupe app env get shop production", "", []string{"env", "delete", "shop", "production", "--yes"}, true},
 	} {
 		for _, interrupted := range []bool{false, true} {
 			name := "timeout"
@@ -76,6 +76,9 @@ func TestAppWaitFailuresOnlySuggestAvailableCommands(t *testing.T) {
 					t.Fatalf("exit=%d err=%v", cli.ExitCode(err), err)
 				}
 				wantHint := "check status:  " + operation.status
+				if operation.resume != "" {
+					wantHint += "\nresume wait:   " + operation.resume
+				}
 				if interrupted && operation.name == "environment create" {
 					wantHint += "\nabandon:       kupe app env delete shop production"
 				}
@@ -93,9 +96,13 @@ func TestAppWaitFailuresOnlySuggestAvailableCommands(t *testing.T) {
 func TestAppLostContactWaitHintsKeepErrorAndAvailableGuidance(t *testing.T) {
 	cause := &client.APIError{StatusCode: http.StatusServiceUnavailable, Message: "temporarily unavailable"}
 	for _, verb := range []string{"create", "update", "delete"} {
-		err := environmentHint(cmdutil.MapWaitErr(cause, "environment", "production", verb), "shop")
+		err := environmentHint(cmdutil.MapWaitErr(cause, "environment", "production", verb), "shop", verb)
+		want := "check status:  kupe app env get shop production"
+		if verb == "create" {
+			want += "\nresume wait:   kupe app wait shop production"
+		}
 		var ce *cli.Error
-		if cli.ExitCode(err) != cli.ExitUnavailable || !errors.As(err, &ce) || !errors.Is(err, cause) || ce.Hint != "check status:  kupe app env get shop production" {
+		if cli.ExitCode(err) != cli.ExitUnavailable || !errors.As(err, &ce) || !errors.Is(err, cause) || ce.Hint != want {
 			t.Fatalf("verb=%s error=%v hint=%v", verb, err, ce)
 		}
 	}

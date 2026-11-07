@@ -26,8 +26,8 @@ The file-based variant kubectl supports (`go-template-file=PATH`) is not wired
 to the `-o` flag. Pass the template inline for now.
 
 `-o jsonpath=...` and `-o jsonpath-file=...` are not supported. The CLI refuses
-them with exit code 2 before the command makes any API call (for `kupe apikey create`, before the key is created); use `-o go-template=...`
-or pipe `-o json` to `jq`.
+them with exit code 2 before the command changes anything (for `kupe apikey create`, before the key is
+created); use `-o go-template=...` or pipe `-o json` to `jq`.
 
 Toggle commands such as `kupe version`, `kupe auth whoami`, `kupe apikey create`
 and `kupe registry token create` accept only `text` (default) and `json`.

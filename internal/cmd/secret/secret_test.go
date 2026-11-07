@@ -378,3 +378,12 @@ func TestInvalidSyncKeyUsesApprovedMessage(t *testing.T) {
 		t.Fatalf("err=%v want%q", err, want)
 	}
 }
+
+// Before the definition exists, values set cannot resolve NAME, so the help
+// must tell the user to seed by path.
+func TestCreateHelpSeedsValuesByPath(t *testing.T) {
+	cmd := newCreateCmd(factoryWith(t, clienttest.New()))
+	if !strings.Contains(cmd.Long, "kupe secret values set --path PATH --expected-version 0") || strings.Contains(cmd.Long, "values set NAME") {
+		t.Fatal(cmd.Long)
+	}
+}

@@ -110,7 +110,7 @@ func (f *Fake) AppEnvironments(app string) client.AppEnvironmentAPI {
 			apply: func(env *client.AppEnvironment, req client.PatchAppEnvironmentRequest) {
 				f.AppEnvironmentPatches = append(f.AppEnvironmentPatches, req)
 				if req.Web != nil {
-					env.Web = req.Web
+					env.Web = mergeAppWeb(env.Web, req)
 				}
 				if req.Secrets != nil {
 					env.Secrets = *req.Secrets
@@ -132,4 +132,49 @@ func (f *Fake) AppEnvironments(app string) client.AppEnvironmentAPI {
 			},
 		}, errors: &f.UpdateAppEnvironmentErrors, confirms: &f.AppEnvironmentDeleteConfirms,
 	}
+}
+
+// mergeAppWeb applies the web member of a patch to the current web the way
+// the server does: an RFC 7386 JSON merge patch, where objects merge, a null
+// removes a member, and arrays and scalars replace.
+func mergeAppWeb(current *client.AppWeb, req client.PatchAppEnvironmentRequest) *client.AppWeb {
+	body, err := json.Marshal(req)
+	if err != nil {
+		panic(fmt.Sprintf("clienttest: marshal patch: %v", err))
+	}
+	var envelope struct {
+		Web map[string]any `json:"web"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		panic(fmt.Sprintf("clienttest: decode patch: %v", err))
+	}
+	base := map[string]any{}
+	if current != nil {
+		data, _ := json.Marshal(current)
+		_ = json.Unmarshal(data, &base)
+	}
+	merged, _ := json.Marshal(mergePatch(base, envelope.Web))
+	var out client.AppWeb
+	if err := json.Unmarshal(merged, &out); err != nil {
+		panic(fmt.Sprintf("clienttest: decode merged web: %v", err))
+	}
+	return &out
+}
+
+func mergePatch(target, patch map[string]any) map[string]any {
+	if target == nil {
+		target = map[string]any{}
+	}
+	for key, value := range patch {
+		switch v := value.(type) {
+		case nil:
+			delete(target, key)
+		case map[string]any:
+			child, _ := target[key].(map[string]any)
+			target[key] = mergePatch(child, v)
+		default:
+			target[key] = v
+		}
+	}
+	return target
 }

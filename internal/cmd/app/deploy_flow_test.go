@@ -514,8 +514,18 @@ func TestDeployFlowTTYImageUsesResolutionWithoutNamePrompts(t *testing.T) {
 	}
 }
 
+// --create-cluster=false asks for nothing, so an existing environment accepts it.
+func TestDeployFlowExistingAcceptsCreateClusterFalse(t *testing.T) {
+	fake := releaseFake()
+	fake.AppsByName["shop"] = &client.App{Name: "shop"}
+	_, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false", "--create-cluster=false")
+	if err != nil || len(fake.AppEnvironmentPatches) != 1 {
+		t.Fatalf("err=%v calls=%v", err, fake.Calls)
+	}
+}
+
 func TestDeployFlowExistingRefusesCreateCluster(t *testing.T) {
-	for _, flags := range [][]string{{"--create-cluster"}, {"--create-cluster=false"}, {"--create-cluster", "--cluster", "europe"}} {
+	for _, flags := range [][]string{{"--create-cluster"}, {"--create-cluster=true"}, {"--create-cluster", "--cluster", "europe"}} {
 		fake := releaseFake()
 		fake.AppsByName["shop"] = &client.App{Name: "shop"}
 		args := append([]string{"deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"}, flags...)

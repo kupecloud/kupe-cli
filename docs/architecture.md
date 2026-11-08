@@ -255,7 +255,7 @@ Three entry points produce an authenticated client:
 
 1. **Interactive `kupe auth login`** — default OIDC device-code flow, validate via `GET /tenants/{tenant}`, store the token set in keyring/plaintext fallback, save context in config file.
 2. **Env-driven `KUPE_API_TOKEN`** — the CI short-circuit. When set, the config file is bypassed entirely; token is used as-is with whatever tenant is resolved from `--tenant` / `KUPE_TENANT`.
-3. **Exec-plugin `kupe auth get-token`** — called by `kubectl` when a kubeconfig was produced by `kupe cluster kubeconfig NAME --exec`. Prints an `ExecCredential` JSON object per `client.authentication.k8s.io/v1` to stdout. This lets `kubectl` acquire tokens on demand without embedding them in the kubeconfig.
+3. **Exec-plugin `kupe auth get-token`** — called by `kubectl` when a kubeconfig was produced by `kupe cluster kubeconfig NAME` (the default exec form). Prints an `ExecCredential` JSON object per `client.authentication.k8s.io/v1` to stdout. This lets `kubectl` acquire tokens on demand without embedding them in the kubeconfig.
 
 See [auth.md](./auth.md) for the full token lifecycle.
 

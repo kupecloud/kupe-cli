@@ -69,8 +69,8 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Errorf("created cluster %q not in list of %d", name, len(listed))
 	}
 
-	// Kubeconfig — embedded-token form. Stdout should be a YAML doc
-	// with at least apiVersion + kind: Config.
+	// Kubeconfig — default is the exec-plugin form: an `exec:` stanza
+	// pointing at `kupe auth get-token`, with no bearer token.
 	out := runCLIExpectOK(t, "cluster", "kubeconfig", name)
 	if !strings.Contains(out, "apiVersion: v1") || !strings.Contains(out, "kind: Config") {
 		t.Fatalf("kubeconfig missing apiVersion/kind:\n%s", out[:min(len(out), 500)])
@@ -78,16 +78,15 @@ func TestClusterLifecycle(t *testing.T) {
 	if !strings.Contains(out, name) {
 		t.Errorf("kubeconfig should reference cluster name %q", name)
 	}
+	if !strings.Contains(out, "exec:") || !strings.Contains(out, "get-token") {
+		t.Fatalf("default kubeconfig missing exec stanza for get-token:\n%s", out[:min(len(out), 500)])
+	}
 	assertNoTokenLeak(t, out)
 
-	// Kubeconfig — exec-plugin form. Should contain `exec:` stanza
-	// pointing at `kupe auth get-token`.
-	execOut := runCLIExpectOK(t, "cluster", "kubeconfig", name, "--exec")
-	if !strings.Contains(execOut, "exec:") {
-		t.Fatalf("--exec kubeconfig missing exec stanza:\n%s", execOut[:min(len(execOut), 500)])
-	}
-	if !strings.Contains(execOut, "get-token") {
-		t.Errorf("--exec kubeconfig should reference get-token:\n%s", execOut[:min(len(execOut), 500)])
+	// Kubeconfig — --embed-token carries a bearer token and no exec stanza.
+	embedOut := runCLIExpectOK(t, "cluster", "kubeconfig", name, "--embed-token")
+	if !strings.Contains(embedOut, "token:") || strings.Contains(embedOut, "exec:") {
+		t.Errorf("--embed-token kubeconfig should embed a token and have no exec stanza:\n%s", embedOut[:min(len(embedOut), 500)])
 	}
 }
 

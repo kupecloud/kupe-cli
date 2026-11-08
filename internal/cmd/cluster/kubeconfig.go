@@ -18,7 +18,7 @@ type kubeconfigOpts struct {
 	contextName    string
 	userName       string
 	clusterName    string
-	exec           bool
+	embedToken     bool
 	force          bool
 	forceOverwrite bool
 }
@@ -37,12 +37,14 @@ promotes the new context to current.
 
 Two user-entry modes:
 
-  Token mode (default): embeds the current API token directly. Simple, but
-    the emitted kubeconfig is a secret that expires with the API key.
-
-  Exec mode (--exec): emits an exec-plugin stanza that shells back to
+  Exec mode (default): emits an exec-plugin stanza that shells back to
     "kupe auth get-token --context=..." whenever kubectl needs a token.
-    Contains no secrets; safe to commit.`,
+    Contains no secrets, refreshes automatically, safe to commit.
+
+  Embedded token (--embed-token): writes the current bearer token into the
+    kubeconfig. Use it only for throwaway containers where the kupe binary
+    is not available. The file is a secret and, for OIDC contexts, the
+    token expires after about an hour with no way to refresh it.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Print to stdout, redirect into a file
   kupe cluster kubeconfig prod > /tmp/kc
@@ -50,8 +52,8 @@ Two user-entry modes:
   # Merge into ~/.kube/config
   kupe cluster kubeconfig prod --merge
 
-  # Exec-plugin mode: the kubeconfig holds no token
-  kupe cluster kubeconfig prod --merge --exec`,
+  # Throwaway container without the kupe binary: embed the token
+  kupe cluster kubeconfig prod --embed-token > /tmp/kc`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runKubeconfig(cmd, f, args[0], opts)
 		},
@@ -61,7 +63,7 @@ Two user-entry modes:
 	cmd.Flags().StringVar(&opts.contextName, "context-name", "", "Context name in the generated kubeconfig (default: kupe-<tenant>-<cluster>)")
 	cmd.Flags().StringVar(&opts.userName, "user-name", "", "User entry name (default: same as context-name)")
 	cmd.Flags().StringVar(&opts.clusterName, "cluster-name", "", "Cluster entry name (default: same as context-name)")
-	cmd.Flags().BoolVar(&opts.exec, "exec", false, "Produce a kubeconfig with no embedded token; kubectl shells back to 'kupe auth get-token' each time it needs one (safe to commit)")
+	cmd.Flags().BoolVar(&opts.embedToken, "embed-token", false, "Embed the current bearer token in the kubeconfig instead of the exec plugin (the file is a secret; for throwaway containers without the kupe binary)")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "Overwrite colliding entries on --merge")
 	cmd.Flags().BoolVar(&opts.forceOverwrite, "force-overwrite", false, "If the existing kubeconfig is corrupt, discard it and start fresh (this loses its contents; use with care)")
 	return cmd
@@ -120,7 +122,7 @@ func runKubeconfig(cmd *cobra.Command, f *cli.Factory, name string, opts *kubeco
 
 // buildKubeconfig assembles the kubeconfig in the requested mode.
 func buildKubeconfig(f *cli.Factory, names kubeconfig.Names, kc *client.ClusterKubeconfig, opts *kubeconfigOpts) (*clientcmdapi.Config, error) {
-	if opts.exec {
+	if !opts.embedToken {
 		binary := execBinary()
 		ctxName := ""
 		if r, err := f.Resolved(); err == nil {
@@ -128,15 +130,16 @@ func buildKubeconfig(f *cli.Factory, names kubeconfig.Names, kc *client.ClusterK
 		}
 		return kubeconfig.BuildExecConfig(names, kc.Endpoint, kc.CertificateAuthority, binary, ctxName)
 	}
-	// Token mode embeds whatever f.Token() returns. For an OIDC context that's
-	// a short-lived access token with no in-kubeconfig refresh path, so the
-	// generated file starts 401-ing within minutes. Warn and point at --exec
-	// (KC-6).
+	// Embedding writes a bearer token into the file. For an OIDC context it is
+	// a 1 hour access token with no in-kubeconfig refresh path, so the file
+	// starts 401-ing within the hour. Always warn that the file is a secret.
+	fmt.Fprintln(f.IOStreams.ErrOut,
+		"warning: --embed-token writes a bearer token into the kubeconfig; treat the file as a secret and do not commit it.")
 	if r, err := f.Resolved(); err == nil && r != nil && r.AuthMethod == "oidc" {
 		fmt.Fprintln(f.IOStreams.ErrOut,
-			"warning: this is an OIDC context, so the embedded access token expires shortly and the kubeconfig cannot refresh it.")
+			"  this is an OIDC context: the embedded access token expires after about an hour and cannot be refreshed.")
 		fmt.Fprintln(f.IOStreams.ErrOut,
-			"  re-run with --exec for a token-free kubeconfig that refreshes automatically (safe to commit).")
+			"  omit --embed-token for a token-free kubeconfig that refreshes automatically.")
 	}
 	tok, err := f.Token()
 	if err != nil {

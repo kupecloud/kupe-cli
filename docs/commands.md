@@ -240,13 +240,13 @@ Backed by `GET /api/v1/tenants/{tenant}`. Exits `3` if the current context has n
 
 ### `kupe auth get-token`
 
-Exec-plugin mode for Kubernetes. Emits a `client.authentication.k8s.io/v1` `ExecCredential` JSON to stdout. **Not intended for direct use** — called by `kubectl` when the kubeconfig was produced by `kupe cluster kubeconfig NAME --exec`.
+Exec-plugin mode for Kubernetes. Emits a `client.authentication.k8s.io/v1` `ExecCredential` JSON to stdout. **Not intended for direct use** — called by `kubectl` when the kubeconfig was produced by `kupe cluster kubeconfig NAME` (the default exec form).
 
 **Flags:**
 
 | Flag | Description |
 |------|-------------|
-| `--context NAME` | Which context's token to return. Set automatically by the kubeconfig that `--exec` produces. |
+| `--context NAME` | Which context's token to return. Set automatically by the exec kubeconfig that `kupe cluster kubeconfig` produces. |
 
 **Example output** (written to stdout, consumed by `kubectl`):
 
@@ -572,7 +572,7 @@ Ctrl+C (deletion continues).
 
 ### `kupe cluster kubeconfig NAME`
 
-Retrieve a kubeconfig for the cluster. Default: print full kubeconfig YAML to stdout.
+Retrieve a kubeconfig for the cluster. Default: print full kubeconfig YAML to stdout, in exec-plugin form (no bearer token; kubectl calls `kupe auth get-token`).
 
 The API endpoint returns only `{endpoint, certificateAuthority}`; the CLI assembles the full kubeconfig locally.
 
@@ -584,7 +584,7 @@ The API endpoint returns only `{endpoint, certificateAuthority}`; the CLI assemb
 | `--context-name NAME` | Context name in the generated kubeconfig (default: `kupe-<tenant>-<cluster>`). |
 | `--user-name NAME` | User entry name (default: same as context). |
 | `--cluster-name NAME` | Cluster entry name (default: same as context). |
-| `--exec` | Emit exec-plugin form that shells back to `kupe auth get-token`. |
+| `--embed-token` | Embed the current bearer token instead of the default exec-plugin form. The file is a secret and a warning is printed; for throwaway containers without the `kupe` binary. |
 | `--force` | Overwrite an existing context of the same name. |
 | `--force-overwrite` | If the existing kubeconfig is corrupt, discard it and start fresh. |
 
@@ -599,8 +599,8 @@ KUBECONFIG=/tmp/kc kubectl get pods
 kupe cluster kubeconfig prod --merge
 kubectl --context kupe-acme-corp-prod get pods
 
-# Exec-plugin form (refreshes via `kupe auth get-token`)
-kupe cluster kubeconfig prod --merge --exec
+# Throwaway container without the kupe binary: embed the token
+kupe cluster kubeconfig prod --embed-token > /tmp/kc
 ```
 
 Exits `7` (Unavailable) if the cluster is not yet ready to return a kubeconfig — pair with `kupe cluster wait` in scripts.

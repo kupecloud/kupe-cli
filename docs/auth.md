@@ -222,7 +222,7 @@ The context itself is preserved. Use `kupe config delete-context` to remove it e
 
 ## Exec-plugin contract (for kubectl)
 
-When you run `kupe cluster kubeconfig NAME --exec --merge`, the emitted kubeconfig looks like this. The `command` is usually the absolute path to the current `kupe` binary; `kupe` is shown here for readability.
+When you run `kupe cluster kubeconfig NAME --merge`, the emitted kubeconfig looks like this. The `command` is usually the absolute path to the current `kupe` binary; `kupe` is shown here for readability.
 
 ```yaml
 apiVersion: v1
@@ -275,11 +275,11 @@ When `kubectl` makes an API call, it executes `kupe auth get-token --context=pro
 
 This pattern lets the kubeconfig be committed to a team repo (no secrets in the YAML) and rotated by simply running `kupe auth login` again with a new token.
 
-### Why the exec plugin is gated behind `--exec`
+### Why exec is the default, and when to use `--embed-token`
 
-Exec-plugin kubeconfigs require the `kupe` binary path embedded in the kubeconfig to exist on the target machine. That's fine for developers but wrong for throwaway kubeconfigs dropped into a container for a single `kubectl apply`. The default (`--exec` off) embeds the bearer token directly — works everywhere, but the kubeconfig becomes a secret.
+OIDC access tokens for the `kupe-cli` client last 1 hour, so removing a user from a tenant reaches them within an hour: every refresh re-reads their groups. An embedded token cannot refresh, so the default kubeconfig is the exec-plugin form, where `kupe auth get-token` refreshes transparently (the refresh token lasts 7 days).
 
-For OIDC contexts, `--exec` is recommended for long-lived local use because the exec plugin shells back into `kupe auth get-token`, letting the CLI refresh expired access tokens transparently. For API-key contexts, the embedded-token form is fine for short-lived kubeconfigs because there is no refresh token to rotate.
+Exec-plugin kubeconfigs need the `kupe` binary at the path embedded in the file. For throwaway kubeconfigs dropped into a container for a single `kubectl apply`, use `kupe cluster kubeconfig NAME --embed-token`. It writes the bearer token into the file, prints a warning, and the file is a secret. For an OIDC context that token stops working after about an hour; API-key contexts have no such expiry.
 
 ## Rotation
 

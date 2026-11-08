@@ -13,6 +13,7 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 	"github.com/kupecloud/kupe-cli/internal/client/clienttest"
+	"github.com/kupecloud/kupe-cli/internal/config"
 )
 
 const testPEM = "-----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----\n"
@@ -155,3 +156,55 @@ func TestResolveNamesMirrorsContextOntoOthers(t *testing.T) {
 // compile-time: the cluster_test.go executeCmd helper is reused here.
 var _ = func() *cobra.Command { return (&cobra.Command{}) }
 var _ = context.Background
+
+func TestKubeconfigDirectTokenRefusedWithoutEmbed(t *testing.T) {
+	f := seedForKubeconfig(t, clienttest.New(), "prod")
+	f.Resolved = func() (*config.Resolved, error) {
+		return &config.Resolved{ContextName: "acme", DirectToken: "kupe_direct"}, nil
+	}
+	err := executeCmd(newKubeconfigCmd(f), "prod")
+	if err == nil {
+		t.Fatal("expected misuse error")
+	}
+	if code := cli.ExitCode(err); code != cli.ExitMisuse {
+		t.Fatalf("exit = %d; want %d", code, cli.ExitMisuse)
+	}
+	if out := f.IOStreams.Out.(interface{ String() string }).String(); out != "" {
+		t.Fatalf("nothing should be written on refusal:\n%s", out)
+	}
+}
+
+func TestKubeconfigDirectTokenAllowedWithEmbed(t *testing.T) {
+	f := seedForKubeconfig(t, clienttest.New(), "prod")
+	f.Resolved = func() (*config.Resolved, error) {
+		return &config.Resolved{ContextName: "acme", DirectToken: "kupe_test_token"}, nil
+	}
+	if err := executeCmd(newKubeconfigCmd(f), "prod", "--embed-token"); err != nil {
+		t.Fatalf("--embed-token with direct token: %v", err)
+	}
+	if out := f.IOStreams.Out.(interface{ String() string }).String(); !strings.Contains(out, "token: kupe_test_token") {
+		t.Fatalf("embedded token missing:\n%s", out)
+	}
+}
+
+func TestKubeconfigDeprecatedExecIsNoOp(t *testing.T) {
+	f := seedForKubeconfig(t, clienttest.New(), "prod")
+	if err := executeCmd(newKubeconfigCmd(f), "prod", "--exec"); err != nil {
+		t.Fatalf("--exec: %v", err)
+	}
+	out := f.IOStreams.Out.(interface{ String() string }).String()
+	if !strings.Contains(out, "get-token") || strings.Contains(out, "kupe_test_token") {
+		t.Fatalf("--exec should give the default exec form:\n%s", out)
+	}
+	if !strings.Contains(f.IOStreams.ErrOut.(interface{ String() string }).String(), "--exec is deprecated") {
+		t.Error("missing deprecation note on stderr")
+	}
+}
+
+func TestKubeconfigExecWithEmbedTokenRefused(t *testing.T) {
+	f := seedForKubeconfig(t, clienttest.New(), "prod")
+	err := executeCmd(newKubeconfigCmd(f), "prod", "--exec", "--embed-token")
+	if err == nil || cli.ExitCode(err) != cli.ExitMisuse {
+		t.Fatalf("want misuse error, got %v", err)
+	}
+}

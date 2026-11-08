@@ -277,9 +277,9 @@ This pattern lets the kubeconfig be committed to a team repo (no secrets in the 
 
 ### Why exec is the default, and when to use `--embed-token`
 
-OIDC access tokens for the `kupe-cli` client last 1 hour, so removing a user from a tenant reaches them within an hour: every refresh re-reads their groups. An embedded token cannot refresh, so the default kubeconfig is the exec-plugin form, where `kupe auth get-token` refreshes transparently (the refresh token lasts 7 days).
+OIDC access tokens for the `kupe-cli` client are short-lived (1 hour once the platform change ships; 8 hours today), so removing a user from a tenant reaches them when their token next refreshes: every refresh re-reads their groups. An embedded token cannot refresh, so the default kubeconfig is the exec-plugin form, where `kupe auth get-token` refreshes transparently (the refresh token lasts 7 days).
 
-Exec-plugin kubeconfigs need the `kupe` binary at the path embedded in the file. For throwaway kubeconfigs dropped into a container for a single `kubectl apply`, use `kupe cluster kubeconfig NAME --embed-token`. It writes the bearer token into the file, prints a warning, and the file is a secret. For an OIDC context that token stops working after about an hour; API-key contexts have no such expiry.
+Exec-plugin kubeconfigs need the `kupe` binary at the path embedded in the file. For throwaway kubeconfigs dropped into a container for a single `kubectl apply`, use `kupe cluster kubeconfig NAME --embed-token`. It writes the bearer token into the file, prints a warning, and the file is a secret. For an OIDC context that token is short-lived and cannot be refreshed; API-key contexts have no such expiry.
 
 ## Rotation
 

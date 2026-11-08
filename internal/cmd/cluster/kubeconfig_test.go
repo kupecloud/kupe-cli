@@ -43,11 +43,14 @@ func seedForKubeconfig(t *testing.T, fake *clienttest.Fake, name string) *cli.Fa
 	return f
 }
 
-func TestKubeconfigStdoutTokenMode(t *testing.T) {
+func TestKubeconfigEmbedTokenMode(t *testing.T) {
 	f := seedForKubeconfig(t, clienttest.New(), "prod")
 	cmd := newKubeconfigCmd(f)
-	if err := executeCmd(cmd, "prod"); err != nil {
-		t.Fatalf("kubeconfig: %v", err)
+	if err := executeCmd(cmd, "prod", "--embed-token"); err != nil {
+		t.Fatalf("kubeconfig --embed-token: %v", err)
+	}
+	if !strings.Contains(f.IOStreams.ErrOut.(interface{ String() string }).String(), "treat the file as a secret") {
+		t.Errorf("--embed-token did not warn on stderr")
 	}
 	out := f.IOStreams.Out.(interface{ String() string }).String()
 	for _, want := range []string{
@@ -62,11 +65,11 @@ func TestKubeconfigStdoutTokenMode(t *testing.T) {
 	}
 }
 
-func TestKubeconfigExecModeStripsToken(t *testing.T) {
+func TestKubeconfigDefaultIsExecModeWithoutToken(t *testing.T) {
 	f := seedForKubeconfig(t, clienttest.New(), "prod")
 	cmd := newKubeconfigCmd(f)
-	if err := executeCmd(cmd, "prod", "--exec"); err != nil {
-		t.Fatalf("kubeconfig --exec: %v", err)
+	if err := executeCmd(cmd, "prod"); err != nil {
+		t.Fatalf("kubeconfig: %v", err)
 	}
 	out := f.IOStreams.Out.(interface{ String() string }).String()
 	if strings.Contains(out, "kupe_test_token") {

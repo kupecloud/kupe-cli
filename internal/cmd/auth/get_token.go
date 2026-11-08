@@ -11,7 +11,7 @@ import (
 )
 
 // newGetTokenCmd is the exec-plugin endpoint called by kubectl when a
-// kubeconfig generated via `kupe cluster kubeconfig --exec` is in use.
+// kubeconfig generated via the default `kupe cluster kubeconfig` is in use.
 // It is not intended for direct human use; the help text says as much.
 //
 // Protocol is the kubectl client-go credential-plugin contract:
@@ -30,7 +30,7 @@ func newGetTokenCmd(f *cli.Factory) *cobra.Command {
 client.authentication.k8s.io/v1 ExecCredential JSON object on stdout.
 
 This command is invoked automatically by kubectl when it authenticates
-against a kubeconfig produced by "kupe cluster kubeconfig --exec". Humans
+against a kubeconfig produced by "kupe cluster kubeconfig". Humans
 never call it directly.`,
 		Hidden: true, // not part of the typical help surface
 		RunE: func(_ *cobra.Command, _ []string) error {

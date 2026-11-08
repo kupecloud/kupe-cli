@@ -69,19 +69,14 @@ func TestClusterLifecycle(t *testing.T) {
 		t.Errorf("created cluster %q not in list of %d", name, len(listed))
 	}
 
-	// Kubeconfig — default is the exec-plugin form: an `exec:` stanza
-	// pointing at `kupe auth get-token`, with no bearer token.
-	out := runCLIExpectOK(t, "cluster", "kubeconfig", name)
-	if !strings.Contains(out, "apiVersion: v1") || !strings.Contains(out, "kind: Config") {
-		t.Fatalf("kubeconfig missing apiVersion/kind:\n%s", out[:min(len(out), 500)])
+	// Kubeconfig — the harness passes a direct token (KUPE_API_TOKEN), which
+	// an exec kubeconfig cannot carry, so the default form is refused with
+	// exit 2. The exec form itself is covered by the unit tests.
+	r = runCLI(t, "cluster", "kubeconfig", name)
+	if r.exitCode != 2 {
+		t.Fatalf("default kubeconfig with a direct token: exit = %d; want 2\nstderr:\n%s", r.exitCode, r.stderr)
 	}
-	if !strings.Contains(out, name) {
-		t.Errorf("kubeconfig should reference cluster name %q", name)
-	}
-	if !strings.Contains(out, "exec:") || !strings.Contains(out, "get-token") {
-		t.Fatalf("default kubeconfig missing exec stanza for get-token:\n%s", out[:min(len(out), 500)])
-	}
-	assertNoTokenLeak(t, out)
+	assertNoTokenLeak(t, r.stdout)
 
 	// Kubeconfig — --embed-token carries a bearer token and no exec stanza.
 	embedOut := runCLIExpectOK(t, "cluster", "kubeconfig", name, "--embed-token")

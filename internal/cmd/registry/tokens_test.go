@@ -226,9 +226,7 @@ func TestLogin_WaitsForUsername(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Your Docker credential was saved unencrypted in " + path,
-		"Logged in to registry.kupe.cloud as 'kupe+acme+cli-issued' until ",
-		"(12 hours). Admins can push and pull; read-only members can pull.",
-		`Run "kupe registry login" again after it expires: Docker reports "unauthorized" once it has.`, //nolint:misspell // Docker's text
+		"Logged in to registry.kupe.cloud\n",
 	} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr missing %q:\n%s", want, errOut)

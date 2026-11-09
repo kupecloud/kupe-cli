@@ -2027,10 +2027,8 @@ command. `-o json` prints `id`, `name`, `access`, `username`, `registry`,
    and `-` exits `2`; a helper not on `PATH` exits `1` naming it and the config
    key that chose it; both are checked before the session is requested. A
    helper's error output is shown with the secret replaced by `***`.
-4. Prints on stderr: `Logged in to registry.kupe.cloud as 'USERNAME' until
-   2026-10-22 22:00 BST (12 hours). Admins can push and pull; read-only members
-   can pull. Run "kupe registry login" again after it expires: Docker reports
-   "unauthorized" once it has.`
+4. Prints on stderr: `Logged in to registry.kupe.cloud`. The session lasts 12
+   hours; run `kupe registry login` again after it expires.
 
 `--no-store -o json` prints `{"server", "username", "password", "expiresAt"}`
 on stdout and stores nothing, for Podman, Buildah or a CI wrapper. `--no-store`

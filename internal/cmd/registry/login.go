@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -142,9 +140,7 @@ func runLogin(ctx context.Context, f *cli.Factory, opts *loginOpts) error {
 	if stored.Helper.Name == "" {
 		fmt.Fprintf(io.ErrOut, plainStorageWarning, stored.Path)
 	}
-	fmt.Fprintf(io.ErrOut, "Logged in to %s as %s until %s. Admins can push and pull; read-only members can pull. "+
-		"Run \"kupe registry login\" again after it expires: Docker reports %q once it has.\n",
-		host, shellQuote(issued.Username), untilText(session.CreatedAt, session.ExpiresAt), dockerUnauthorized)
+	fmt.Fprintf(io.ErrOut, "Logged in to %s\n", host)
 	return nil
 }
 
@@ -168,27 +164,6 @@ func helperErr(err error) error {
 		return cli.Wrap(cli.ExitMisuse, "", err)
 	}
 	return cli.Wrap(cli.ExitGeneral, "", err)
-}
-
-// untilText is the expiry in local time with the session's length: "2026-10-22
-// 22:00 BST (12 hours)". It falls back to the raw value when it cannot be
-// read.
-func untilText(createdAt, expiresAt string) string {
-	expires, err := time.Parse(time.RFC3339, expiresAt)
-	if err != nil {
-		return expiresAt
-	}
-	out := expires.Local().Format("2006-01-02 15:04 MST")
-	if created, err := time.Parse(time.RFC3339, createdAt); err == nil {
-		if hours := int(math.Round(expires.Sub(created).Hours())); hours > 0 {
-			unit := "hours"
-			if hours == 1 {
-				unit = "hour"
-			}
-			out += fmt.Sprintf(" (%d %s)", hours, unit)
-		}
-	}
-	return out
 }
 
 type logoutOpts struct {

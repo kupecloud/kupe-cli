@@ -23,7 +23,7 @@ func translateErr(err error, name string) error {
 	// Keep its refusal and request ID; never retry after dropping settings.
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && apiErr.Code == "" {
-		for _, field := range []string{"postgres", "roleName", "credentials"} {
+		for _, field := range []string{"postgres", "pooler", "roleName", "credentials"} {
 			if strings.HasSuffix(strings.TrimSpace(apiErr.Message), `json: unknown field "`+field+`"`) {
 				return cli.WrapAPI(cli.ExitUnavailable, "this platform does not support this database setting yet", err).
 					WithHint("this platform does not support this database setting yet")

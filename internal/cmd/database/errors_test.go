@@ -33,6 +33,8 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		// kupe-api's backup refusals (handler_database.go): a coded 400 for
 		// backups not offered or a retention outside the range, a plain 400
 		// naming the field for a schedule or an empty backup.
+		poolerMessage      = "connection pooling is not available on this platform"
+		poolerHint         = "this is a platform setting, not an outage, so retrying will not help; a pooler already on can still be turned off (--pooler=false)"
 		backupsMessage     = "backups are not available on this platform"
 		retentionMessage   = "backup.retention must be between 7 and 35 days"
 		webhookRetention   = "backup retention of 36 days is outside the platform's range of 7 to 35 days"
@@ -107,6 +109,14 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 			backupsMessage + " (request-id: req-1)", backupsHint, cli.ExitUnavailable},
 		{"backups not offered without a message", update, 400, client.DatabaseCodeBackupsUnavailable, "",
 			"backups are not available on this platform: Bad Request (request-id: req-1)", backupsHint, cli.ExitUnavailable},
+		{"pooler not offered on create", create, 400, client.DatabaseCodePoolerUnavailable, poolerMessage,
+			poolerMessage + " (request-id: req-1)", poolerHint, cli.ExitUnavailable},
+		{"pooler not offered on update", update, 400, client.DatabaseCodePoolerUnavailable, poolerMessage,
+			poolerMessage + " (request-id: req-1)", poolerHint, cli.ExitUnavailable},
+		{"pooler not offered without a message", update, 400, client.DatabaseCodePoolerUnavailable, "",
+			poolerMessage + ": Bad Request (request-id: req-1)", poolerHint, cli.ExitUnavailable},
+		{"pooler not offered, a server that sends no code", create, 400, "", poolerMessage,
+			poolerMessage + " (request-id: req-1)", poolerHint, cli.ExitUnavailable},
 		{"retention outside the range on create", create, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", retentionMessage,
 			retentionMessage + " (request-id: req-1)", "", cli.ExitMisuse},
 		{"retention outside the range on update, from the webhook", update, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", webhookRetention,

@@ -183,7 +183,7 @@ func (p PatchDatabaseRequest) IsEmpty() bool {
 
 // NeedsWait reports whether the patch changes something the platform has
 // to apply to the running database before it is in effect: the version,
-// resources, high availability, roles, extensions or backup settings (the operator applies a
+// resources, high availability, roles, extensions, the pooler or backup settings (the operator applies a
 // backup change to the database's backup objects). Deletion protection is
 // read from the spec when a delete comes in, so it is in effect once the
 // PATCH lands. TestPatchDatabaseRequest_NeedsWaitCoversEveryField fails
@@ -216,6 +216,11 @@ const (
 	// request sets backup settings and the platform does not offer backups
 	// (field spec.backup).
 	DatabaseCodeBackupsUnavailable = "backups_unavailable"
+	// DatabaseCodePoolerUnavailable: 400 from POST and PATCH when the
+	// request turns the pooler on, or changes one that is on, and the
+	// platform does not offer it (field spec.postgres.pooler). The platform
+	// sends DATABASE_POOLER_UNAVAILABLE; ErrorCode lower-cases it.
+	DatabaseCodePoolerUnavailable = "database_pooler_unavailable"
 )
 
 // Error codes of manual backups and restores (kupe-api MDB2-1v). Compare
@@ -401,6 +406,15 @@ const conditionReady = "Ready"
 // Ready reports whether the database's Ready condition is True.
 func (s *DatabaseStatus) Ready() bool {
 	return s != nil && conditionTrue(s.Conditions, conditionReady)
+}
+
+// ConditionPoolerReady is True while the pooler serves; it is absent or
+// False while the pooler is off, starting or unhealthy.
+const ConditionPoolerReady = "PoolerReady"
+
+// PoolerReady reports whether the database's PoolerReady condition is True.
+func (s *DatabaseStatus) PoolerReady() bool {
+	return s != nil && conditionTrue(s.Conditions, ConditionPoolerReady)
 }
 
 // conditionTrue reports whether the condition of type t is True.
@@ -614,6 +628,39 @@ type DatabasePostgres struct {
 	Databases  *[]LogicalDatabase `json:"databases,omitempty" yaml:"databases,omitempty"`
 	Roles      *[]DeclaredRole    `json:"roles,omitempty" yaml:"roles,omitempty"`
 	Extensions *[]Extension       `json:"extensions,omitempty" yaml:"extensions,omitempty"`
+	// Pooler is the connection pooler. A response always carries it with the
+	// defaults filled in; nil on a response from a kupe-api that predates it.
+	Pooler *DatabasePooler `json:"pooler,omitempty" yaml:"pooler,omitempty"`
+}
+
+// Pool modes of the connection pooler. Transaction (the platform default)
+// keeps no session state between transactions.
+const (
+	DatabasePoolModeTransaction = "transaction"
+	DatabasePoolModeSession     = "session"
+)
+
+// DatabasePoolModes lists every pool mode, in the order help text names them.
+var DatabasePoolModes = []string{DatabasePoolModeTransaction, DatabasePoolModeSession}
+
+// DatabasePooler is postgres.pooler. On a request only the keys set are
+// sent and a PATCH changes only those: the pool sizes are the platform's, so
+// there is no field for them. "" and 0 are never valid values, so omitempty
+// reads as not set; Enabled is a pointer so false is sent.
+type DatabasePooler struct {
+	Enabled  *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	PoolMode string `json:"poolMode,omitempty" yaml:"poolMode,omitempty"`
+	// Instances is 1 or 2.
+	Instances int32 `json:"instances,omitempty" yaml:"instances,omitempty"`
+}
+
+// On reports whether the pooler is enabled; nil-safe.
+func (p *DatabasePooler) On() bool { return p != nil && p.Enabled != nil && *p.Enabled }
+
+// PoolerOn reports whether the database runs a pooler; nil-safe through
+// Postgres and Pooler (false from a kupe-api that predates the pooler).
+func (d *Database) PoolerOn() bool {
+	return d != nil && d.Postgres != nil && d.Postgres.Pooler.On()
 }
 
 // BindingCredentials selects separate logins for each namespace; it contains no passwords.

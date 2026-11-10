@@ -74,6 +74,18 @@ var refusals = []refusal{
 		hintStatus: http.StatusBadRequest,
 	},
 	{
+		// The platform does not offer the connection pooler: a request that
+		// turns it on, or changes one that is on, is refused. The request was
+		// valid, so not a misuse; turning it off is still accepted.
+		code: client.DatabaseCodePoolerUnavailable, phrase: "connection pooling is not available on this platform", exit: cli.ExitUnavailable,
+		fallback: func(string, string) string { return "connection pooling is not available on this platform" },
+		hint: func(string, string) string {
+			return "this is a platform setting, not an outage, so retrying will not help; " +
+				"a pooler already on can still be turned off (--pooler=false)"
+		},
+		hintStatus: http.StatusBadRequest,
+	},
+	{
 		code: client.CodeTerminating, phrase: "is being deleted; it cannot be bound", exit: cli.ExitConflict,
 		fallback: func(noun, name string) string { return fmt.Sprintf("%s %q is being deleted", noun, name) },
 		hint: func(noun, name string) string {

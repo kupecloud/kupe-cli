@@ -1016,3 +1016,59 @@ func TestIsUnknownRoute(t *testing.T) {
 		t.Error("a 404 with no body at all is not an unknown route")
 	}
 }
+
+// The pooler nests under postgres in a request, with only the keys set, and
+// reads back with the platform's defaults.
+func TestDatabasePooler_NestsUnderPostgres(t *testing.T) {
+	on, off := true, false
+	tests := []struct {
+		name   string
+		pooler *DatabasePooler
+		want   string
+	}{
+		{"enabled and mode", &DatabasePooler{Enabled: &on, PoolMode: "session"}, `{"postgres":{"pooler":{"enabled":true,"poolMode":"session"}}}`},
+		{"off sends false", &DatabasePooler{Enabled: &off}, `{"postgres":{"pooler":{"enabled":false}}}`},
+		{"instances alone", &DatabasePooler{Instances: 2}, `{"postgres":{"pooler":{"instances":2}}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := json.Marshal(PatchDatabaseRequest{Postgres: &DatabasePostgres{Pooler: tt.pooler}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != tt.want {
+				t.Errorf("body = %s; want %s", raw, tt.want)
+			}
+		})
+	}
+	raw, err := json.Marshal(CreateDatabaseRequest{Name: "x", Postgres: &DatabasePostgres{Pooler: &DatabasePooler{Enabled: &on}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, top := body["pooler"]; top {
+		t.Errorf("pooler must not be a top-level key: %s", raw)
+	}
+}
+
+func TestDatabase_PoolerOnAndReady(t *testing.T) {
+	var db Database
+	if err := json.Unmarshal([]byte(`{"name":"x","postgres":{"pooler":{"enabled":true,"poolMode":"transaction","instances":1}},
+		"status":{"conditions":[{"type":"PoolerReady","status":"True"}]}}`), &db); err != nil {
+		t.Fatal(err)
+	}
+	if !db.PoolerOn() || !db.Status.PoolerReady() {
+		t.Fatalf("PoolerOn = %v, PoolerReady = %v; want both true", db.PoolerOn(), db.Status.PoolerReady())
+	}
+	for _, d := range []*Database{nil, {}, {Postgres: &DatabasePostgres{}}, {Postgres: &DatabasePostgres{Pooler: &DatabasePooler{}}}} {
+		if d.PoolerOn() {
+			t.Errorf("PoolerOn() on %+v = true; want false", d)
+		}
+	}
+	if (*DatabaseStatus)(nil).PoolerReady() || (&DatabaseStatus{}).PoolerReady() {
+		t.Error("PoolerReady() without the condition must be false")
+	}
+}

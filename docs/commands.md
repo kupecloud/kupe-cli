@@ -57,7 +57,7 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
-| `PATCH /api/v1/tenants/{tenant}/databases/{name}` | `kupe database update` | v1 |
+| `PATCH /api/v1/tenants/{tenant}/databases/{name}` | `kupe database update`, `kupe database upgrade` (the version only) | v1 |
 | `DELETE /api/v1/tenants/{tenant}/databases/{name}` | `kupe database delete` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases/{name}/rotate-credentials` | `kupe database rotate-credentials` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}/bindings` | `kupe database binding list` | v1 |
@@ -1322,9 +1322,11 @@ while databases are switched off; the existing cleanup commands still work.
 ### `kupe database update NAME`
 
 Change per-instance resources, high availability, deletion protection or
-backup settings. The major version cannot be changed yet: kupe-api refuses every version change
-(`400 major_upgrade_unavailable`), so `kupe database upgrade` is hidden until
-major upgrades are offered. Only the flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
+backup settings. The major version is not changed here; use
+`kupe database upgrade`.
+While a major upgrade is running, a change is refused with `409
+database_upgrade_in_progress` (exit `5`, hint `kupe db wait NAME`). Only the
+flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
 retried once, then exits `5`).
 
 | Flag | Description |
@@ -1428,6 +1430,71 @@ Inside an added database, connect through its owner binding to grant schema and
 table privileges to its readwrite and readonly roles and set default privileges
 for future objects created by that owner. Ready confirms provisioning and
 credential delivery; it does not verify those tenant grants.
+
+### `kupe database upgrade NAME (--version MAJOR | --cancel)`
+
+Move a database to the next PostgreSQL major version in place. Upgrades go
+one major at a time. The platform takes a backup first, then stops the
+database and moves its data to the new major. The database is offline, and
+applications cannot connect to it, until the upgrade finishes.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--version MAJOR` | none | The major to move to, one above the running one (for example `18`). Required unless `--cancel`. A value that is not a two-digit major exits `2`. |
+| `--cancel` | off | Set the version back to the major the database runs. Cannot be combined with `--version`. |
+| `--yes`, `-y` | off | Skip the confirmation. Required in non-interactive mode. |
+| `--wait` | `true` | Wait until the database runs the new major. |
+| `--wait-timeout` | `60m` | Give up waiting after this long. Exits `8`; the upgrade carries on. |
+| `-o`, `--output` | `table` | `table`, `json`, `yaml` or `go-template=...`, as `kupe database get`. |
+
+Before it sends anything the command reads the database and asks
+`This takes database NAME offline while it upgrades from R to T. Type yes to
+confirm:`. Anything but `yes` exits `2` and sends nothing; without `--yes` a
+non-interactive run exits `2`. Asking for the major the database already runs
+changes nothing and asks nothing. `--cancel` never asks.
+
+**Waiting.** The upgrade is done when the phase is `Running`, the operator has
+applied the request (`status.observedGeneration` has reached `generation`),
+the `Ready` condition is `True` and the major of `status.currentVersion` is
+the one asked for. Nothing in the status counts until the operator has applied
+the request, so a result left by an earlier attempt cannot end a new wait. The
+command prints the database, and on stderr the command that lists the backup
+the platform took first (`kupe database backup list NAME`). These are progress,
+not an end: the check that is waiting (`UpgradeWaiting`), the backup
+(`PreUpgradeBackup`), `Upgrading`, and a highly available database whose
+standby is rebuilding after the upgrade (`Running`, `Ready` `False`).
+
+**Ending without the new major.** Once the operator has applied the request:
+
+| Ready reason | Exit | Meaning |
+| --- | --- | --- |
+| `UpgradeRolledBack` | `1` | The upgrade stopped before it changed any data and the database runs its old major. The hint is `kupe db upgrade NAME --cancel`. |
+| `UpgradeFailed` | `1` | The upgrade failed; the platform's message says whether the database still runs its old major. The hints are `kupe database backup list NAME` and `--cancel`. |
+
+In both the platform leaves the database as it is until the version is set
+back with `--cancel`; run the upgrade again after that. A database that starts
+being deleted ends the wait with exit `1`. A timeout exits `8` and an
+interrupt `130`; the upgrade was requested and carries on.
+
+**Cancel.** `--cancel` reads the major of `status.currentVersion` and sets the
+version to it, then prints the database without waiting. It cancels an
+upgrade that is waiting, taking its backup, rolled back, or failed, and the
+platform accepts it whether or not it currently offers upgrades. It exits `2`
+when the database is already set to the major it runs ("nothing to cancel") or
+does not report a running version yet. Once the database is offline and moving
+its data the platform answers `database_upgrade_in_progress` (exit `5`).
+
+The detail view (`kupe database get NAME`) has an `Upgrade` row while an
+upgrade is waiting, running, rolled back or failed: the platform's message.
+
+| API answer | Exit | Hint |
+| --- | --- | --- |
+| `400 major_upgrade_unavailable`: the platform does not offer major upgrades | `7` | none |
+| `409 database_upgrade_not_ready`: the database is not running and healthy, has no recent backup, has no room for another backup, or the version is more than one major up | `5` | `kupe db get NAME` |
+| `409 database_upgrade_in_progress` | `5` | `kupe db wait NAME` |
+
+The API's own message is shown in each case. Other exit codes are those of
+`kupe database update`.
 
 ### `kupe database delete NAME`
 

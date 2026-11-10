@@ -84,11 +84,12 @@ func (c *Client) GetTenant(ctx context.Context) (*Tenant, string, error) {
 
 // DeleteTenantRequest is the DELETE /api/v1/tenants/{tenant} body. Confirm
 // must equal the tenant name (typed-name confirmation, enforced server-side
-// as a 400). Cascade asks kupe-api to delete the tenant's clusters first;
-// without it a tenant that still has non-Terminating clusters is refused
-// with 409 clusters_exist. Cascade never deletes databases or the registry:
-// a tenant that has any is refused with 409 databases_exist or
-// registries_exist either way.
+// as a 400). Cascade asks kupe-api to delete the tenant's clusters and then
+// its registry (turning its deletion protection off) first; without it a
+// tenant that still has non-Terminating clusters or a registry is refused
+// with 409 clusters_exist or registries_exist. Cascade never deletes
+// databases: a tenant that has any is refused with 409 databases_exist
+// either way.
 type DeleteTenantRequest struct {
 	Confirm string `json:"confirm"`
 	Cascade bool   `json:"cascade,omitempty"`
@@ -107,8 +108,7 @@ const (
 	// Cascade never deletes them, so this is returned with or without it.
 	TenantDeleteCodeDatabasesExist = "databases_exist"
 	// TenantDeleteCodeRegistriesExist: 409 — the tenant still has a
-	// registry. Cascade never deletes it, so this is returned with or
-	// without it.
+	// registry and no cascade.
 	TenantDeleteCodeRegistriesExist = "registries_exist"
 	// TenantDeleteCodeAlreadyTerminating: 409 — deletionTimestamp already set.
 	TenantDeleteCodeAlreadyTerminating = "already_terminating"

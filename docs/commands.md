@@ -2180,7 +2180,7 @@ tenant name (mismatch or missing → exit `2`, no request made).
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--confirm NAME` | required | Tenant name, typed out. Must equal the context's tenant. |
-| `--cascade` | off | Delete every cluster in the tenant first. Without it a tenant that still has clusters is refused (`409 clusters_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request. Deletion stops at the first cluster an app environment still uses, and clusters deleted before it stay deleted, so delete apps first. `--cascade` never deletes databases or the registry. |
+| `--cascade` | off | Delete every cluster in the tenant first, then the registry with every image in it (the API turns its deletion protection off). Without it a tenant that still has clusters or a registry is refused (`409 clusters_exist`, `409 registries_exist`). The clusters that will go are listed on stderr (from `GET /clusters`) before the request, and the registry with its image count and stored size (from `GET /registries`). Deletion stops at the first step that fails, such as a cluster an app environment still uses, and what was deleted before it stays deleted, so delete apps first; run the command again to finish. `--cascade` never deletes databases. |
 | `--wait` | off | Poll `GET /api/v1/tenants/{tenant}` until it returns `404`. |
 | `--wait-timeout DURATION` | `30m` | Give up waiting after this long. Exits `8`. |
 
@@ -2203,7 +2203,7 @@ Deleting tenant "acme" will:
       staging (Running)
   - Stop at the first cluster an app environment still uses. Clusters deleted before it stay deleted, so delete your apps first (kupe app list).
   - Not delete databases: --cascade never does, and the tenant is refused while it has any.
-  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.
+  - Delete the registry and every image in it (12 images, 1.5 GiB), which cannot be restored afterwards.
   - Delete 1 manual database backup(s), which cannot be restored afterwards:
       orders-db-before-migration (orders-db, completed 2026-10-30T14:17:00Z, 1.5 GiB)
 
@@ -2213,9 +2213,13 @@ tenant/acme terminating
 A tenant that still has databases is refused with or without `--cascade`
 (`409 databases_exist`). Delete each database first: `kupe db list`, then
 `kupe db update NAME --deletion-protection=false` and `kupe db delete NAME`.
-A tenant that still has a registry is refused the same way
-(`409 registries_exist`): `kupe registry update --deletion-protection=false`,
-then `kupe registry delete`.
+A tenant that still has a registry is refused without `--cascade`
+(`409 registries_exist`). Pass `--cascade` to delete it with every image in
+it, or delete it first: `kupe registry update --deletion-protection=false`,
+then `kupe registry delete`. With `--cascade`, the registry line shows its
+image count and stored size once the platform has measured them; if the
+registry cannot be read, the warning says it is deleted, if there is one,
+and the delete goes ahead.
 
 The warning block goes to stderr; `tenant/<name> terminating` is the only
 stdout line. Deletion is asynchronous — the API answers `202` and
@@ -2227,7 +2231,7 @@ exits `4`). A tenant that was ever billed is held for its final invoice, up to
 `--confirm` (or `400` from the API), `3` API-key context or `403 owner_required`,
 `4` tenant not found, `5` on `409 clusters_exist` (hint: `--cascade`),
 `409 databases_exist` (hint: delete each database first),
-`409 registries_exist` (hint: delete the registry first) or
+`409 registries_exist` (hint: `--cascade`, or delete the registry first) or
 `409 already_terminating`, `6` on `429` (one request per minute), `8` `--wait`
 timeout, `130` Ctrl+C while waiting (deletion continues server-side).
 

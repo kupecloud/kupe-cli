@@ -35,15 +35,15 @@ Only the tenant owner (the contact email shown by "kupe tenant get") can do
 this, and only with an OIDC login. API keys are refused. --confirm must
 equal the tenant name; there is no interactive prompt.
 
-A tenant that still has clusters is refused unless --cascade is passed, in
-which case every cluster is deleted with it. Deletion stops at the first
-cluster an app environment still uses, and clusters deleted before it stay
-deleted, so delete your apps first ("kupe app list"). --cascade never deletes
-databases: a tenant that still has any is refused until each one is deleted
-("kupe db list", then "kupe db update NAME --deletion-protection=false" and
-"kupe db delete NAME"). Nor does it delete the registry: a tenant that has one
-is refused until it is deleted ("kupe registry update
---deletion-protection=false", then "kupe registry delete").
+A tenant that still has clusters or a registry is refused unless --cascade
+is passed, in which case every cluster is deleted with it, then the registry
+and every image in it (its deletion protection is turned off for you). They
+cannot be restored. Deletion stops at the first step that fails, such as a
+cluster an app environment still uses, and what was deleted before it stays
+deleted, so delete your apps first ("kupe app list"); run the command again
+to finish. --cascade never deletes databases: a tenant that still has any is
+refused until each one is deleted ("kupe db list", then "kupe db update NAME
+--deletion-protection=false" and "kupe db delete NAME").
 
 Manual database backups do not block deletion: they are deleted with the
 tenant and cannot be restored afterwards. The warning lists them; list them
@@ -63,7 +63,7 @@ Pass --wait to block until it disappears.`,
 	}
 
 	cmd.Flags().StringVar(&opts.confirm, "confirm", "", "Tenant name, typed out to confirm (required; must equal the current context's tenant)")
-	cmd.Flags().BoolVar(&opts.cascade, "cascade", false, "Also delete every cluster in the tenant (never databases or the registry: delete those first)")
+	cmd.Flags().BoolVar(&opts.cascade, "cascade", false, "Also delete every cluster and the registry, with every image in it (never databases: delete those first)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", false, "Wait until the tenant is gone before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long (exit 8)")
 	return cmd
@@ -111,6 +111,10 @@ func runDelete(ctx context.Context, f *cli.Factory, opts *deleteOpts) error {
 	}
 	backups, backupsErr := tenantBackups(ctx, api)
 	printDeleteTenantWarning(io, name, opts.cascade, clusters)
+	if opts.cascade {
+		registries, registriesErr := tenantRegistries(ctx, api)
+		printRegistryWarning(io, registries, registriesErr)
+	}
 	printManualBackupsWarning(io, backups, backupsErr)
 	fmt.Fprintln(io.ErrOut)
 
@@ -152,8 +156,45 @@ func printDeleteTenantWarning(io *cli.IOStreams, name string, cascade bool, clus
 			fmt.Fprintln(io.ErrOut, "  - Stop at the first cluster an app environment still uses. Clusters deleted before it stay deleted, so delete your apps first (kupe app list).")
 		}
 		fmt.Fprintln(io.ErrOut, "  - Not delete databases: --cascade never does, and the tenant is refused while it has any.")
-		fmt.Fprintln(io.ErrOut, "  - Not delete the registry: --cascade never does, and the tenant is refused while it has one.")
 	}
+}
+
+// tenantRegistries lists the tenant's registry for the --cascade warning. A
+// platform without registries (an older kupe-api) has none, so that is an
+// empty list, not an error.
+func tenantRegistries(ctx context.Context, api client.Interface) ([]client.Registry, error) {
+	registries, err := api.Registries().List(ctx)
+	if client.IsUnknownRoute(err) || client.ErrorCode(err) == client.RegistryCodeUnavailable {
+		return nil, nil
+	}
+	return registries, err
+}
+
+// printRegistryWarning says that --cascade deletes the registry with every
+// image in it, with what it holds once the platform has measured it. A
+// registry that could not be read never blocks the delete; the warning says
+// so instead.
+func printRegistryWarning(io *cli.IOStreams, registries []client.Registry, err error) {
+	if err != nil {
+		fmt.Fprintf(io.ErrOut, "  - Delete the registry, if there is one, with every image in it, which cannot be restored afterwards. The registry could not be read: %v\n", err)
+		return
+	}
+	for i := range registries {
+		fmt.Fprintf(io.ErrOut, "  - Delete the registry and every image in it%s, which cannot be restored afterwards.\n", registryContents(&registries[i]))
+	}
+}
+
+// registryContents is " (12 images, 1.5 GiB)", or "" until the platform has
+// read the registry's usage.
+func registryContents(r *client.Registry) string {
+	if r.Status == nil || r.Status.UsageObservedAt == "" {
+		return ""
+	}
+	images := "images"
+	if r.Status.ArtifactCount == 1 {
+		images = "image"
+	}
+	return fmt.Sprintf(" (%d %s, %s)", r.Status.ArtifactCount, images, printer.HumanBytes(r.Status.StorageUsedBytes))
 }
 
 // tenantBackups lists the tenant's manual database backups for the
@@ -225,8 +266,8 @@ func mapDeleteErr(err error, name string) error {
 		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q still has databases; --cascade never deletes them", name), err).
 			WithHint("delete each database first:\n  kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME")
 	case client.IsConflict(err) && code == client.TenantDeleteCodeRegistriesExist:
-		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q still has a registry; --cascade never deletes it", name), err).
-			WithHint("delete the registry first:\n  kupe registry update --deletion-protection=false\n  kupe registry delete")
+		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q still has a registry", name), err).
+			WithHint(fmt.Sprintf("pass --cascade to delete it with every image in it:\n  kupe tenant delete --confirm %s --cascade\nor delete the registry first:\n  kupe registry update --deletion-protection=false\n  kupe registry delete", name))
 	case client.IsConflict(err) && code == client.TenantDeleteCodeAlreadyTerminating:
 		return cli.WrapAPI(cli.ExitConflict, fmt.Sprintf("tenant %q is already being deleted", name), err).
 			WithHint("\"kupe tenant get\" shows Phase Terminating until it is gone, then exits 4")

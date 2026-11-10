@@ -61,7 +61,7 @@ func TestUpgrade_Requests(t *testing.T) {
 		{"rejects a non-major version", "17", "18.1", nil, cli.ExitMisuse, "17", "major version", ""},
 		{"a platform refusal exits 7 with the API's reason", "17", "18", refused, cli.ExitUnavailable, "17", refused.Message, ""},
 		{"not ready exits 5 with the API's reason", "17", "18", notReady, cli.ExitConflict, "17", notReady.Message, "kupe db get orders-db"},
-		{"in progress exits 5 and points at wait", "17", "18", inProgress, cli.ExitConflict, "17", inProgress.Message, "kupe db wait orders-db"},
+		{"in progress exits 5 and points at get", "17", "18", inProgress, cli.ExitConflict, "17", inProgress.Message, "kupe db get orders-db"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -265,14 +265,136 @@ func TestUpgrade_WaitKeepsGoingThroughProgress(t *testing.T) {
 		upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "waiting for a backup from the last 26 hours", client.ReasonUpgradeWaiting),
 		upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonPreUpgradeBackup, "taking the backup", client.ReasonPreUpgradeBackup),
 		upgradeState("18", "17.6", 2, 2, client.PhaseUpgrading, false, client.ReasonUpgrading, "upgrading", client.ReasonUpgrading),
-		// Degraded with no upgrade reason is not the end either.
-		upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, "DatabaseNotHealthy", "instances down", client.ReasonUpgrading),
+		// Degraded while a check waits, or the backup runs, is the platform's
+		// to resolve: the upgrade starts once the database is healthy.
+		upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, client.ReasonUpgradeWaiting, "waiting for the database to be running", client.ReasonUpgradeWaiting),
+		upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, client.ReasonPreUpgradeBackup, "taking the backup", client.ReasonPreUpgradeBackup),
 	} {
 		t.Run(step.Status.Conditions[0].Reason, func(t *testing.T) {
 			fake := waitFake(step)
 			_, _, err := upgradeRun(t, fake, "--wait-timeout", "1s")
 			assertExit(t, err, cli.ExitTimeout)
 		})
+	}
+}
+
+// shortGrace makes the Degraded grace one poll long.
+func shortGrace(t *testing.T) {
+	t.Helper()
+	old := upgradeDegradedGrace
+	upgradeDegradedGrace = 1
+	t.Cleanup(func() { upgradeDegradedGrace = old })
+}
+
+func TestUpgrade_WaitEndsWhenMajorsAreSwitchedOff(t *testing.T) {
+	// The operator holds the database Degraded, Ready False MajorChangeUnsupported.
+	fake := waitFake(upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, client.ReasonMajorChangeUnsupported, "major upgrades are not offered", ""))
+	_, _, err := upgradeRun(t, fake)
+	assertExit(t, err, cli.ExitUnavailable)
+	if !strings.Contains(err.Error(), "major upgrades are not offered") {
+		t.Errorf("err = %v; want the platform's message", err)
+	}
+	if h := hint(err); !strings.Contains(h, "kupe db upgrade orders-db --cancel") {
+		t.Errorf("hint = %q; want the cancel command", h)
+	}
+}
+
+func TestUpgrade_WaitEndsOnAPersistentDegradedPhase(t *testing.T) {
+	shortGrace(t)
+	t.Run("after the upgrade succeeded", func(t *testing.T) {
+		db := upgradeState("18", "18.1", 2, 2, client.PhaseDegraded, false, "DatabaseNotHealthy", "no instance is ready", "")
+		db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: client.ConditionUpgradeInProgress, Status: "False", Reason: client.ReasonUpgradeSucceeded})
+		_, _, err := upgradeRun(t, waitFake(db))
+		assertExit(t, err, cli.ExitGeneral)
+		if !strings.Contains(err.Error(), "was upgraded to 18 but is not healthy") || !strings.Contains(err.Error(), "no instance is ready") {
+			t.Errorf("err = %v", err)
+		}
+	})
+	t.Run("for any other reason", func(t *testing.T) {
+		_, _, err := upgradeRun(t, waitFake(upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, "QuotaExceeded", "no quota left", "")))
+		assertExit(t, err, cli.ExitGeneral)
+		if !strings.Contains(err.Error(), "Degraded") || !strings.Contains(err.Error(), "no quota left") {
+			t.Errorf("err = %v", err)
+		}
+	})
+	t.Run("not before the operator has applied the request", func(t *testing.T) {
+		fake := waitFake(upgradeState("18", "17.6", 2, 1, client.PhaseDegraded, false, "QuotaExceeded", "old", ""))
+		_, _, err := upgradeRun(t, fake, "--wait-timeout", "1s")
+		assertExit(t, err, cli.ExitTimeout)
+	})
+}
+
+func TestUpgrade_DegradedWithinTheGraceKeepsWaiting(t *testing.T) {
+	// The grace is the default 5 minutes here, so a short Degraded spell ends well.
+	fake := waitFake(
+		upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, "DatabaseNotHealthy", "restarting", ""),
+		upgradeState("18", "18.1", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""),
+	)
+	if _, _, err := upgradeRun(t, fake); err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+}
+
+func TestUpgrade_WaitEndsWhenAnotherRequestChangedTheVersion(t *testing.T) {
+	// Someone cancelled from elsewhere: the database is back on 17, Ready.
+	fake := waitFake(upgradeState("17", "17.6", 3, 3, client.PhaseRunning, true, "DatabaseHealthy", "", ""))
+	_, _, err := upgradeRun(t, fake)
+	assertExit(t, err, cli.ExitGeneral)
+	if !strings.Contains(err.Error(), "was changed to 17") || !strings.Contains(err.Error(), "no longer requested") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestUpgrade_RunningMajorAndLower(t *testing.T) {
+	seed := func(spec string) *clienttest.Fake {
+		fake := clienttest.New()
+		fake.DatabasesByName["orders-db"] = upgradeState(spec, "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "waiting", client.ReasonUpgradeWaiting)
+		return fake
+	}
+	t.Run("the running major cancels a pending upgrade without the offline question", func(t *testing.T) {
+		fake := seed("18")
+		f := factoryWith(t, fake)
+		interactive(f, "")
+		_, stderr, err := run(f, newUpgradeCmd(f), "orders-db", "--version", "17")
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		if strings.Contains(stderr, "offline") || !strings.Contains(stderr, "cancelled the upgrade") {
+			t.Errorf("stderr = %q", stderr)
+		}
+		if fake.DatabasesByName["orders-db"].Version != "17" {
+			t.Error("the version was not set back")
+		}
+	})
+	t.Run("below the running major is refused before any question", func(t *testing.T) {
+		fake := seed("18")
+		f := factoryWith(t, fake)
+		interactive(f, "")
+		_, stderr, err := run(f, newUpgradeCmd(f), "orders-db", "--version", "16")
+		assertExit(t, err, cli.ExitMisuse)
+		if strings.Contains(stderr, "Type yes") || len(patchedVersions(fake)) != 0 {
+			t.Errorf("stderr = %q calls = %v", stderr, fake.Calls)
+		}
+	})
+}
+
+func TestUpgrade_CancelTooLateSaysSo(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = upgradeState("18", "17.6", 2, 2, client.PhaseUpgrading, false, client.ReasonUpgrading, "moving data", client.ReasonUpgrading)
+	fake.UpdateDatabaseErr = &client.APIError{StatusCode: 409, Code: "DATABASE_UPGRADE_IN_PROGRESS", Message: "an upgrade is already running"}
+	f := factoryWith(t, fake)
+	_, _, err := run(f, newUpgradeCmd(f), "orders-db", "--cancel")
+	assertExit(t, err, cli.ExitConflict)
+	if h := hint(err); !strings.Contains(h, "can be cancelled") || strings.Contains(h, "db wait") {
+		t.Errorf("hint = %q", h)
+	}
+}
+
+func TestUpgrade_FailedHintDoesNotPromiseARetry(t *testing.T) {
+	fake := waitFake(upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, client.ReasonUpgradeFailed, "could not be returned to 17", ""))
+	_, _, err := upgradeRun(t, fake)
+	if h := hint(err); strings.Contains(h, "try again") {
+		t.Errorf("hint = %q", h)
 	}
 }
 

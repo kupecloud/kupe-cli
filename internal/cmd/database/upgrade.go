@@ -57,10 +57,12 @@ again. The backup taken before the upgrade is listed by
 
 --cancel sets the version back to the major the database runs. It cancels an
 upgrade that is waiting, taking its backup, rolled back, or failed. It
-needs no confirmation and does not wait. Once the database is offline and
-moving its data, the platform refuses it.
+needs no confirmation and does not wait. Once the database is offline for the
+upgrade, the platform refuses it.
 
-Requesting the major the database already runs changes nothing.`,
+Requesting the major the database already runs starts no upgrade: it does
+nothing, or cancels an upgrade that is still waiting, like --cancel. A major
+below the one the database runs is refused.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe database upgrade orders-db --version 18
   kupe database upgrade orders-db --version 18 --yes --wait=false
@@ -108,14 +110,24 @@ func runUpgrade(ctx context.Context, f *cli.Factory, name string, opts *upgradeO
 		return translateUpgradeErr(err, name)
 	}
 	updated := current
+	running := runningMajor(current)
+	wasRequested := current.Version
+	if running != "" && opts.version < running {
+		return cli.MisuseError(fmt.Sprintf("database %q runs major %s; --version %s is lower and upgrades only go up", name, running, opts.version)).
+			WithHint(fmt.Sprintf("to cancel an upgrade that is waiting, rolled back or failed:  kupe db upgrade %s --cancel", name))
+	}
 	if current.Version != opts.version {
-		from := runningMajor(current)
-		if from == "" {
-			from = current.Version
-		}
-		prompt := fmt.Sprintf("This takes database %s offline while it upgrades from %s to %s.", name, from, opts.version)
-		if err := cli.ConfirmAction(f.IOStreams, opts.yes, "upgrade", prompt); err != nil {
-			return err
+		// The major it already runs is a cancel of a pending upgrade, not an
+		// upgrade: nothing goes offline, so nothing to confirm.
+		if opts.version != running {
+			from := running
+			if from == "" {
+				from = current.Version
+			}
+			prompt := fmt.Sprintf("This takes database %s offline while it upgrades from %s to %s.", name, from, opts.version)
+			if err := cli.ConfirmAction(f.IOStreams, opts.yes, "upgrade", prompt); err != nil {
+				return err
+			}
 		}
 		updated, err = api.Databases().UpdateRMW(ctx, name, func(db *client.Database) *client.PatchDatabaseRequest {
 			if db.Version == opts.version {
@@ -127,6 +139,9 @@ func runUpgrade(ctx context.Context, f *cli.Factory, name string, opts *upgradeO
 			return translateUpgradeErr(err, name)
 		}
 	}
+	if opts.version == running && wasRequested != opts.version {
+		fmt.Fprintf(f.IOStreams.ErrOut, "Database %s runs major %s, so this cancelled the upgrade that was requested.\n", name, running)
+	}
 	// Running the requested major already: nothing to do or wait for. The
 	// version is requested but not running yet (an upgrade already asked
 	// for): wait for it like a fresh one.
@@ -136,7 +151,7 @@ func runUpgrade(ctx context.Context, f *cli.Factory, name string, opts *upgradeO
 
 	done, err := waitForUpgrade(ctx, f.IOStreams, api, name, opts.version, updated.Generation, opts.waitTimeout)
 	if err != nil {
-		return upgradeWaitErr(err, name)
+		return upgradeWaitErr(err, name, opts.version)
 	}
 	if err := printer.Database.One(f.IOStreams, format, done); err != nil {
 		return err
@@ -164,6 +179,10 @@ func cancelUpgrade(ctx context.Context, f *cli.Factory, api client.Interface, na
 		return &client.PatchDatabaseRequest{Version: &running}
 	})
 	if err != nil {
+		if client.ErrorCode(err) == client.DatabaseCodeUpgradeInProgress {
+			return cli.WrapAPI(cli.ExitConflict, "the upgrade can no longer be cancelled", err).
+				WithHint(fmt.Sprintf("it is past the point where it can be cancelled and finishes or rolls back on its own\nsee where it is:  kupe db get %s", name))
+		}
 		return translateUpgradeErr(err, name)
 	}
 	if refusal != nil {
@@ -181,6 +200,18 @@ func runningMajor(db *client.Database) string {
 	major, _, _ := strings.Cut(db.Status.CurrentVersion, ".")
 	return major
 }
+
+// upgradeDegradedGrace is how long an upgrade wait rides out a Degraded
+// phase the upgrade itself does not explain; a variable so tests can shorten
+// it.
+var upgradeDegradedGrace = degradedGrace
+
+// Reasons of an upgradeEnded that are not Ready reasons.
+const (
+	reasonVersionChanged    = "VersionChanged"
+	reasonDegraded          = "Degraded"
+	reasonUpgradedUnhealthy = "UpgradedUnhealthy"
+)
 
 // upgradeEnded is why a wait ended with the upgrade not done: the platform
 // rolled it back or it failed.
@@ -202,6 +233,7 @@ func (e *upgradeEnded) Error() string { return e.message }
 // with Ready False) are progress. A database being deleted ends the wait.
 func waitForUpgrade(ctx context.Context, io *cli.IOStreams, api client.Interface, name, target string, generation int64, timeout time.Duration) (*client.Database, error) {
 	var latest *client.Database
+	var degradedSince time.Time
 	poll := cmdutil.PollPhase(service.Getter(api, name), func(db *client.Database, phase string) (bool, error) {
 		latest = db
 		if phase == client.PhaseTerminating {
@@ -211,9 +243,35 @@ func waitForUpgrade(ctx context.Context, io *cli.IOStreams, api client.Interface
 		if st == nil || st.ObservedGeneration < max(generation, db.Generation) {
 			return false, nil
 		}
-		if ready := st.Condition("Ready"); ready != nil && ready.Status != "True" &&
-			(ready.Reason == client.ReasonUpgradeRolledBack || ready.Reason == client.ReasonUpgradeFailed) {
-			return false, &upgradeEnded{reason: ready.Reason, message: ready.Message}
+		if db.Version != target {
+			return false, &upgradeEnded{reason: reasonVersionChanged, message: db.Version}
+		}
+		ready := st.Condition("Ready")
+		if ready != nil && ready.Status != "True" {
+			switch ready.Reason {
+			case client.ReasonUpgradeRolledBack, client.ReasonUpgradeFailed, client.ReasonMajorChangeUnsupported:
+				return false, &upgradeEnded{reason: ready.Reason, message: ready.Message}
+			}
+		}
+		// Degraded is progress while the platform is still waiting to start
+		// or backing up (it begins once the database is healthy). Otherwise
+		// it gets the grace an update gets, then ends the wait.
+		if phase == client.PhaseDegraded && (ready == nil || (ready.Reason != client.ReasonUpgradeWaiting && ready.Reason != client.ReasonPreUpgradeBackup)) {
+			if degradedSince.IsZero() {
+				degradedSince = time.Now()
+			}
+			if time.Since(degradedSince) >= upgradeDegradedGrace {
+				e := &upgradeEnded{reason: reasonDegraded}
+				if ready != nil {
+					e.message = ready.Message
+				}
+				if c := st.Condition(client.ConditionUpgradeInProgress); c != nil && c.Status != "True" && c.Reason == client.ReasonUpgradeSucceeded {
+					e.reason = reasonUpgradedUnhealthy
+				}
+				return false, e
+			}
+		} else {
+			degradedSince = time.Time{}
 		}
 		return phase == client.PhaseRunning && st.Ready() && runningMajor(db) == target, nil
 	})
@@ -229,12 +287,29 @@ func waitForUpgrade(ctx context.Context, io *cli.IOStreams, api client.Interface
 
 // upgradeWaitErr explains why waiting for an upgrade ended before the
 // database ran the new major. The upgrade was requested in every case.
-func upgradeWaitErr(err error, name string) error {
+func upgradeWaitErr(err error, name, target string) error {
 	check := fmt.Sprintf("check status:  kupe database get %s", name)
 	var ended *upgradeEnded
 	switch {
 	case errors.As(err, &ended):
 		msg := ended.message
+		switch ended.reason {
+		case client.ReasonMajorChangeUnsupported:
+			if msg == "" {
+				msg = "the platform does not offer major upgrades"
+			}
+			return cli.New(cli.ExitUnavailable, fmt.Sprintf("the upgrade of database %q cannot continue: %s", name, msg)).
+				WithHint(fmt.Sprintf("the platform holds the database as it is until you set the version back:  kupe db upgrade %s --cancel", name))
+		case reasonVersionChanged:
+			return cli.New(cli.ExitGeneral, fmt.Sprintf("the version of database %q was changed to %s by another request; the upgrade to %s is no longer requested", name, msg, target)).
+				WithHint(check)
+		case reasonUpgradedUnhealthy:
+			return cli.New(cli.ExitGeneral, fmt.Sprintf("database %q was upgraded to %s but is not healthy%s", name, target, withMessage(msg))).
+				WithHint(check)
+		case reasonDegraded:
+			return cli.New(cli.ExitGeneral, fmt.Sprintf("database %q has been Degraded for %s and the upgrade has not finished%s", name, upgradeDegradedGrace, withMessage(msg))).
+				WithHint(check)
+		}
 		if ended.reason == client.ReasonUpgradeRolledBack {
 			if msg == "" {
 				msg = "the platform stopped the upgrade before it changed any data"
@@ -246,7 +321,7 @@ func upgradeWaitErr(err error, name string) error {
 			msg = "the platform could not finish the upgrade"
 		}
 		return cli.New(cli.ExitGeneral, fmt.Sprintf("the upgrade of database %q failed: %s", name, msg)).
-			WithHint(fmt.Sprintf("the backup taken before the upgrade:  kupe database backup list %s\nto clear the failed upgrade and try again:  kupe db upgrade %s --cancel", name, name))
+			WithHint(fmt.Sprintf("the backup taken before the upgrade:  kupe database backup list %s\nto clear the failed upgrade:  kupe db upgrade %s --cancel", name, name))
 	case errors.Is(err, ux.ErrWaitTimeout):
 		return cli.TimeoutError(fmt.Sprintf("the upgrade of database %q has not finished yet", name)).
 			WithHint("the upgrade was requested and the platform keeps working on it\n" + check)
@@ -255,4 +330,12 @@ func upgradeWaitErr(err error, name string) error {
 			WithHint(check)
 	}
 	return cmdutil.MapWaitErr(err, noun, name, "wait")
+}
+
+// withMessage is ": msg", or nothing when there is no message.
+func withMessage(msg string) string {
+	if msg == "" {
+		return ""
+	}
+	return ": " + msg
 }

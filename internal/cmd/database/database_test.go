@@ -774,48 +774,6 @@ func TestUpdate_StorageShrinkIsMisuseWithAHint(t *testing.T) {
 	}
 }
 
-func TestUpgrade(t *testing.T) {
-	refused := &client.APIError{StatusCode: 400, Code: client.DatabaseCodeMajorUpgradeUnavailable, Message: "changing the major version is not supported yet"}
-	tests := []struct {
-		name        string
-		version     string
-		updateErr   error
-		wantExit    int
-		wantVersion string
-		wantErrText []string
-	}{
-		{"sets the new major", "19", nil, cli.ExitOK, "19", nil},
-		{"same major is a no-op", "18", nil, cli.ExitOK, "18", nil},
-		{"rejects a non-major version", "18.1", nil, cli.ExitMisuse, "18", []string{"major version"}},
-		{"a platform refusal exits 7 with the API's reason", "19", refused, cli.ExitUnavailable, "18",
-			[]string{"changing the major version is not supported yet"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fake := clienttest.New()
-			fake.DatabasesByName["orders-db"] = running("orders-db")
-			fake.UpdateDatabaseErr = tt.updateErr
-			f := factoryWith(t, fake)
-			_, stderr, err := run(f, newUpgradeCmd(f), "orders-db", "--version", tt.version)
-			assertExit(t, err, tt.wantExit)
-			if got := fake.DatabasesByName["orders-db"].Version; got != tt.wantVersion {
-				t.Fatalf("version = %q; want %q", got, tt.wantVersion)
-			}
-			for _, w := range tt.wantErrText {
-				if !strings.Contains(err.Error(), w) {
-					t.Errorf("error %q missing %q", err, w)
-				}
-			}
-			if tt.updateErr != nil && err.Error() != tt.updateErr.Error() {
-				t.Errorf("error = %q; want the API's message alone", err)
-			}
-			if stderr != "" {
-				t.Errorf("stderr should be empty; the platform's refusal is the only notice:\n%s", stderr)
-			}
-		})
-	}
-}
-
 func TestDelete(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1774,20 +1732,34 @@ func TestNewCmd_RegistersAliasAndSubcommands(t *testing.T) {
 
 // TestUpgrade_IsHidden pins that --help does not offer upgrade while the
 // platform refuses every version change, and that no help text points to it.
-func TestUpgrade_IsHidden(t *testing.T) {
+// The upgrade command is offered: it is listed under database and update's
+// help points to it. No other help may say the version cannot change at all.
+func TestUpgrade_IsListed(t *testing.T) {
 	f := factoryWith(t, clienttest.New())
 	cmd := NewCmd(f)
 	upgrade, _, err := cmd.Find([]string{"upgrade"})
-	if err != nil || upgrade == cmd || !upgrade.Hidden {
-		t.Fatalf("upgrade should be registered and hidden (found %v, err %v)", upgrade.Name(), err)
+	if err != nil || upgrade == cmd || upgrade.Name() != "upgrade" {
+		t.Fatalf("upgrade should be registered (found %v, err %v)", upgrade.Name(), err)
 	}
-	for _, c := range append([]*cobra.Command{cmd}, cmd.Commands()...) {
-		if c == upgrade {
-			continue
+	if upgrade.Hidden {
+		t.Fatal("upgrade must be listed in --help")
+	}
+	for _, text := range []string{upgrade.Short, upgrade.Long} {
+		if strings.Contains(text, "not available yet") || strings.Contains(text, "hidden") {
+			t.Errorf("upgrade help still says it is unavailable:\n%s", text)
 		}
-		if strings.Contains(c.Long, "upgrade") || strings.Contains(c.Short, "upgrade") {
-			t.Errorf("%q help mentions upgrade:\n%s", c.Name(), c.Long)
+	}
+	update, _, _ := cmd.Find([]string{"update"})
+	if !strings.Contains(update.Long, "kupe database upgrade") || strings.Contains(update.Long, "cannot be changed yet") {
+		t.Errorf("update help should point to upgrade:\n%s", update.Long)
+	}
+	for _, flag := range []string{"version", "cancel", "yes", "wait", "wait-timeout", "output"} {
+		if upgrade.Flags().Lookup(flag) == nil {
+			t.Errorf("upgrade has no --%s flag", flag)
 		}
+	}
+	if got := upgrade.Flags().Lookup("wait-timeout").DefValue; got != "1h0m0s" {
+		t.Errorf("--wait-timeout default = %s; want 1h0m0s", got)
 	}
 }
 

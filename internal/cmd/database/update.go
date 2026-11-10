@@ -45,7 +45,8 @@ kept; they cannot be removed. After a restore, append with these flags.
 
 Changing CPU or memory rolls the instances (a highly available database
 switches over first). Storage grows online and can never shrink. The major
-version cannot be changed yet. Shortening --backup-retention deletes the
+version cannot be changed here; to move to a newer major, use
+"kupe database upgrade". Shortening --backup-retention deletes the
 backups that fall outside the new window.
 
 Concurrent updates from another client are detected and retried once

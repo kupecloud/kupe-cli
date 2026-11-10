@@ -24,6 +24,7 @@ type createOpts struct {
 	memory                    string
 	storage                   string
 	highAvailability          bool
+	pooler                    poolerFlags
 	noDeletionProtection      bool
 	backupRetention           int32
 	backupSchedule            string
@@ -73,10 +74,16 @@ more. --schema [DATABASE.]SCHEMA adds a schema, to the first database when
 DATABASE is omitted. Entries and schemas cannot be removed. These flags
 cannot be combined with --from or --from-backup: restore first, then append
 with "kupe database update". With these flags the wait also checks that the
-logical databases are ready.`,
+logical databases are ready.
+
+` + poolerLongHelp + `
+With --pooler the wait also checks that the pooler is ready.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Smallest database, wait for Running
   kupe database create orders-db --cpu 250m --memory 512Mi --storage 5Gi
+
+  # With a connection pooler, sharing connections per transaction
+  kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi --pooler
 
   # Highly available, specific major version, fire-and-forget
   kupe db create orders-db --version 17 --cpu 1 --memory 2Gi --storage 20Gi --ha --wait=false
@@ -113,6 +120,11 @@ logical databases are ready.`,
 				}
 				postgres.Databases = &list
 			}
+			pooler, err := poolerFromFlags(cmd.Flags(), opts.pooler, true)
+			if err != nil {
+				return err
+			}
+			postgres = withPooler(postgres, pooler)
 			backup, err := backupFromFlags(cmd.Flags(), opts.backupRetention, opts.backupSchedule)
 			if err != nil {
 				return err
@@ -153,6 +165,12 @@ logical databases are ready.`,
 					"Creating %q with high availability: two instances, each reserving and billing for the requested CPU, memory and storage.\n\n", name)
 			}
 
+			if pooler.On() {
+				// Stderr so -o json/yaml output stays clean.
+				fmt.Fprintf(f.IOStreams.ErrOut,
+					"Creating %q with a connection pooler: readwrite and readonly bindings connect through it, owner bindings connect directly. Transaction mode does not keep session state between transactions.\n\n", name)
+			}
+
 			created, _, err := api.Databases().Create(cmd.Context(), req)
 			if err != nil {
 				return logicalFeatureErr(translateCreateErr(err, name, source), logicalRequested(opts.logicalDatabases, opts.schemas))
@@ -165,8 +183,15 @@ logical databases are ready.`,
 			if werr != nil {
 				return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "create"), final)
 			}
-			if req.Postgres != nil && req.Postgres.Databases != nil {
+			switch {
+			case req.Postgres != nil && req.Postgres.Databases != nil:
 				final, werr = waitForLogicalConverged(cmd.Context(), f.IOStreams, api, name, created.Generation, opts.waitTimeout)
+				if werr != nil {
+					return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "create"), final)
+				}
+			case pooler.On():
+				// The pooler comes up after the database reports Running.
+				final, werr = service.WaitForConverged(cmd.Context(), f.IOStreams, api, name, created.Generation, opts.waitTimeout)
 				if werr != nil {
 					return postgresWaitErr(cmdutil.MapWaitErr(werr, noun, name, "create"), final)
 				}
@@ -194,6 +219,7 @@ logical databases are ready.`,
 	cmd.Flags().StringVar(&opts.fromBackup, flagFromBackup, "", "Restore the new database from this manual backup")
 	cmd.Flags().StringVar(&opts.from, flagFrom, "", "Restore the new database from this database, as it was at --point-in-time")
 	cmd.Flags().StringVar(&opts.pointInTime, flagPointInTime, "", "Moment to restore --from to, inside its restore window, in RFC 3339 (e.g. 2026-10-30T09:00:00Z); default the latest point")
+	addPoolerFlags(cmd, &opts.pooler, poolerHelp)
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait for the database to reach Running before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)

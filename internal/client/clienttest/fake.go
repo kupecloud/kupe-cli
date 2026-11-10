@@ -134,10 +134,13 @@ type Fake struct {
 	GetDatabaseSeq map[string][]*client.Database
 
 	// DatabaseBindings keyed by binding name (unique across the tenant).
-	DatabaseBindings            map[string]*client.DatabaseBinding
-	ListDatabaseBindingsErr     error
-	GetDatabaseBindingErr       error
-	BindingPatches              []client.PatchDatabaseBindingRequest
+	DatabaseBindings        map[string]*client.DatabaseBinding
+	ListDatabaseBindingsErr error
+	GetDatabaseBindingErr   error
+	BindingPatches          []client.PatchDatabaseBindingRequest
+	// DatabaseCreates and DatabasePatches record every body sent.
+	DatabaseCreates             []client.CreateDatabaseRequest
+	DatabasePatches             []client.PatchDatabaseRequest
 	RotateBindingCredentialsErr error
 	CreateDatabaseBindingErr    error
 	UpdateDatabaseBindingErr    error
@@ -564,6 +567,9 @@ func applyDatabasePatch(db *client.Database, patch client.PatchDatabaseRequest) 
 		if patch.Postgres.Extensions != nil {
 			extensions := slices.Clone(*patch.Postgres.Extensions)
 			db.Postgres.Extensions = &extensions
+		}
+		if patch.Postgres.Pooler != nil {
+			db.Postgres.Pooler = mergePooler(db.Postgres.Pooler, patch.Postgres.Pooler)
 		}
 	}
 	if patch.Version != nil {
@@ -1049,7 +1055,37 @@ func copyDatabasePostgres(p *client.DatabasePostgres) *client.DatabasePostgres {
 		extensions := slices.Clone(*p.Extensions)
 		out.Extensions = &extensions
 	}
+	out.Pooler = mergePooler(nil, p.Pooler)
 	return out
+}
+
+// mergePooler applies the keys set in patch to a copy of current, as a JSON
+// merge patch of postgres.pooler does; nil when both are nil.
+func mergePooler(current, patch *client.DatabasePooler) *client.DatabasePooler {
+	if current == nil && patch == nil {
+		return nil
+	}
+	out := client.DatabasePooler{}
+	if current != nil {
+		out = *current
+		if current.Enabled != nil {
+			on := *current.Enabled
+			out.Enabled = &on
+		}
+	}
+	if patch != nil {
+		if patch.Enabled != nil {
+			on := *patch.Enabled
+			out.Enabled = &on
+		}
+		if patch.PoolMode != "" {
+			out.PoolMode = patch.PoolMode
+		}
+		if patch.Instances != 0 {
+			out.Instances = patch.Instances
+		}
+	}
+	return &out
 }
 
 func copyLogicalDatabases(p *[]client.LogicalDatabase) *[]client.LogicalDatabase {

@@ -185,6 +185,7 @@ func (f *Fake) Databases() client.ResourceAPI[client.Database, client.CreateData
 		updateErr: &f.UpdateDatabaseErr, delErr: &f.DeleteDatabaseErr,
 		name: func(req client.CreateDatabaseRequest) string { return req.Name },
 		build: func(req client.CreateDatabaseRequest) *client.Database {
+			f.DatabaseCreates = append(f.DatabaseCreates, req)
 			return &client.Database{
 				Name:               req.Name,
 				Engine:             req.Engine,
@@ -198,7 +199,10 @@ func (f *Fake) Databases() client.ResourceAPI[client.Database, client.CreateData
 				Status:             &client.DatabaseStatus{Phase: client.PhasePending},
 			}
 		},
-		apply: applyDatabasePatch,
+		apply: func(db *client.Database, patch client.PatchDatabaseRequest) {
+			f.DatabasePatches = append(f.DatabasePatches, patch)
+			applyDatabasePatch(db, patch)
+		},
 		refuseDelete: func(db *client.Database) error {
 			if !db.DeletionProtection {
 				return nil

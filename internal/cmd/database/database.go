@@ -77,7 +77,7 @@ var service = cmdutil.Service[client.Database, client.CreateDatabaseRequest, cli
 			}
 			return db.Status.ObservedGeneration
 		},
-		Settled:       func(db *client.Database) bool { return db != nil && db.Status.Ready() },
+		Settled:       dbSettled,
 		DegradedGrace: degradedGrace,
 	},
 	Printer:   printer.Database,

@@ -142,6 +142,6 @@ func waitForLogicalConverged(ctx context.Context, streams *cli.IOStreams, api cl
 		}
 		return service.Phase(db)
 	}
-	logicalService.Converge.Settled = func(db *client.Database) bool { return db != nil && db.Status.Ready() && logicalSettled(db) }
+	logicalService.Converge.Settled = func(db *client.Database) bool { return dbSettled(db) && logicalSettled(db) }
 	return logicalService.WaitForConverged(ctx, streams, api, name, generation, timeout)
 }

@@ -2064,3 +2064,252 @@ func TestCreate_RestoreWaitsForRunning(t *testing.T) {
 		t.Fatalf("final render should be the Running database:\n%s", out)
 	}
 }
+
+// pooled gives db a pooler, serving when ready.
+func pooled(db *client.Database, ready bool) *client.Database {
+	on := true
+	db.Postgres = &client.DatabasePostgres{Pooler: &client.DatabasePooler{Enabled: &on, PoolMode: "transaction", Instances: 1}}
+	status := "False"
+	if ready {
+		status = "True"
+	}
+	db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: "PoolerReady", Status: status})
+	return db
+}
+
+func TestCreate_PoolerFlags(t *testing.T) {
+	base := []string{"orders-db", "--cpu", "250m", "--memory", "512Mi", "--storage", "5Gi", "--wait=false", "-o", "json"}
+	t.Run("--pooler with a mode sends only those keys under postgres.pooler", func(t *testing.T) {
+		fake := clienttest.New()
+		f := factoryWith(t, fake)
+		_, stderr, err := run(f, newCreateCmd(f), append(base, "--pooler", "--pool-mode", "session")...)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		raw, err := json.Marshal(fake.DatabaseCreates[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"postgres":{"pooler":{"enabled":true,"poolMode":"session"}}`) {
+			t.Errorf("body = %s", raw)
+		}
+		if !strings.Contains(stderr, "connection pooler: readwrite and readonly bindings connect through it, owner bindings connect directly. Transaction mode does not keep session state between transactions.") {
+			t.Errorf("stderr missing the pooler note:\n%s", stderr)
+		}
+	})
+	t.Run("without --pooler no postgres object is sent", func(t *testing.T) {
+		fake := clienttest.New()
+		f := factoryWith(t, fake)
+		if _, stderr, err := run(f, newCreateCmd(f), base...); err != nil || strings.Contains(stderr, "pooler") {
+			t.Fatalf("create: %v, stderr %q", err, stderr)
+		}
+		if fake.DatabaseCreates[0].Postgres != nil {
+			t.Errorf("postgres = %+v; want nil", fake.DatabaseCreates[0].Postgres)
+		}
+	})
+	t.Run("one postgres object holds the pooler and the roles", func(t *testing.T) {
+		fake := clienttest.New()
+		f := factoryWith(t, fake)
+		if _, _, err := run(f, newCreateCmd(f), append(base, "--roles", "reporting", "--pooler", "--pooler-instances", "2")...); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		pg := fake.DatabaseCreates[0].Postgres
+		if pg == nil || pg.Roles == nil || len(*pg.Roles) != 1 || pg.Pooler == nil || pg.Pooler.Instances != 2 || !pg.Pooler.On() || pg.Pooler.PoolMode != "" {
+			t.Errorf("postgres = %+v", pg)
+		}
+	})
+	for name, args := range map[string][]string{
+		"--pool-mode needs --pooler":        {"--pool-mode", "session"},
+		"--pooler-instances needs --pooler": {"--pooler-instances", "2"},
+		"--pooler=false with a mode":        {"--pooler=false", "--pool-mode", "session"},
+		"an unknown mode":                   {"--pooler", "--pool-mode", "statement"},
+		"three instances":                   {"--pooler", "--pooler-instances", "3"},
+		"zero instances":                    {"--pooler", "--pooler-instances", "0"},
+	} {
+		t.Run(name+" is misuse", func(t *testing.T) {
+			fake := clienttest.New()
+			f := factoryWith(t, fake)
+			_, _, err := run(f, newCreateCmd(f), append(base, args...)...)
+			if cli.ExitCode(err) != cli.ExitMisuse {
+				t.Fatalf("exit = %d (%v); want %d", cli.ExitCode(err), err, cli.ExitMisuse)
+			}
+			if len(fake.DatabaseCreates) != 0 {
+				t.Error("nothing should be sent")
+			}
+		})
+	}
+}
+
+func TestCreate_WaitsForPoolerReady(t *testing.T) {
+	fake := clienttest.New()
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		running("orders-db"), // WaitForPhase: Running
+		pooled(running("orders-db"), false),
+		pooled(running("orders-db"), true),
+	}
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newCreateCmd(f), "orders-db", "--cpu", "250m", "--memory", "512Mi", "--storage", "5Gi", "--pooler", "--wait-timeout", "30s")
+	if err != nil {
+		t.Fatalf("create --pooler: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 3 {
+		t.Fatalf("GETs = %d; want Running, then PoolerReady False, then True", polls)
+	}
+	if !strings.Contains(out, "on: transaction, 1 instance") {
+		t.Errorf("final render should show the pooler:\n%s", out)
+	}
+}
+
+func TestUpdate_PoolerFlags(t *testing.T) {
+	update := func(t *testing.T, db *client.Database, args ...string) (*clienttest.Fake, string, error) {
+		t.Helper()
+		fake := clienttest.New()
+		fake.DatabasesByName["orders-db"] = db
+		f := factoryWith(t, fake)
+		_, stderr, err := run(f, newUpdateCmd(f), append([]string{"orders-db", "--wait=false"}, args...)...)
+		return fake, stderr, err
+	}
+	body := func(t *testing.T, fake *clienttest.Fake) string {
+		t.Helper()
+		if len(fake.DatabasePatches) != 1 {
+			t.Fatalf("patches = %d; want 1", len(fake.DatabasePatches))
+		}
+		raw, err := json.Marshal(fake.DatabasePatches[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	t.Run("only the passed keys, under postgres.pooler alone", func(t *testing.T) {
+		db := running("orders-db")
+		roles := []client.DeclaredRole{{Name: "reporting"}}
+		db.Postgres = &client.DatabasePostgres{Roles: &roles}
+		fake, stderr, err := update(t, db, "--pooler", "--pool-mode", "session")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := body(t, fake); got != `{"postgres":{"pooler":{"enabled":true,"poolMode":"session"}}}` {
+			t.Errorf("body = %s", got)
+		}
+		if !strings.Contains(stderr, `Readwrite and readonly bindings of "orders-db" get a new host in each of their namespaces. Applications pick it up when they re-read the Secret or restart.`) {
+			t.Errorf("stderr missing the host note:\n%s", stderr)
+		}
+	})
+	t.Run("a mode alone is sent without enabled and prints no host note", func(t *testing.T) {
+		fake, stderr, err := update(t, pooled(running("orders-db"), true), "--pool-mode", "session")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := body(t, fake); got != `{"postgres":{"pooler":{"poolMode":"session"}}}` {
+			t.Errorf("body = %s", got)
+		}
+		if strings.Contains(stderr, "new host") {
+			t.Errorf("no host change, but stderr says:\n%s", stderr)
+		}
+		if p := fake.DatabasesByName["orders-db"].Postgres.Pooler; !p.On() || p.PoolMode != "session" || p.Instances != 1 {
+			t.Errorf("stored pooler = %+v; want the merge", p)
+		}
+	})
+	t.Run("--pooler=false sends enabled false", func(t *testing.T) {
+		fake, _, err := update(t, pooled(running("orders-db"), true), "--pooler=false")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := body(t, fake); got != `{"postgres":{"pooler":{"enabled":false}}}` {
+			t.Errorf("body = %s", got)
+		}
+	})
+	t.Run("--pooler=false with a mode is misuse", func(t *testing.T) {
+		_, _, err := update(t, running("orders-db"), "--pooler=false", "--pool-mode", "session")
+		if cli.ExitCode(err) != cli.ExitMisuse {
+			t.Fatalf("exit = %d (%v)", cli.ExitCode(err), err)
+		}
+	})
+	t.Run("the nothing-to-update message names the pooler flags", func(t *testing.T) {
+		_, _, err := update(t, running("orders-db"))
+		if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "--pooler, --pool-mode, --pooler-instances") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+}
+
+// A pooler-only update is waited on: the pooler comes up after the PATCH.
+// With the old no-wait rule this returned after one read.
+func TestUpdate_PoolerChangeIsWaitedOn(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = applying("orders-db", 3, 2, true)
+	pooledAt := func(ready bool) *client.Database {
+		return pooled(applying("orders-db", 3, 3, true), ready)
+	}
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		applying("orders-db", 2, 2, true), // the read-modify-write GET
+		pooledAt(false),
+		pooledAt(true),
+	}
+	f := factoryWith(t, fake)
+	if _, _, err := run(f, newUpdateCmd(f), "orders-db", "--pooler", "--wait-timeout", "20s"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 3 {
+		t.Fatalf("GETs = %d; want the RMW read, the pooler starting and the pooler ready", polls)
+	}
+}
+
+// Turning the pooler off must not wait for a PoolerReady that is gone.
+func TestUpdate_TurningThePoolerOffDoesNotWaitForTheCondition(t *testing.T) {
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = pooled(applying("orders-db", 3, 2, true), true)
+	off := running("orders-db")
+	off.Generation, off.Status.ObservedGeneration = 3, 3
+	fake.GetDatabaseSeq["orders-db"] = []*client.Database{
+		pooled(applying("orders-db", 2, 2, true), true), // the RMW GET
+		off, // pooler off, no PoolerReady condition
+	}
+	f := factoryWith(t, fake)
+	if _, _, err := run(f, newUpdateCmd(f), "orders-db", "--pooler=false", "--wait-timeout", "20s"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if polls := countCalls(fake, "GetDatabase:orders-db"); polls != 2 {
+		t.Fatalf("GETs = %d; want the RMW read and one poll", polls)
+	}
+}
+
+func TestGetAndList_ShowThePooler(t *testing.T) {
+	two := pooled(running("big-db"), true)
+	two.Postgres.Pooler.PoolMode, two.Postgres.Pooler.Instances = "session", 2
+	fake := clienttest.New()
+	fake.DatabasesByName["orders-db"] = pooled(running("orders-db"), true)
+	fake.DatabasesByName["big-db"] = two
+	fake.DatabasesByName["plain-db"] = running("plain-db")
+	for name, want := range map[string]string{"orders-db": "on: transaction, 1 instance", "big-db": "on: session, 2 instances", "plain-db": "off"} {
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newGetCmd(f), name)
+		if err != nil {
+			t.Fatalf("get %s: %v", name, err)
+		}
+		if got, ok := detailValue(out, "Pooler"); !ok || got != want {
+			t.Errorf("%s Pooler = %q (found %v); want %q in:\n%s", name, got, ok, want, out)
+		}
+	}
+	f := factoryWith(t, fake)
+	out, _, err := run(f, newListCmd(f), "-o", "wide")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	col := strings.Index(lines[0], "POOLER")
+	if col < 0 {
+		t.Fatalf("no POOLER column in:\n%s", out)
+	}
+	got := map[string]string{}
+	for _, line := range lines[1:] {
+		got[strings.Fields(line)[0]] = strings.Fields(line[col:])[0]
+	}
+	if got["orders-db"] != "on" || got["big-db"] != "on" || got["plain-db"] != "off" {
+		t.Errorf("POOLER cells = %v in:\n%s", got, out)
+	}
+	f = factoryWith(t, fake)
+	if plain, _, err := run(f, newListCmd(f)); err != nil || strings.Contains(plain, "POOLER") {
+		t.Errorf("POOLER is a wide column only: %v\n%s", err, plain)
+	}
+}

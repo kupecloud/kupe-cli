@@ -164,7 +164,7 @@ func translateUpgradeRefusal(err error, name string) error {
 			WithHint(fmt.Sprintf("the message above says what is missing; check the database:  kupe db get %s", name))
 	case client.DatabaseCodeUpgradeInProgress:
 		return cli.WrapAPI(cli.ExitConflict, "a major upgrade of the database is already running", err).
-			WithHint(fmt.Sprintf("wait for it to finish:  kupe db wait %s", name))
+			WithHint(fmt.Sprintf("see where it is:  kupe db get %s   (the Upgrade row)", name))
 	}
 	return nil
 }

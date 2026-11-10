@@ -1823,7 +1823,8 @@ The API's message is the error text; the hint is the next step.
 | No registry (404, `registry "registry" not found`; any 404 from `get`, `update`, `delete`, `wait`) | `4` | `kupe registry create` |
 | Registries switched off on the platform (`registries_unavailable`, 404) | `4` | a platform setting, not an outage; an existing registry can still be listed, unprotected and deleted, and its connections removed |
 | Deletion protection on (`deletion_protected`, 409) | `5` | `kupe registry update --deletion-protection=false` |
-| Already has a registry (`REGISTRY_ALREADY_EXISTS`, 409): the platform created it, or it is still being deleted | `5` | `kupe registry login`, then `kupe registry get` |
+| Already has a registry (`REGISTRY_ALREADY_EXISTS`, 409): the platform created it | `5` | `kupe registry login`, then `kupe registry get` |
+| Already has a registry that is still being deleted (`REGISTRY_ALREADY_EXISTS`, 409, "it is being deleted; try again when it is gone") | `5` | `kupe registry get` |
 | Cluster to connect does not exist (404, `cluster "CLUSTER" not found`) | `4` | `kupe cluster list` |
 | Cluster already connected (`REGISTRY_BINDING_EXISTS`, 409) | `5` | `kupe registry connection get CLUSTER` |
 | More than 10 push namespaces in a connection (`REGISTRY_PUSH_NAMESPACES_LIMIT`, 400), storage limit above the plan's (`REGISTRY_STORAGE_LIMIT_ABOVE_PLAN`, 400), expiry out of range (`REGISTRY_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |

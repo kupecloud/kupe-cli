@@ -15,8 +15,23 @@ import (
 const createHint = "this tenant has no registry; create one:  kupe registry create"
 
 // existsHint is the next step when create meets the registry the platform
-// already created (kupe-control-operator#523): use it.
-const existsHint = "your registry is ready; sign Docker in to push:  kupe registry login\nsee it:  kupe registry get"
+// already created (kupe-control-operator#523): use it. It may still be
+// provisioning, so the hint does not call it ready.
+const existsHint = "sign Docker in:  kupe registry login\nsee it:  kupe registry get"
+
+// existsDeletingHint is the next step when create meets a registry that is
+// still being deleted: kupe-api sends the same code, with "it is being
+// deleted; try again when it is gone".
+const existsDeletingHint = "check:  kupe registry get"
+
+// alreadyExistsHint picks the hint for REGISTRY_ALREADY_EXISTS by the
+// API's sentence, the only thing that tells the two cases apart.
+func alreadyExistsHint(err error) string {
+	if strings.Contains(strings.ToLower(err.Error()), "being deleted") {
+		return existsDeletingHint
+	}
+	return existsHint
+}
 
 // unprotectHint is the next step for a delete refused by deletion
 // protection.
@@ -39,7 +54,7 @@ var refusals = map[string]refusal{
 	client.RegistryCodeDeletionProtected: {cli.ExitConflict, "the registry has deletion protection on", fixed(unprotectHint)},
 	client.RegistryCodeSessionRequiresUser: {cli.ExitAuth, "login sessions need a person signed in", fixed(
 		"sign in with:  kupe auth login\nfor automation, use an access token:  kupe registry token create --name NAME --access pull|push")},
-	client.RegistryCodeAlreadyExists: {cli.ExitConflict, "this tenant already has a registry", fixed(existsHint)},
+	client.RegistryCodeAlreadyExists: {cli.ExitConflict, "this tenant already has a registry", nil},
 	client.RegistryCodeBindingExists: {cli.ExitConflict, "the cluster is already connected", func(cluster string) string {
 		return "see the connection:  kupe registry connection get " + orPlaceholder(cluster)
 	}},
@@ -91,6 +106,9 @@ func translateErr(err error, cluster string) error {
 	}
 	if r, ok := refusals[client.ErrorCode(err)]; ok {
 		out := cli.WrapAPI(r.exit, r.fallback, err)
+		if client.ErrorCode(err) == client.RegistryCodeAlreadyExists {
+			return out.WithHint(alreadyExistsHint(err))
+		}
 		if r.hint != nil {
 			out = out.WithHint(r.hint(cluster))
 		}

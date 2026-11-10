@@ -167,8 +167,11 @@ With --pooler the wait also checks that the pooler is ready.`,
 
 			if pooler.On() {
 				// Stderr so -o json/yaml output stays clean.
-				fmt.Fprintf(f.IOStreams.ErrOut,
-					"Creating %q with a connection pooler: readwrite and readonly bindings connect through it, owner bindings connect directly. Transaction mode does not keep session state between transactions.\n\n", name)
+				note := fmt.Sprintf("Creating %q with a connection pooler: readwrite, readonly and custom bindings connect through it, owner bindings connect directly.", name)
+				if pooler.PoolMode == "" || pooler.PoolMode == client.DatabasePoolModeTransaction {
+					note += " Transaction mode does not keep session state between transactions."
+				}
+				fmt.Fprintln(f.IOStreams.ErrOut, note+"\n")
 			}
 
 			created, _, err := api.Databases().Create(cmd.Context(), req)

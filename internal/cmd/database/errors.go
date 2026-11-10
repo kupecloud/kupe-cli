@@ -125,7 +125,24 @@ func translateUpdateErr(err error, name string) error {
 		return cli.WrapAPI(cli.ExitMisuse, "database storage can grow but never shrink", err).
 			WithHint(fmt.Sprintf("pass a --storage at least the current size, shown by:  kupe db get %s", name))
 	}
-	return translateErr(err, name)
+	out := translateErr(err, name)
+	if poolerRefused(err) {
+		var cliErr *cli.Error
+		if errors.As(out, &cliErr) {
+			// Turning the pooler off is still accepted; only update can do it.
+			return cliErr.WithHint(cliErr.Hint + "; a pooler already on can still be turned off (--pooler=false)")
+		}
+	}
+	return out
+}
+
+// poolerRefused reports whether err is the platform refusing the pooler,
+// by code or, from a server that sends none, by the operator's sentence.
+func poolerRefused(err error) bool {
+	if code := client.ErrorCode(err); code != "" {
+		return code == client.DatabaseCodePoolerUnavailable
+	}
+	return client.IsAPIError(err) && strings.Contains(strings.ToLower(err.Error()), "connection pooling is not available on this platform")
 }
 
 // translateDeleteErr adds deletion protection to the refusals every delete

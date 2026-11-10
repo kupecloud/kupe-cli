@@ -1325,7 +1325,7 @@ Change per-instance resources, high availability, deletion protection or
 backup settings. The major version is not changed here; use
 `kupe database upgrade`.
 While a major upgrade is running, a change is refused with `409
-database_upgrade_in_progress` (exit `5`, hint `kupe db wait NAME`). Only the
+database_upgrade_in_progress` (exit `5`, hint `kupe db get NAME`). Only the
 flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
 retried once, then exits `5`).
 
@@ -1451,7 +1451,8 @@ Before it sends anything the command reads the database and asks
 `This takes database NAME offline while it upgrades from R to T. Type yes to
 confirm:`. Anything but `yes` exits `2` and sends nothing; without `--yes` a
 non-interactive run exits `2`. Asking for the major the database already runs
-changes nothing and asks nothing. `--cancel` never asks.
+starts no upgrade and asks nothing: it cancels one that was requested and is
+still waiting. A major below the running one exits `2` before any question. `--cancel` never asks.
 
 **Waiting.** The upgrade is done when the phase is `Running`, the operator has
 applied the request (`status.observedGeneration` has reached `generation`),
@@ -1470,6 +1471,9 @@ standby is rebuilding after the upgrade (`Running`, `Ready` `False`).
 | --- | --- | --- |
 | `UpgradeRolledBack` | `1` | The upgrade stopped before it changed any data and the database runs its old major. The hint is `kupe db upgrade NAME --cancel`. |
 | `UpgradeFailed` | `1` | The upgrade failed; the platform's message says whether the database still runs its old major. The hints are `kupe database backup list NAME` and `--cancel`. |
+| `MajorChangeUnsupported` | `7` | The platform stopped offering major upgrades after the request. It holds the database as it is, Degraded, with the platform's message. The hint is `--cancel`. |
+| `Degraded` for 5 minutes, any other Ready reason | `1` | Not an upgrade failure (a blocked or unhealthy database). If the upgrade had finished (`UpgradeInProgress` `False`, `UpgradeSucceeded`) the message says the database was upgraded to the target but is not healthy. `Degraded` with `UpgradeWaiting` or `PreUpgradeBackup` is progress. |
+| `spec.version` no longer the target | `1` | Another request changed or cancelled the version. |
 
 In both the platform leaves the database as it is until the version is set
 back with `--cancel`; run the upgrade again after that. A database that starts
@@ -1491,7 +1495,7 @@ upgrade is waiting, running, rolled back or failed: the platform's message.
 | --- | --- | --- |
 | `400 major_upgrade_unavailable`: the platform does not offer major upgrades | `7` | none |
 | `409 database_upgrade_not_ready`: the database is not running and healthy, has no recent backup, has no room for another backup, or the version is more than one major up | `5` | `kupe db get NAME` |
-| `409 database_upgrade_in_progress` | `5` | `kupe db wait NAME` |
+| `409 database_upgrade_in_progress` | `5` | `kupe db get NAME`; for `--cancel`, the hint says the upgrade can no longer be cancelled |
 
 The API's own message is shown in each case. Other exit codes are those of
 `kupe database update`.

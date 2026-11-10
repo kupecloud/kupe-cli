@@ -1145,7 +1145,7 @@ users-db    postgres  17       17.6     Running  on   12d
 
 `VERSION` is the requested major; `RUNNING` is the full version the platform
 reports. `-o wide` adds `CPU`, `MEMORY`, `STORAGE`, `INSTANCES` (ready/desired),
-`PROTECTED` (deletion protection) and `BACKUPS` (the backup retention, or
+`PROTECTED` (deletion protection), `POOLER` (`on` or `off`) and `BACKUPS` (the backup retention, or
 `defaults` while the database keeps the platform defaults). `-o name`, `-o json`, `-o yaml`,
 `-o go-template=...` and `--phase` (a client-side filter, e.g. `--phase
 degraded`) behave as for clusters.
@@ -1164,12 +1164,18 @@ CPU:                  500m
 Memory:               1Gi
 Storage:              10Gi
 Deletion Protection:  on
+Pooler:               on: transaction, 1 instance
 Backups:              14 days, DailyThenWeekly
 Last Backup:          2026-10-12T02:14:07Z (8h ago)
 Restore Window:       2026-10-09T10:02:41Z to 2026-10-12T10:41:33Z
 Backup Size:          3.2 GiB
 Created:              2026-10-09T10:00:00Z (3d ago)
 ```
+
+`Pooler` is `off`, or `on:` with the pool mode and the number of pooler
+instances (`on: transaction, 1 instance`); a kupe-api that predates the pooler
+reports none, which reads as `off`. Whether the pooler is serving is the
+`PoolerReady` condition (`-o json`).
 
 `Backups` is the retention and schedule the database set; the row shows
 `defaults` while the database keeps the platform defaults (7 days, `Daily`).
@@ -1197,12 +1203,15 @@ Create a database and wait for `status.phase=Running` by default.
 | `--storage QUANTITY` | required; the source's with `--from-backup` or `--from` | Storage per instance, with a unit (`10Gi`). Grows later, never shrinks. A restore needs at least the source's. |
 | `--ha` | off | Two instances with a synchronous standby; resources are reserved and billed per instance. |
 | `--no-deletion-protection` | off | Create without deletion protection (it is on by default). |
+| `--pooler` | off | Connection pooler. Turn this on if your app opens a lot of connections: many pods, serverless functions, or short-lived connections. Small apps with a few steady connections don't need it. You can turn it on or off later. |
+| `--pool-mode MODE` | `transaction` (the platform default; not sent when left out) | `transaction` or `session`. Needs `--pooler`. Transaction mode does not keep session state between transactions: `SET`, SQL `PREPARE`, `LISTEN`, session advisory locks and `WITH HOLD` cursors need `session`. |
+| `--pooler-instances N` | `1` (the platform default; not sent when left out) | `1` or `2` pooler instances. Needs `--pooler`. |
 | `--backup-retention DAYS` | `7` | How far back backups reach, in days. The platform sets the range. |
 | `--backup-schedule SCHEDULE` | `Daily` | Full backups kept within the retention: `Daily` keeps one for every day, `DailyThenWeekly` one for each of the last 7 days and one a week before that. |
 | `--from-backup BACKUP` | — | Restore the new database from this manual backup. |
 | `--from DATABASE` | — | Restore the new database from this database, as it was at `--point-in-time`. |
 | `--point-in-time TIME` | the latest point | With `--from`: the moment to restore to, inside the database's restore window, in RFC 3339 (`2026-10-30T09:00:00Z`). |
-| `--wait` | `true` | Wait for `status.phase=Running`; when logical databases or schemas are requested, also wait until they are ready at the accepted generation. |
+| `--wait` | `true` | Wait for `status.phase=Running`; with `--pooler`, also until the `PoolerReady` condition is `True`; when logical databases or schemas are requested, also wait until they are ready at the accepted generation. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Single-resource formats, as for `cluster create`. |
 
@@ -1225,8 +1234,23 @@ days`. While the platform does not offer backups, either flag exits `7` with
 the API's message, "backups are not available on this platform"
 (`400 backups_unavailable`).
 
+A pooler runs in front of the database. Readwrite, readonly and custom
+bindings connect through it; owner bindings connect directly. The platform sets
+the pool sizes: there is no flag for them. `--pool-mode` or `--pooler-instances`
+without `--pooler`, an unknown mode and an instance count outside `1`-`2` exit
+`2` before any request is made. `--pooler` prints a note on stderr (so `-o json`
+stays clean) saying which bindings connect through the pooler and that
+transaction mode keeps no session state between transactions. The pooler and
+`--roles`, `--extensions` and the logical database flags are sent as one
+`postgres` object. While the platform does not offer the pooler,
+`--pooler` exits `7` with the API's message, "connection pooling is not
+available on this platform" (`400 DATABASE_POOLER_UNAVAILABLE`); the request was
+valid, and retrying will not help. A kupe-api that predates the pooler refuses
+the field and the CLI shows that message.
+
 ```bash
 kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi
+kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi --pooler --pool-mode session
 ```
 
 #### Restoring into a new database
@@ -1321,8 +1345,8 @@ while databases are switched off; the existing cleanup commands still work.
 
 ### `kupe database update NAME`
 
-Change per-instance resources, high availability, deletion protection or
-backup settings. The major version cannot be changed yet: kupe-api refuses every version change
+Change per-instance resources, high availability, deletion protection, the
+connection pooler or backup settings. The major version cannot be changed yet: kupe-api refuses every version change
 (`400 major_upgrade_unavailable`), so `kupe database upgrade` is hidden until
 major upgrades are offered. Only the flags you pass are sent (JSON merge-patch with `If-Match`; a `412` is
 retried once, then exits `5`).
@@ -1336,6 +1360,9 @@ retried once, then exits `5`).
 | `--cpu`, `--memory`, `--storage` | New per-instance resources. Storage grows only. |
 | `--ha` / `--ha=false` | Turn high availability on or off. |
 | `--deletion-protection` / `--deletion-protection=false` | Turn deletion protection on or off. |
+| `--pooler` / `--pooler=false` | Turn the connection pooler on or off. Turning it off keeps its mode and instances for the next time. |
+| `--pool-mode MODE` | `transaction` or `session`. Changes only the mode. Not with `--pooler=false`. |
+| `--pooler-instances N` | `1` or `2` pooler instances. Not with `--pooler=false`. |
 | `--backup-retention DAYS` | New backup retention in days. Shortening it deletes the backups that fall outside the new window. |
 | `--backup-schedule SCHEDULE` | New backup schedule: `Daily` or `DailyThenWeekly`. |
 | `--wait` | Wait until the change is in effect (default `true`). |
@@ -1361,6 +1388,17 @@ API's message, for example `storage can only grow: 5Gi is smaller than the
 current 10Gi`, and a hint to check the current size with `kupe db get NAME`.
 Any other refused change exits `2` with the API's message, which names the
 field and the rule it broke.
+
+A pooler change sends only the pooler flags passed, under `postgres.pooler`: a
+pooler-only update leaves `postgres.roles`, `extensions` and `databases` out of
+the body, and `--pool-mode` alone keeps the pooler's other settings. It is
+waited on like any change the platform applies: until the `PoolerReady`
+condition is `True` while the pooler is on; turning it off does not wait for
+a condition that is gone. Turning the pooler on or off prints a note on stderr:
+readwrite and readonly bindings get a new host in each of their namespaces, and
+applications pick it up when they re-read the Secret or restart. The refusal
+for a platform without the pooler is the same as on create (exit `7`); turning
+a pooler off is accepted either way.
 
 A backup change sends only the backup flags passed; the other setting keeps
 its value. It is waited on until the platform has applied it. A
@@ -1578,7 +1616,11 @@ orders-api     Ready              orders-db.orders-api.svc.cluster.local
 orders-worker  Pending                                                    the binding could not be reconciled; retrying
 ```
 
-A namespace's `PHASE` is `Pending` until the platform reports it.
+A namespace's `PHASE` is `Pending` until the platform reports it. `HOST` is
+per namespace, as the platform delivered it: while the database's pooler is on,
+readwrite, readonly and custom bindings show the pooler host
+(`DATABASE--pooler.NAMESPACE.svc.cluster.local`) and owner bindings the direct
+host.
 
 `binding add` waits for the binding by default:
 

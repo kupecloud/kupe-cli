@@ -9,8 +9,14 @@ import (
 	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 )
 
-// createHint is the next step when the tenant has no registry.
+// createHint is the next step when the tenant has no registry: the
+// platform creates one when the plan includes it, so here it was deleted
+// or the plan has none.
 const createHint = "this tenant has no registry; create one:  kupe registry create"
+
+// existsHint is the next step when create meets the registry the platform
+// already created (kupe-control-operator#523): use it.
+const existsHint = "your registry is ready; sign Docker in to push:  kupe registry login\nsee it:  kupe registry get"
 
 // unprotectHint is the next step for a delete refused by deletion
 // protection.
@@ -33,7 +39,7 @@ var refusals = map[string]refusal{
 	client.RegistryCodeDeletionProtected: {cli.ExitConflict, "the registry has deletion protection on", fixed(unprotectHint)},
 	client.RegistryCodeSessionRequiresUser: {cli.ExitAuth, "login sessions need a person signed in", fixed(
 		"sign in with:  kupe auth login\nfor automation, use an access token:  kupe registry token create --name NAME --access pull|push")},
-	client.RegistryCodeAlreadyExists: {cli.ExitConflict, "this tenant already has a registry", fixed("see it:  kupe registry get")},
+	client.RegistryCodeAlreadyExists: {cli.ExitConflict, "this tenant already has a registry", fixed(existsHint)},
 	client.RegistryCodeBindingExists: {cli.ExitConflict, "the cluster is already connected", func(cluster string) string {
 		return "see the connection:  kupe registry connection get " + orPlaceholder(cluster)
 	}},

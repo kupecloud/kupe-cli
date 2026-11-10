@@ -33,10 +33,11 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "registry",
 		Short: "Manage your container registry",
-		Long: `Turn on your tenant's container registry, connect clusters to it, create
+		Long: `Use your tenant's container registry: connect clusters to it, create
 access tokens, and browse or delete its repositories, images and tags.
 
-A tenant has one registry. Its images live at registry.kupe.cloud/TENANT/...
+A tenant has one registry. The platform creates it when your plan includes
+one, so "kupe registry login" is usually the first step. Its images live at registry.kupe.cloud/TENANT/...
 and stay private to the tenant. "kupe registry login" signs Docker in for 12
 hours. "kupe registry connect CLUSTER" lets every pod in a cluster pull from
 the registry, and can give chosen namespaces a Secret that pushes to it.
@@ -176,7 +177,9 @@ func newCreateCmd(f *cli.Factory) *cobra.Command {
 		Use:   "create",
 		Short: "Turn on the container registry",
 		Long: `Create the tenant's registry and, by default, wait until it is ready to push
-to and pull from. Pass --wait=false to return as soon as the request is
+to and pull from. The platform creates the registry when your plan includes
+one, so this is only needed after deleting it. If the registry is there
+already, create exits 5 and points to "kupe registry login". Pass --wait=false to return as soon as the request is
 accepted, then use "kupe registry wait".
 
 --storage-limit caps what the registry may store, below your plan's cap, in

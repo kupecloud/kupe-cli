@@ -409,7 +409,7 @@ func TestRegistryErrors(t *testing.T) {
 		{"switched off", api(404, "registries_unavailable", "registries are not available on this platform"), "", cli.ExitNotFound, "not an outage"},
 		{"deletion protected", api(409, "deletion_protected", "x"), "", cli.ExitConflict, "kupe registry update --deletion-protection=false"},
 		{"session needs a user", api(403, "session_requires_user", "x"), "", cli.ExitAuth, "kupe auth login"},
-		{"already exists", api(409, "REGISTRY_ALREADY_EXISTS", "x"), "", cli.ExitConflict, "kupe registry get"},
+		{"already exists", api(409, "REGISTRY_ALREADY_EXISTS", "x"), "", cli.ExitConflict, "kupe registry login"},
 		{"connection exists", api(409, "REGISTRY_BINDING_EXISTS", "x"), "prod", cli.ExitConflict, "kupe registry connection get prod"},
 		{"push namespaces over 10", api(400, "REGISTRY_PUSH_NAMESPACES_LIMIT", "x"), "", cli.ExitMisuse, ""},
 		{"storage above plan", api(400, "REGISTRY_STORAGE_LIMIT_ABOVE_PLAN", "x"), "", cli.ExitMisuse, ""},

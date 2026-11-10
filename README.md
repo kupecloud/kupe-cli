@@ -152,7 +152,7 @@ or add `--dry-run` to check and review a deployment without writing.
 | `kupe database binding add DATABASE` | Grant a database role to namespaces of a cluster |
 | `kupe database binding update DATABASE BINDING` | Edit binding namespaces or turn on dedicated credentials |
 | `kupe database binding rotate-credentials DATABASE BINDING` | Rotate a binding's dedicated credentials |
-| `kupe registry create` | Turn on the tenant's container registry |
+| `kupe registry create` | Turn the tenant's container registry on again after deleting it (the platform creates it when the plan includes one) |
 | `kupe registry login` | Sign Docker in to the registry for 12 hours |
 | `kupe registry connect CLUSTER` | Let a cluster's pods pull from the registry |
 | `kupe registry token create` | Create a registry access token for CI |

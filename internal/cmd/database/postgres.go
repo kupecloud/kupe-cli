@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
 )
@@ -29,6 +32,94 @@ func postgresFromNames(roles, extensions []string, setRoles, setExtensions bool)
 		out.Extensions = &list
 	}
 	return out
+}
+
+// Pooler flags, shared by create and update.
+const (
+	flagPooler          = "pooler"
+	flagPoolMode        = "pool-mode"
+	flagPoolerInstances = "pooler-instances"
+)
+
+// maxPoolerInstances is the most pooler instances the API accepts. The
+// platform may offer fewer; the API checks.
+const maxPoolerInstances = 2
+
+// poolerHelp is the approved wording for the create flag (decisions.md,
+// 2026-11-08).
+const poolerHelp = "Connection pooler. Turn this on if your app opens a lot of connections: many pods, serverless functions, or short-lived connections. Small apps with a few steady connections don't need it. You can turn it on or off later."
+
+// poolerLongHelp explains the pooler for create and update.
+const poolerLongHelp = `--pooler runs a connection pooler in front of the database. Readwrite,
+readonly and custom bindings connect through it; owner bindings connect
+directly. --pool-mode sets how connections are shared: transaction (the
+default) does not keep session state between transactions, so SET, SQL
+PREPARE, LISTEN, session advisory locks and WITH HOLD cursors need session.
+--pooler-instances is 1 (the default) or 2. The platform sets the pool sizes.`
+
+// poolerFlags is the pooler flag values of create and update.
+type poolerFlags struct {
+	enabled   bool
+	mode      string
+	instances int32
+}
+
+func addPoolerFlags(cmd *cobra.Command, p *poolerFlags, enabledHelp string) {
+	cmd.Flags().BoolVar(&p.enabled, flagPooler, false, enabledHelp)
+	cmd.Flags().StringVar(&p.mode, flagPoolMode, "", "How the pooler shares connections: transaction (the default) or session; needs the pooler on")
+	cmd.Flags().Int32Var(&p.instances, flagPoolerInstances, 0, "Pooler instances, 1 (the default) or 2; needs the pooler on")
+}
+
+// poolerFromFlags is the pooler settings the user passed, nil when none was:
+// only a flag that was passed is sent. On create (create true) or when the
+// pooler is being turned off, the mode and instances need the pooler on.
+func poolerFromFlags(flags *pflag.FlagSet, p poolerFlags, create bool) (*client.DatabasePooler, error) {
+	setEnabled, setMode, setInstances := flags.Changed(flagPooler), flags.Changed(flagPoolMode), flags.Changed(flagPoolerInstances)
+	if !setEnabled && !setMode && !setInstances {
+		return nil, nil
+	}
+	if (setMode || setInstances) && (create && !p.enabled || setEnabled && !p.enabled) {
+		return nil, cli.MisuseError("--pool-mode and --pooler-instances need --pooler").
+			WithHint("turn the pooler on with --pooler, or leave these flags out")
+	}
+	out := &client.DatabasePooler{}
+	if setEnabled {
+		on := p.enabled
+		out.Enabled = &on
+	}
+	if setMode {
+		if !slices.Contains(client.DatabasePoolModes, p.mode) {
+			return nil, cli.MisuseError("invalid --pool-mode " + p.mode).WithHint("use --pool-mode transaction or --pool-mode session")
+		}
+		out.PoolMode = p.mode
+	}
+	if setInstances {
+		if p.instances < 1 || p.instances > maxPoolerInstances {
+			return nil, cli.MisuseError(fmt.Sprintf("invalid --pooler-instances %d", p.instances)).WithHint("use --pooler-instances 1 or --pooler-instances 2")
+		}
+		out.Instances = p.instances
+	}
+	return out, nil
+}
+
+// withPooler sets the pooler on a copy of postgres, allocating it when nil;
+// a nil pooler returns postgres unchanged.
+func withPooler(postgres *client.DatabasePostgres, pooler *client.DatabasePooler) *client.DatabasePostgres {
+	if pooler == nil {
+		return postgres
+	}
+	out := client.DatabasePostgres{}
+	if postgres != nil {
+		out = *postgres
+	}
+	out.Pooler = pooler
+	return &out
+}
+
+// dbSettled is when a database's change is in effect: Ready, and the pooler
+// serving when it is on. A pooler that is off is not waited on.
+func dbSettled(db *client.Database) bool {
+	return db != nil && db.Status.Ready() && (!db.PoolerOn() || db.Status.PoolerReady())
 }
 
 func validateListEdits(opts *updateOpts) error {
@@ -94,7 +185,7 @@ func postgresWaitErr(err error, db *client.Database) error {
 		}
 	}
 	for _, condition := range db.Status.Conditions {
-		if (condition.Type == "RolesReady" || condition.Type == "ExtensionsReady" || condition.Type == "DatabasesReady") && condition.Status == "False" && condition.Message != "" {
+		if (condition.Type == "RolesReady" || condition.Type == client.ConditionPoolerReady || condition.Type == "ExtensionsReady" || condition.Type == "DatabasesReady") && condition.Status == "False" && condition.Message != "" {
 			return out.WithHint(condition.Message + "\n" + out.Hint)
 		}
 	}

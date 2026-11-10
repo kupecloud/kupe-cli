@@ -21,6 +21,7 @@ type updateOpts struct {
 	storage                                                string
 	highAvailability                                       bool
 	deletionProtection                                     bool
+	pooler                                                 poolerFlags
 	backupRetention                                        int32
 	backupSchedule                                         string
 	wait                                                   bool
@@ -43,6 +44,13 @@ the flags you pass are changed.
 omitted. Repeat either flag for more. Existing entries and schemas are
 kept; they cannot be removed. After a restore, append with these flags.
 
+--pooler turns the connection pooler on, and --pooler=false off; --pool-mode
+and --pooler-instances change it. Turning it on or off gives readwrite and
+readonly bindings a new host in each of their namespaces: applications pick
+it up when they re-read the Secret or restart.
+
+` + poolerLongHelp + `
+
 Changing CPU or memory rolls the instances (a highly available database
 switches over first). Storage grows online and can never shrink. The major
 version cannot be changed yet. Shortening --backup-retention deletes the
@@ -60,6 +68,8 @@ the change is accepted.`,
 		Example: `  kupe database update orders-db --cpu 1 --memory 2Gi
   kupe db update orders-db --storage 20Gi
   kupe db update orders-db --ha
+  kupe db update orders-db --pooler --pool-mode session
+  kupe db update orders-db --pooler=false
   kupe db update orders-db --deletion-protection=false
   kupe db update orders-db --backup-retention 14`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,13 +92,17 @@ the change is accepted.`,
 				return err
 			}
 			patch.Backup = backup
+			pooler, err := poolerFromFlags(cmd.Flags(), opts.pooler, false)
+			if err != nil {
+				return err
+			}
 			listChanged := len(opts.addRoles)+len(opts.removeRoles)+len(opts.addExtensions)+len(opts.removeExtensions) > 0
 			if err := validateListEdits(opts); err != nil {
 				return err
 			}
 			logicalChanged := logicalRequested(opts.addLogicalDatabases, opts.addSchemas)
-			if patch.IsEmpty() && !listChanged && !logicalChanged {
-				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule, --add-role, --remove-role, --add-extension, --remove-extension, --add-logical-database, --add-schema")
+			if patch.IsEmpty() && !listChanged && !logicalChanged && pooler == nil {
+				return cli.MisuseError("nothing to update: pass at least one of --cpu, --memory, --storage, --ha, --deletion-protection, --backup-retention, --backup-schedule, --pooler, --pool-mode, --pooler-instances, --add-role, --remove-role, --add-extension, --remove-extension, --add-logical-database, --add-schema")
 			}
 
 			format, err := printer.Resolve(f, opts.output)
@@ -102,7 +116,7 @@ the change is accepted.`,
 			var mutateErr error
 			var notes []string
 			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
-				patch.Postgres = editedPostgres(current.Postgres, opts)
+				patch.Postgres = withPooler(editedPostgres(current.Postgres, opts), pooler)
 				if logicalChanged {
 					if current.Postgres == nil || current.Postgres.Databases == nil || len(*current.Postgres.Databases) == 0 {
 						mutateErr = logicalNotAvailable()
@@ -133,6 +147,10 @@ the change is accepted.`,
 			}
 			for _, note := range notes {
 				fmt.Fprintln(f.IOStreams.ErrOut, note)
+			}
+			if cmd.Flags().Changed(flagPooler) {
+				fmt.Fprintf(f.IOStreams.ErrOut,
+					"Readwrite and readonly bindings of %q get a new host in each of their namespaces. Applications pick it up when they re-read the Secret or restart.\n", name)
 			}
 			// Deletion protection is read from the spec when a delete comes
 			// in, so it is in effect once the PATCH lands; every other change
@@ -172,6 +190,7 @@ the change is accepted.`,
 	cmd.Flags().BoolVar(&opts.deletionProtection, "deletion-protection", false, "Turn deletion protection on (--deletion-protection) or off (--deletion-protection=false)")
 	cmd.Flags().Int32Var(&opts.backupRetention, flagBackupRetention, 0, "New backup retention in `days` (the platform sets the range); shortening it deletes the backups that fall outside the new window")
 	cmd.Flags().StringVar(&opts.backupSchedule, flagBackupSchedule, "", "New backup schedule: Daily or DailyThenWeekly")
+	addPoolerFlags(cmd, &opts.pooler, "Turn the connection pooler on (--pooler) or off (--pooler=false)")
 	cmd.Flags().BoolVar(&opts.wait, "wait", true, "Wait until the change is in effect before returning")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpGet)

@@ -114,6 +114,7 @@ func databaseColumns(colorEnabled bool) Columns {
 		{Name: "STORAGE", Wide: true, Get: func(v any) string { return databaseResources(database(v)).Storage }},
 		{Name: "INSTANCES", Wide: true, Get: func(v any) string { return databaseInstances(database(v)) }},
 		{Name: "PROTECTED", Wide: true, Get: func(v any) string { return onOff(database(v).DeletionProtection) }},
+		{Name: "POOLER", Wide: true, Get: func(v any) string { return onOff(database(v).PoolerOn()) }},
 		{Name: "BACKUPS", Wide: true, Get: func(v any) string { return backupColumn(database(v)) }},
 	}
 }
@@ -136,6 +137,7 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Databases", OmitEmpty: true, Get: func(v any) string { return logicalDatabasesDisplay(database(v)) }},
 		{Name: "Roles", Get: func(v any) string { return postgresRoleNames(database(v)) }},
 		{Name: "Extensions", Get: func(v any) string { return postgresExtensionNames(database(v)) }},
+		{Name: "Pooler", Get: func(v any) string { return poolerDisplay(database(v)) }},
 		{Name: "Backups", Get: func(v any) string { return backupSettings(database(v)) }},
 		{Name: "Last Backup", Get: func(v any) string { return lastBackup(database(v)) }},
 		{Name: "Restore Window", Get: func(v any) string { return recoveryWindow(database(v)) }},
@@ -408,4 +410,25 @@ func logicalDatabasesDisplay(db *client.Database) string {
 		return ""
 	}
 	return strings.Join(rows, "\n")
+}
+
+// poolerDisplay is "off", or "on: transaction, 1 instance". A kupe-api that
+// predates the pooler reports none, which reads as off.
+func poolerDisplay(db *client.Database) string {
+	if !db.PoolerOn() {
+		return "off"
+	}
+	p := db.Postgres.Pooler
+	mode, instances := p.PoolMode, p.Instances
+	if mode == "" {
+		mode = client.DatabasePoolModeTransaction
+	}
+	if instances == 0 {
+		instances = 1
+	}
+	noun := "instances"
+	if instances == 1 {
+		noun = "instance"
+	}
+	return fmt.Sprintf("on: %s, %d %s", mode, instances, noun)
 }

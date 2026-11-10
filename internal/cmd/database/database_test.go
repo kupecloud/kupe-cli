@@ -2093,8 +2093,25 @@ func TestCreate_PoolerFlags(t *testing.T) {
 		if !strings.Contains(string(raw), `"postgres":{"pooler":{"enabled":true,"poolMode":"session"}}`) {
 			t.Errorf("body = %s", raw)
 		}
-		if !strings.Contains(stderr, "connection pooler: readwrite and readonly bindings connect through it, owner bindings connect directly. Transaction mode does not keep session state between transactions.") {
+		if !strings.Contains(stderr, "connection pooler: readwrite, readonly and custom bindings connect through it, owner bindings connect directly.") {
 			t.Errorf("stderr missing the pooler note:\n%s", stderr)
+		}
+	})
+	t.Run("the transaction-mode sentence only when the mode is transaction or unset", func(t *testing.T) {
+		for mode, want := range map[string]bool{"": true, "transaction": true, "session": false} {
+			fake := clienttest.New()
+			f := factoryWith(t, fake)
+			args := append(append([]string{}, base...), "--pooler")
+			if mode != "" {
+				args = append(args, "--pool-mode", mode)
+			}
+			_, stderr, err := run(f, newCreateCmd(f), args...)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			if got := strings.Contains(stderr, "Transaction mode does not keep session state"); got != want {
+				t.Errorf("mode %q: sentence present = %v; want %v:\n%s", mode, got, want, stderr)
+			}
 		}
 	})
 	t.Run("without --pooler no postgres object is sent", func(t *testing.T) {
@@ -2191,7 +2208,7 @@ func TestUpdate_PoolerFlags(t *testing.T) {
 		if got := body(t, fake); got != `{"postgres":{"pooler":{"enabled":true,"poolMode":"session"}}}` {
 			t.Errorf("body = %s", got)
 		}
-		if !strings.Contains(stderr, `Readwrite and readonly bindings of "orders-db" get a new host in each of their namespaces. Applications pick it up when they re-read the Secret or restart.`) {
+		if !strings.Contains(stderr, `Readwrite, readonly and custom bindings of "orders-db" get a new host in each of their namespaces. Applications pick it up when they re-read the Secret or restart.`) {
 			t.Errorf("stderr missing the host note:\n%s", stderr)
 		}
 	})
@@ -2208,6 +2225,36 @@ func TestUpdate_PoolerFlags(t *testing.T) {
 		}
 		if p := fake.DatabasesByName["orders-db"].Postgres.Pooler; !p.On() || p.PoolMode != "session" || p.Instances != 1 {
 			t.Errorf("stored pooler = %+v; want the merge", p)
+		}
+	})
+	t.Run("--pooler on a pooler already on sends it but prints no host note", func(t *testing.T) {
+		fake, stderr, err := update(t, pooled(running("orders-db"), true), "--pooler", "--pool-mode", "session")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := body(t, fake); got != `{"postgres":{"pooler":{"enabled":true,"poolMode":"session"}}}` {
+			t.Errorf("body = %s", got)
+		}
+		if strings.Contains(stderr, "new host") {
+			t.Errorf("no host change, but stderr says:\n%s", stderr)
+		}
+	})
+	t.Run("--pooler=false on a pooler already off prints no host note", func(t *testing.T) {
+		_, stderr, err := update(t, running("orders-db"), "--pooler=false")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(stderr, "new host") {
+			t.Errorf("no host change, but stderr says:\n%s", stderr)
+		}
+	})
+	t.Run("--pooler=false on a pooler that is on prints the host note", func(t *testing.T) {
+		_, stderr, err := update(t, pooled(running("orders-db"), true), "--pooler=false")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(stderr, "new host") {
+			t.Errorf("want the host note:\n%s", stderr)
 		}
 	})
 	t.Run("--pooler=false sends enabled false", func(t *testing.T) {

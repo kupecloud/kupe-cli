@@ -115,7 +115,11 @@ the change is accepted.`,
 			}
 			var mutateErr error
 			var notes []string
+			// poolerWasOn is the pooler state of the last read, the one the
+			// patch applies to (the closure re-runs after a concurrent update).
+			var poolerWasOn bool
 			updated, err := api.Databases().UpdateRMW(cmd.Context(), name, func(current *client.Database) *client.PatchDatabaseRequest {
+				poolerWasOn = current.PoolerOn()
 				patch.Postgres = withPooler(editedPostgres(current.Postgres, opts), pooler)
 				if logicalChanged {
 					if current.Postgres == nil || current.Postgres.Databases == nil || len(*current.Postgres.Databases) == 0 {
@@ -148,9 +152,11 @@ the change is accepted.`,
 			for _, note := range notes {
 				fmt.Fprintln(f.IOStreams.ErrOut, note)
 			}
-			if cmd.Flags().Changed(flagPooler) {
+			// Bindings change host only when the pooler is turned on or off, not
+			// when --pooler repeats the state it already has.
+			if pooler != nil && pooler.Enabled != nil && *pooler.Enabled != poolerWasOn {
 				fmt.Fprintf(f.IOStreams.ErrOut,
-					"Readwrite and readonly bindings of %q get a new host in each of their namespaces. Applications pick it up when they re-read the Secret or restart.\n", name)
+					"Readwrite, readonly and custom bindings of %q get a new host in each of their namespaces. Applications pick it up when they re-read the Secret or restart.\n", name)
 			}
 			// Deletion protection is read from the spec when a delete comes
 			// in, so it is in effect once the PATCH lands; every other change

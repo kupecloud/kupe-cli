@@ -1239,8 +1239,9 @@ bindings connect through it; owner bindings connect directly. The platform sets
 the pool sizes: there is no flag for them. `--pool-mode` or `--pooler-instances`
 without `--pooler`, an unknown mode and an instance count outside `1`-`2` exit
 `2` before any request is made. `--pooler` prints a note on stderr (so `-o json`
-stays clean) saying which bindings connect through the pooler and that
-transaction mode keeps no session state between transactions. The pooler and
+stays clean) saying which bindings connect through the pooler (readwrite,
+readonly and custom; owner connects directly) and, unless the mode is
+`session`, that transaction mode keeps no session state between transactions. The pooler and
 `--roles`, `--extensions` and the logical database flags are sent as one
 `postgres` object. While the platform does not offer the pooler,
 `--pooler` exits `7` with the API's message, "connection pooling is not
@@ -1395,10 +1396,12 @@ the body, and `--pool-mode` alone keeps the pooler's other settings. It is
 waited on like any change the platform applies: until the `PoolerReady`
 condition is `True` while the pooler is on; turning it off does not wait for
 a condition that is gone. Turning the pooler on or off prints a note on stderr:
-readwrite and readonly bindings get a new host in each of their namespaces, and
-applications pick it up when they re-read the Secret or restart. The refusal
-for a platform without the pooler is the same as on create (exit `7`); turning
-a pooler off is accepted either way.
+readwrite, readonly and custom bindings get a new host in each of their
+namespaces, and applications pick it up when they re-read the Secret or
+restart. The note is left out when the pooler is already in the state asked
+for. The refusal for a platform without the pooler is the same as on create
+(exit `7`), with the added hint that a pooler already on can still be turned
+off; turning a pooler off is accepted either way.
 
 A backup change sends only the backup flags passed; the other setting keeps
 its value. It is waited on until the platform has applied it. A

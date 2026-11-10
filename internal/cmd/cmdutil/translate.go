@@ -80,8 +80,7 @@ var refusals = []refusal{
 		code: client.DatabaseCodePoolerUnavailable, phrase: "connection pooling is not available on this platform", exit: cli.ExitUnavailable,
 		fallback: func(string, string) string { return "connection pooling is not available on this platform" },
 		hint: func(string, string) string {
-			return "this is a platform setting, not an outage, so retrying will not help; " +
-				"a pooler already on can still be turned off (--pooler=false)"
+			return "this is a platform setting, not an outage, so retrying will not help"
 		},
 		hintStatus: http.StatusBadRequest,
 	},

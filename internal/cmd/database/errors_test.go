@@ -34,7 +34,10 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		// backups not offered or a retention outside the range, a plain 400
 		// naming the field for a schedule or an empty backup.
 		poolerMessage      = "connection pooling is not available on this platform"
-		poolerHint         = "this is a platform setting, not an outage, so retrying will not help; a pooler already on can still be turned off (--pooler=false)"
+		poolerHint         = "this is a platform setting, not an outage, so retrying will not help"
+		poolerUpdateHint   = poolerHint + "; a pooler already on can still be turned off (--pooler=false)"
+		oldServerHint      = "this platform does not support this database setting yet"
+		oldServerMessage   = `invalid request: json: unknown field "pooler"`
 		backupsMessage     = "backups are not available on this platform"
 		retentionMessage   = "backup.retention must be between 7 and 35 days"
 		webhookRetention   = "backup retention of 36 days is outside the platform's range of 7 to 35 days"
@@ -112,11 +115,17 @@ func TestTranslators_ShowTheAPIMessageOnce(t *testing.T) {
 		{"pooler not offered on create", create, 400, client.DatabaseCodePoolerUnavailable, poolerMessage,
 			poolerMessage + " (request-id: req-1)", poolerHint, cli.ExitUnavailable},
 		{"pooler not offered on update", update, 400, client.DatabaseCodePoolerUnavailable, poolerMessage,
-			poolerMessage + " (request-id: req-1)", poolerHint, cli.ExitUnavailable},
+			poolerMessage + " (request-id: req-1)", poolerUpdateHint, cli.ExitUnavailable},
 		{"pooler not offered without a message", update, 400, client.DatabaseCodePoolerUnavailable, "",
-			poolerMessage + ": Bad Request (request-id: req-1)", poolerHint, cli.ExitUnavailable},
+			poolerMessage + ": Bad Request (request-id: req-1)", poolerUpdateHint, cli.ExitUnavailable},
 		{"pooler not offered, a server that sends no code", create, 400, "", poolerMessage,
 			poolerMessage + " (request-id: req-1)", poolerHint, cli.ExitUnavailable},
+		{"pooler not offered, a server that sends no code, on update", update, 400, "", poolerMessage,
+			poolerMessage + " (request-id: req-1)", poolerUpdateHint, cli.ExitUnavailable},
+		{"older server refuses the pooler field on create", create, 400, "", oldServerMessage,
+			oldServerMessage + " (request-id: req-1)", oldServerHint, cli.ExitUnavailable},
+		{"older server refuses the pooler field on update", update, 400, "", oldServerMessage,
+			oldServerMessage + " (request-id: req-1)", oldServerHint, cli.ExitUnavailable},
 		{"retention outside the range on create", create, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", retentionMessage,
 			retentionMessage + " (request-id: req-1)", "", cli.ExitMisuse},
 		{"retention outside the range on update, from the webhook", update, 400, "DATABASE_BACKUP_RETENTION_OUT_OF_RANGE", webhookRetention,

@@ -409,7 +409,8 @@ func TestRegistryErrors(t *testing.T) {
 		{"switched off", api(404, "registries_unavailable", "registries are not available on this platform"), "", cli.ExitNotFound, "not an outage"},
 		{"deletion protected", api(409, "deletion_protected", "x"), "", cli.ExitConflict, "kupe registry update --deletion-protection=false"},
 		{"session needs a user", api(403, "session_requires_user", "x"), "", cli.ExitAuth, "kupe auth login"},
-		{"already exists", api(409, "REGISTRY_ALREADY_EXISTS", "x"), "", cli.ExitConflict, "kupe registry login"},
+		{"already exists", api(409, "REGISTRY_ALREADY_EXISTS", "this tenant already has a registry"), "", cli.ExitConflict, "sign Docker in:  kupe registry login"},
+		{"already exists, being deleted", api(409, "REGISTRY_ALREADY_EXISTS", "this tenant already has a registry, and it is being deleted; try again when it is gone"), "", cli.ExitConflict, "check:  kupe registry get"},
 		{"connection exists", api(409, "REGISTRY_BINDING_EXISTS", "x"), "prod", cli.ExitConflict, "kupe registry connection get prod"},
 		{"push namespaces over 10", api(400, "REGISTRY_PUSH_NAMESPACES_LIMIT", "x"), "", cli.ExitMisuse, ""},
 		{"storage above plan", api(400, "REGISTRY_STORAGE_LIMIT_ABOVE_PLAN", "x"), "", cli.ExitMisuse, ""},
@@ -438,6 +439,17 @@ func TestRegistryErrors(t *testing.T) {
 				t.Fatal("the API error must stay in the chain")
 			}
 		})
+	}
+	// A registry being deleted is not one to sign in to; neither hint calls
+	// the registry ready (it may still be provisioning).
+	deleting := translateErr(api(409, "REGISTRY_ALREADY_EXISTS", "this tenant already has a registry, and it is being deleted; try again when it is gone"), "")
+	if strings.Contains(hint(deleting), "login") {
+		t.Fatalf("deleting hint = %q; want no login advice", hint(deleting))
+	}
+	for _, msg := range []string{"x", "this tenant already has a registry, and it is being deleted; try again when it is gone"} {
+		if h := hint(translateErr(api(409, "REGISTRY_ALREADY_EXISTS", msg), "")); strings.Contains(h, "ready") {
+			t.Fatalf("hint %q says ready", h)
+		}
 	}
 	// The CLI's own sentence shows only when the API sent no message.
 	if got := translateErr(api(403, "REGISTRY_TOKEN_PUSH_ADMIN_ONLY", ""), "").Error(); !strings.HasPrefix(got, "only tenant admins can create push access tokens") {

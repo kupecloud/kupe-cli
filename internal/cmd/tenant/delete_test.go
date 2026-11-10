@@ -148,6 +148,57 @@ func TestDeleteCascadeListsClustersAndSendsCascade(t *testing.T) {
 	}
 }
 
+// --cascade deletes the registry with every image in it (kupe-api#211):
+// the warning says so, with what it holds once measured, and only with
+// --cascade. A registry that cannot be read never blocks the delete.
+func TestDeleteCascadeWarnsAboutTheRegistry(t *testing.T) {
+	measured := &client.Registry{Name: "registry", Status: &client.RegistryStatus{
+		UsageObservedAt: "2026-11-10T10:00:00Z", ArtifactCount: 12, StorageUsedBytes: 1610612736,
+	}}
+	for _, tt := range []struct {
+		name     string
+		registry *client.Registry
+		listErr  error
+		args     []string
+		want     string // "" means no registry line at all
+	}{
+		{"measured", measured, nil, []string{"--cascade"},
+			"  - Delete the registry and every image in it (12 images, 1.5 GiB), which cannot be restored afterwards.\n"},
+		{"one image", &client.Registry{Name: "registry", Status: &client.RegistryStatus{UsageObservedAt: "x", ArtifactCount: 1, StorageUsedBytes: 2048}}, nil, []string{"--cascade"},
+			"  - Delete the registry and every image in it (1 image, 2.0 KiB), which cannot be restored afterwards.\n"},
+		{"not measured yet", &client.Registry{Name: "registry"}, nil, []string{"--cascade"},
+			"  - Delete the registry and every image in it, which cannot be restored afterwards.\n"},
+		{"no registry", nil, nil, []string{"--cascade"}, ""},
+		{"without --cascade", measured, nil, nil, ""},
+		{"registries switched off", nil, &client.APIError{StatusCode: 404, Code: "registries_unavailable"}, []string{"--cascade"}, ""},
+		{"unreadable", nil, &client.APIError{StatusCode: 500, Message: "internal server error"}, []string{"--cascade"},
+			"  - Delete the registry, if there is one, with every image in it, which cannot be restored afterwards. The registry could not be read: "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			if tt.registry != nil {
+				fake.RegistriesByName["registry"] = tt.registry
+			}
+			fake.ListRegistriesErr = tt.listErr
+			f := oidcFactory(t, fake)
+			if err := run(NewCmd(f), append([]string{"delete", "--confirm", "acme"}, tt.args...)...); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+			errOut := stderr(f)
+			if tt.want == "" {
+				if strings.Contains(errOut, "registry") {
+					t.Fatalf("no registry line wanted:\n%s", errOut)
+				}
+			} else if !strings.Contains(errOut, tt.want) {
+				t.Fatalf("stderr missing %q:\n%s", tt.want, errOut)
+			}
+			if len(fake.DeleteTenantRequests) != 1 || fake.DeleteTenantRequests[0].Cascade != (len(tt.args) > 0) {
+				t.Fatalf("request = %+v", fake.DeleteTenantRequests)
+			}
+		})
+	}
+}
+
 // --cascade can delete some clusters and then stop at one an app environment
 // still uses. The warning says so before the request is sent, and the
 // request itself is unchanged.
@@ -196,8 +247,9 @@ func TestDeleteErrorMapping(t *testing.T) {
 			"tenant has active clusters: prod; delete them first or set cascade=true", "--cascade"},
 		{"409 databases_exist", &client.APIError{StatusCode: 409, Code: "databases_exist", Message: "tenant has databases: orders; delete them first (cascade does not delete databases)"}, cli.ExitConflict,
 			"tenant has databases: orders; delete them first (cascade does not delete databases)", "kupe db list\n  kupe db update NAME --deletion-protection=false\n  kupe db delete NAME"},
-		{"409 registries_exist", &client.APIError{StatusCode: 409, Code: "registries_exist", Message: "tenant has a registry: acme; delete it first (deleting a registry deletes every image in it)"}, cli.ExitConflict,
-			"tenant has a registry: acme; delete it first (deleting a registry deletes every image in it)", "kupe registry update --deletion-protection=false\n  kupe registry delete"},
+		{"409 registries_exist", &client.APIError{StatusCode: 409, Code: "registries_exist", Message: "tenant has a registry: registry; delete it first or set cascade=true (deleting a registry deletes every image in it)"}, cli.ExitConflict,
+			"tenant has a registry: registry; delete it first or set cascade=true (deleting a registry deletes every image in it)",
+			"pass --cascade to delete it with every image in it:\n  kupe tenant delete --confirm acme --cascade\nor delete the registry first:\n  kupe registry update --deletion-protection=false\n  kupe registry delete"},
 		{"409 already_terminating", &client.APIError{StatusCode: 409, Code: "ALREADY_TERMINATING", Message: `tenant "acme" is already terminating`}, cli.ExitConflict, `tenant "acme" is already terminating`, "kupe tenant get"},
 		{"409 no message", &client.APIError{StatusCode: 409, Code: "clusters_exist"}, cli.ExitConflict, `tenant "acme" still has clusters: Conflict`, "--cascade"},
 		{"409 unknown code", &client.APIError{StatusCode: 409, Message: "something else"}, cli.ExitConflict, `cannot delete tenant "acme": something else`, ""},

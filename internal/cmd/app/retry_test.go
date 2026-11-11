@@ -93,7 +93,7 @@ func TestNewAppCommandsPreserveAppsUnavailableMessageAndFallback(t *testing.T) {
 				fake.ResolveAppImageErr = refusal
 				f := factoryWith(fake)
 				if args[0] == "wait" {
-					f = onePollFactory(fake, 1) // the refusal ends the wait on its first read
+					f = onePollFactory(t, fake, 1) // the refusal ends the wait on its first read
 				}
 				_, _, err := run(f, args...)
 				want := message

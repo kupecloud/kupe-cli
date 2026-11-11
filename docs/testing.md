@@ -207,10 +207,12 @@ A new managed service also edits the shared files listed in [Adding a managed se
 Mirror [kupe-api](https://github.com/kupecloud/kupe-api) and [terraform-provider-kupe](https://github.com/kupecloud/terraform-provider-kupe):
 
 ```bash
-make lint        # golangci-lint run
+make lint        # golangci-lint, the version CI runs
 make gosec       # gosec
 make govulncheck # Go vulnerability check
 ```
+
+`make lint` runs the golangci-lint version pinned in the `Makefile` (`GOLANGCI_LINT_VERSION`), built once per linter and Go version into `$XDG_CACHE_HOME/kupe-cli-gates` (default `~/.cache`), so a re-run needs no network. The `golangci-lint` pre-commit hook, which CI's gates job runs, calls `make lint`, so CI and a local run use the same binary version and never a `golangci-lint` on `PATH`.
 
 Golangci-lint config sits next to the existing kupe repos' `.golangci.yml`. Same enabled linters, same `errcheck` exclusions (context-scoped, deferred `Close()`), same import-ordering rules. Copy rather than inventing a new one.
 

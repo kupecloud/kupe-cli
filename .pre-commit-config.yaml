@@ -83,11 +83,11 @@ repos:
       #   pre-commit run --all-files --hook-stage manual
       - id: golangci-lint
         name: golangci-lint
-        # v2.1.6 is the version CI's go-lint.yaml job installed (its
-        # golangci-version default; main run 39923837440 log), with the
-        # repository's .golangci.yaml, so CI's result is unchanged. The old
-        # hook pinned v2.11.4; bump this deliberately, in its own change.
-        entry: bash .github/hooks/go-env.sh env GOWORK=off go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run --timeout=10m
+        # `make lint`: the golangci-lint version CI runs is pinned there
+        # (GOLANGCI_LINT_VERSION) and built once per linter and Go version; it
+        # uses the repository's .golangci.yaml. Bump it in the Makefile,
+        # deliberately, in its own change.
+        entry: bash .github/hooks/go-env.sh make --no-print-directory lint
         language: system
         pass_filenames: false
         files: ^(.*\.go|go\.(mod|sum)|\.golangci\.yaml)$

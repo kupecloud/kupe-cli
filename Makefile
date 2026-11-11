@@ -36,7 +36,7 @@ LDFLAGS := -s -w \
            -X github.com/kupecloud/kupe-cli/internal/build.Commit=$(GIT_COMMIT) \
            -X github.com/kupecloud/kupe-cli/internal/build.Date=$(BUILD_DATE)
 
-.PHONY: all build build-local test test-coverage test-update test-live vet-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check manpages help go-env
+.PHONY: all build build-local test test-coverage test-update test-live vet-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check manpages help go-env golangci-lint
 
 all: build
 
@@ -81,8 +81,27 @@ vet-live: ## Compile-check the live suite without running it (no credentials nee
 
 ## Linting
 
-lint: ## Run linter
-	golangci-lint run ./...
+# The golangci-lint CI runs: CI's gates job runs the golangci-lint pre-commit
+# hook, the hook runs `make lint`, and CI installs no golangci-lint of its own,
+# so this line is the one pin (GO-30). Bump it here, deliberately, to move.
+# Built once with go install (checked against the Go checksum database) into a
+# cache directory keyed by linter version and Go version, so a re-run needs no
+# network and a go.mod Go bump rebuilds it on CI's Go.
+GOLANGCI_LINT_VERSION := v2.1.6
+GOLANGCI_GO_VERSION := $(shell GOTOOLCHAIN=$(GOTOOLCHAIN) $(GO) env GOVERSION)
+GOLANGCI_LINT_DIR := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/kupe-cli-gates/golangci-lint/$(GOLANGCI_LINT_VERSION)-$(GOLANGCI_GO_VERSION)
+GOLANGCI_LINT_BIN := $(GOLANGCI_LINT_DIR)/golangci-lint
+
+# GOFLAGS is cleared to match CI, which sets none.
+$(GOLANGCI_LINT_BIN):
+	@test -n "$(GOLANGCI_GO_VERSION)" || { echo "go env GOVERSION printed nothing: no Go to build golangci-lint with" >&2; exit 2; }
+	GOFLAGS= GOWORK=off GOBIN="$(GOLANGCI_LINT_DIR)" $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+golangci-lint: $(GOLANGCI_LINT_BIN) ## Install the pinned golangci-lint
+
+lint: $(GOLANGCI_LINT_BIN) ## Run the pinned golangci-lint as CI does (the pre-commit hook runs this)
+	"$(GOLANGCI_LINT_BIN)" version
+	GOWORK=off "$(GOLANGCI_LINT_BIN)" run --timeout=10m
 
 fmt: ## Format code
 	GOCACHE="$(GOCACHE)" $(GO) fmt ./...

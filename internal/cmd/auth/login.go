@@ -370,11 +370,12 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 // context that was current before. Login is an explicit "work in this tenant
 // now", so it switches by default; leaving the old context current sent the
 // next command to a tenant the user had not just logged in to. noSwitch keeps
-// the current context, unless none is set: a config with no current context
-// is unusable without --context.
+// the current context, unless none is usable: a config whose current context
+// is unset, or names a context that no longer exists, is unusable without
+// --context.
 func switchCurrentContext(cfg *config.Config, contextName string, noSwitch bool) string {
 	previous := cfg.CurrentContext
-	if !noSwitch || previous == "" {
+	if !noSwitch || cfg.CurrentCtx() == nil {
 		cfg.CurrentContext = contextName
 	}
 	return previous

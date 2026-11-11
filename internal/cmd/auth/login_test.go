@@ -191,10 +191,11 @@ func TestLoginRejectsInvalidTenantName(t *testing.T) {
 // kupe-api that validates the resulting access token. Verifies the
 // stored OIDCTokenSet, the persisted Context fields, and the email
 // extracted from the id_token.
-func TestOIDCLoginEndToEnd(t *testing.T) {
-	t.Cleanup(auth.SetBrowserOpenerForTest(func(string) error { return nil }))
-	t.Setenv("KUPE_API_TOKEN", "")
-
+// startFakeAuthentik serves the OIDC discovery, device and token endpoints
+// for a device flow that is approved on the first poll. The token response
+// carries access token "oidc-access" and an id_token with email u@a.com.
+func startFakeAuthentik(t *testing.T) string {
+	t.Helper()
 	authentikMux := http.NewServeMux()
 	authentik := httptest.NewServer(authentikMux)
 	t.Cleanup(authentik.Close)
@@ -231,6 +232,14 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 		body := "eyJlbWFpbCI6InVAYS5jb20ifQ" // {"email":"u@a.com"}
 		fmt.Fprintf(w, `{"access_token":"oidc-access","refresh_token":"oidc-refresh","id_token":"%s.%s.sig","expires_in":3600}`, hdr, body)
 	})
+	return authentik.URL
+}
+
+func TestOIDCLoginEndToEnd(t *testing.T) {
+	t.Cleanup(auth.SetBrowserOpenerForTest(func(string) error { return nil }))
+	t.Setenv("KUPE_API_TOKEN", "")
+
+	authentikURL := startFakeAuthentik(t)
 
 	api := startFakeAPI(t, "acme-corp", "oidc-access")
 
@@ -240,7 +249,7 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 		method:       methodOIDC,
 		tenant:       "acme-corp",
 		apiURL:       api,
-		oidcBaseURL:  authentik.URL,
+		oidcBaseURL:  authentikURL,
 		oidcClientID: "kupe-cli",
 	})
 	if err != nil {
@@ -261,7 +270,7 @@ func TestOIDCLoginEndToEnd(t *testing.T) {
 	if ctx.User != "u@a.com" {
 		t.Errorf("User=%q; want u@a.com (from id_token)", ctx.User)
 	}
-	if !strings.HasPrefix(ctx.OIDCBaseURL, authentik.URL) {
+	if !strings.HasPrefix(ctx.OIDCBaseURL, authentikURL) {
 		t.Errorf("OIDCBaseURL=%q; want it persisted to override default", ctx.OIDCBaseURL)
 	}
 
@@ -345,6 +354,14 @@ func TestLoginSwitchesCurrentContext(t *testing.T) {
 			wantCurrent: "aware",
 		},
 		{
+			name:        "no-switch replaces a current context that no longer exists",
+			existing:    []string{"aware"},
+			current:     "ghost",
+			noSwitch:    true,
+			wantCurrent: "acme-corp",
+			wantStderr:  "Switched current context to acme-corp (was ghost).\n",
+		},
+		{
 			name:        "no-switch still sets a context when none is current",
 			existing:    []string{"aware"},
 			noSwitch:    true,
@@ -411,5 +428,55 @@ func TestLoginSetDefaultIsHiddenNoOp(t *testing.T) {
 	}
 	if cmd.Flags().Lookup("no-switch") == nil {
 		t.Error("--no-switch flag missing")
+	}
+}
+
+// TestOIDCLoginSwitchesCurrentContext pins issue #69 on the OIDC path, the
+// one a tenant hits with a plain `kupe auth login`: with another context
+// current, login switches to the new one and names the old one.
+func TestOIDCLoginSwitchesCurrentContext(t *testing.T) {
+	for _, noSwitch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("noSwitch=%v", noSwitch), func(t *testing.T) {
+			t.Cleanup(auth.SetBrowserOpenerForTest(func(string) error { return nil }))
+			t.Setenv("KUPE_API_TOKEN", "")
+			authentikURL := startFakeAuthentik(t)
+			api := startFakeAPI(t, "acme-corp", "oidc-access")
+			f, cfgPath := testFactory(t)
+			io, _, errOut := cli.Test()
+			f.IOStreams = io
+
+			seed := &config.Config{CurrentContext: "aware"}
+			seed.SetContext(config.Context{Name: "aware", Tenant: "aware"})
+			if err := seed.Save(cfgPath); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := execLogin(f, &loginOpts{
+				method:       methodOIDC,
+				tenant:       "acme-corp",
+				apiURL:       api,
+				oidcBaseURL:  authentikURL,
+				oidcClientID: "kupe-cli",
+				noSwitch:     noSwitch,
+			}); err != nil {
+				t.Fatalf("login: %v", err)
+			}
+
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantCurrent, wantLine := "acme-corp", "Switched current context to acme-corp (was aware).\n"
+			if noSwitch {
+				wantCurrent, wantLine = "aware", ""
+			}
+			if cfg.CurrentContext != wantCurrent {
+				t.Errorf("currentContext=%q; want %q", cfg.CurrentContext, wantCurrent)
+			}
+			if got := strings.Contains(errOut.String(), "Switched current context"); got != (wantLine != "") ||
+				(wantLine != "" && !strings.Contains(errOut.String(), wantLine)) {
+				t.Errorf("stderr=%q; want switch line %q", errOut.String(), wantLine)
+			}
+		})
 	}
 }

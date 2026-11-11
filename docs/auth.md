@@ -183,7 +183,7 @@ Steps:
 4. Validate by calling `GET /api/v1/tenants/{tenant}` with the access token.
 5. Store the OIDC token set in keyring (or plaintext fallback).
 6. Write context to `config.yaml`, including `authMethod: oidc` and any non-default OIDC settings.
-7. Set `currentContext` to this context, unless `--no-switch` was passed and another context is already current. When the current context changes, print `Switched current context to NAME (was OLD).`, without `(was OLD)` when none was current.
+7. Set `currentContext` to this context, unless `--no-switch` was passed and the current context names a context that exists. When the current context changes, print `Switched current context to NAME (was OLD).`, without `(was OLD)` when none was current.
 
 For API-key login, pass `--method token`; the CLI prompts for the token with echo suppressed when no `--token` flag is provided.
 

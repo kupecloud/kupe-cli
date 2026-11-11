@@ -440,9 +440,17 @@ const (
 	// ReasonUpgradeRolledBack is Ready's reason when the upgrade stopped
 	// before it changed any data and the database runs its old major.
 	ReasonUpgradeRolledBack = "UpgradeRolledBack"
-	// ReasonMajorChangeUnsupported is Ready's reason when the platform
-	// stopped offering major upgrades after the request: the database is
-	// held, Degraded, until the version is set back.
+	// ReasonUpgradeSwitchedOff is the reason of Ready and UpgradeInProgress
+	// (both False) when the platform stopped offering major upgrades after
+	// the request: the database is held, Running, until the version is set
+	// back. From kupe-control-operator PR 551.
+	ReasonUpgradeSwitchedOff = "UpgradeSwitchedOff"
+	// ConditionVersionUnsupported is True with reason
+	// ReasonMajorChangeUnsupported while the spec asks for a major the
+	// platform does not offer. v1.49.0 reports the switched-off hold only
+	// through it.
+	ConditionVersionUnsupported = "VersionUnsupported"
+	// ReasonMajorChangeUnsupported is VersionUnsupported's reason.
 	ReasonMajorChangeUnsupported = "MajorChangeUnsupported"
 	// ReasonUpgradeSucceeded is the UpgradeInProgress reason, with status
 	// False, after an upgrade finished.

@@ -456,6 +456,11 @@ func loginValidationError(err error, apiURL, tenant string) error {
 		return cli.AuthError(msg).
 			WithHint("OIDC login: make sure you run the latest kupe (curl -fsSL https://get.kupe.cloud | sh), because " +
 				"older builds don't request the groups scope; API token login: verify the token at https://console.kupe.cloud/settings/api-keys")
+	case client.ErrorCode(err) == client.CodeTenantAccessDenied:
+		// The person signed in, but is not one of the tenant's members:
+		// their role is not the problem, their membership is.
+		return cli.AuthError(fmt.Sprintf("you are not a member of tenant %q at %s (403)", tenant, apiURL)).
+			WithHint("check the tenant name, or ask one of the tenant's admins to add you")
 	case client.IsForbidden(err):
 		return cli.AuthError(fmt.Sprintf("token does not grant access to tenant %q at %s (403)", tenant, apiURL)).
 			WithHint("check the tenant name and the token's role")

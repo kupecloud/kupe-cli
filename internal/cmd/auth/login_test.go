@@ -480,3 +480,29 @@ func TestOIDCLoginSwitchesCurrentContext(t *testing.T) {
 		})
 	}
 }
+
+// TestLoginValidationErrorTenantAccessDenied: a person who signed in but is
+// not a member gets a membership message, not the token-role hint
+// (kupe-cli#73, review F4); other 403s keep the role hint.
+func TestLoginValidationErrorTenantAccessDenied(t *testing.T) {
+	denied := &client.APIError{StatusCode: 403, Code: client.CodeTenantAccessDenied, Message: `access denied to tenant "acme"`}
+	err := loginValidationError(denied, "https://api.kupe.cloud", "acme")
+	var ce *cli.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("want *cli.Error, got %T", err)
+	}
+	if ce.Code != cli.ExitAuth {
+		t.Errorf("exit=%d; want %d", ce.Code, cli.ExitAuth)
+	}
+	if want := `you are not a member of tenant "acme" at https://api.kupe.cloud (403)`; ce.Msg != want {
+		t.Errorf("msg=%q; want %q", ce.Msg, want)
+	}
+	if strings.Contains(ce.Hint, "role") {
+		t.Errorf("non-member hint must not mention the role: %q", ce.Hint)
+	}
+
+	plain := loginValidationError(&client.APIError{StatusCode: 403, Message: "access denied"}, "https://api.kupe.cloud", "acme")
+	if !errors.As(plain, &ce) || !strings.Contains(ce.Hint, "role") {
+		t.Errorf("plain 403 should keep the role hint: %v", plain)
+	}
+}

@@ -145,7 +145,7 @@ func runUpgrade(ctx context.Context, f *cli.Factory, name string, opts *upgradeO
 		}
 	}
 	if opts.version == running && wasRequested != opts.version {
-		fmt.Fprintf(f.IOStreams.ErrOut, "Database %s runs major %s, so this cancelled the upgrade that was requested.\n", name, running)
+		fmt.Fprintf(f.IOStreams.ErrOut, "Database %s is set back to major %s, the one it runs.\n", name, running)
 	}
 	// Running the requested major already: nothing to do or wait for. The
 	// version is requested but not running yet (an upgrade already asked
@@ -230,6 +230,12 @@ func cancelRefusal(db *client.Database, name string) error {
 		return nil
 	}
 	if inProgress != nil && inProgress.Status != "True" && inProgress.Reason == client.ReasonUpgradeSucceeded {
+		// Only a condition judged for the current generation says the upgrade
+		// finished; an older one may be the result of an earlier upgrade.
+		if inProgress.ObservedGeneration < db.Generation {
+			return cli.MisuseError(fmt.Sprintf("the platform has not judged this upgrade of database %q yet", name)).
+				WithHint(fmt.Sprintf("check it:  kupe db get %s   and try again", name))
+		}
 		return cli.MisuseError(fmt.Sprintf("nothing to cancel: the upgrade of database %q has already finished", name)).
 			WithHint(fmt.Sprintf("check it:  kupe db get %s", name))
 	}

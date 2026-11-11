@@ -35,7 +35,7 @@ LDFLAGS := -s -w \
            -X github.com/kupecloud/kupe-cli/internal/build.Commit=$(GIT_COMMIT) \
            -X github.com/kupecloud/kupe-cli/internal/build.Date=$(BUILD_DATE)
 
-.PHONY: all build build-local test test-coverage test-update test-live vet-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check manpages help
+.PHONY: all build build-local test test-coverage test-update test-live vet-live lint fmt gosec govulncheck clean vendor tidy version snapshot release-check manpages help go-env
 
 all: build
 
@@ -92,6 +92,11 @@ gosec: ## Run gosec against the codebase
 
 govulncheck: ## Run govulncheck against the codebase
 	GOCACHE="$(GOCACHE)" GOWORK=off $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+# The pre-commit hooks that run Go read this through .github/hooks/go-env.sh,
+# so they run on the Go and lint cache make uses. One NAME=value per line.
+go-env: ## Print the Go environment the pre-commit Go hooks run with
+	@printf 'GOTOOLCHAIN=%s\nGOLANGCI_LINT_CACHE=%s\n' "$$GOTOOLCHAIN" "$$GOLANGCI_LINT_CACHE"
 
 ## Release
 

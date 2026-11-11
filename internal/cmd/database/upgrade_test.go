@@ -371,8 +371,14 @@ func TestUpgrade_StaleVersionUnsupportedDoesNotEndTheWait(t *testing.T) {
 // upgrade, as an older operator leaves them.
 func TestUpgrade_CancelGuard(t *testing.T) {
 	succeeded := func(spec, current string, gen, obs int64) *client.Database {
+		judged := gen
+		if gen == 3 {
+			judged = 2 // an older judgement
+		}
 		db := upgradeState(spec, current, gen, obs, client.PhaseRunning, true, "DatabaseHealthy", "", "")
-		return addCondition(db, client.ConditionUpgradeInProgress, "False", client.ReasonUpgradeSucceeded, "")
+		addCondition(db, client.ConditionUpgradeInProgress, "False", client.ReasonUpgradeSucceeded, "")
+		db.Status.Conditions[len(db.Status.Conditions)-1].ObservedGeneration = judged
+		return db
 	}
 	tests := []struct {
 		name     string
@@ -381,6 +387,7 @@ func TestUpgrade_CancelGuard(t *testing.T) {
 		wantText string
 	}{
 		{"after success, before currentVersion moved: refused", succeeded("18", "17.6", 2, 2), cli.ExitMisuse, "already finished"},
+		{"an UpgradeSucceeded judged for an older generation: refused, neutrally", succeeded("18", "17.6", 3, 3), cli.ExitMisuse, "has not judged this upgrade"},
 		{"the change is not applied yet: refused", upgradeState("18", "17.6", 3, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "w", client.ReasonUpgradeWaiting), cli.ExitMisuse, "try again in a moment"},
 		{"nothing recorded to cancel: refused", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""), cli.ExitMisuse, "no upgrade that is waiting"},
 		{"the stale hold of an earlier upgrade: allowed", addCondition(succeeded("18", "17.6", 2, 2), client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "x"), cli.ExitOK, ""},
@@ -477,7 +484,7 @@ func TestUpgrade_RunningMajorAndLower(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		if strings.Contains(stderr, "offline") || !strings.Contains(stderr, "cancelled the upgrade") {
+		if strings.Contains(stderr, "offline") || !strings.Contains(stderr, "set back to major 17, the one it runs") || strings.Contains(stderr, "cancelled") {
 			t.Errorf("stderr = %q", stderr)
 		}
 		if fake.DatabasesByName["orders-db"].Version != "17" {

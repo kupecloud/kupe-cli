@@ -427,3 +427,26 @@ func TestDeleteWarningWhenTheBackupListFails(t *testing.T) {
 		t.Fatal("the tenant must still be deleted")
 	}
 }
+
+// TestDeleteTenantAccessDeniedIsNotAnOwnerRefusal: a tenant the caller cannot
+// reach at all (kupe-cli#73) keeps the API's message and gets no owner hint,
+// so Execute's context-switch hint is the one shown.
+func TestDeleteTenantAccessDeniedIsNotAnOwnerRefusal(t *testing.T) {
+	fake := clienttest.New()
+	fake.DeleteTenantErr = &client.APIError{StatusCode: 403, Code: client.CodeTenantAccessDenied, Message: `access denied to tenant "acme"`, RequestID: "r2"}
+	f := oidcFactory(t, fake)
+	err := run(NewCmd(f), "delete", "--confirm", "acme")
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if code := cli.ExitCode(err); code != cli.ExitAuth {
+		t.Fatalf("exit = %d; want %d", code, cli.ExitAuth)
+	}
+	if want := `access denied to tenant "acme" (request-id: r2)`; err.Error() != want {
+		t.Fatalf("message %q, want %q", err.Error(), want)
+	}
+	var ce *cli.Error
+	if errors.As(err, &ce) && ce.Hint != "" {
+		t.Fatalf("owner hint must not be attached: %q", ce.Hint)
+	}
+}

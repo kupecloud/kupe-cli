@@ -350,6 +350,7 @@ Commands that can provide a concrete next step attach one or more indented hint 
 |-------|------|
 | `Unauthorized` | `run "kupe auth login" to re-authenticate` |
 | `Forbidden` | `your API key has role "readonly"; ask an admin for write access` |
+| `Forbidden`, code `tenant_access_denied` | Added by `Execute` to any command that set no hint of its own: `current context: NAME`, `switch with: kupe config use-context NAME (your contexts: …)`, `or log in to the tenant you want: kupe auth login --tenant NAME`. When `--tenant` or `KUPE_TENANT` picked the tenant, it names that instead of the context. Keyed on the code, never the message (`internal/cmd/tenant_access_hint.go`) |
 | `NotFound` | `run "kupe <resource> list" to see available resources` |
 | `Validation` | `run "kupe <cmd> --help" for flag reference` |
 | `Conflict` | `another caller modified the resource; retry` (for 412) |

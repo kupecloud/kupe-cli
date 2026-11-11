@@ -81,6 +81,11 @@ type APIError struct {
 // Body returns the raw response body of the failed request (may be empty).
 func (e *APIError) Body() []byte { return e.body }
 
+// CodeTenantAccessDenied: kupe-api refused a signed-in person a tenant they
+// have no group for or are not a member of (403). The usual cause is a
+// current context pointing at a different tenant.
+const CodeTenantAccessDenied = "tenant_access_denied"
+
 // ErrorCode returns the canonical error code carried by err's APIError,
 // lower-cased for case-insensitive comparison, or "" when err is not an
 // APIError or the server sent a legacy envelope without a code.

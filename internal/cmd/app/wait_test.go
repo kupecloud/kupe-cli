@@ -31,6 +31,7 @@ type guardedEnvironments struct {
 	client.Interface
 	calls *atomic.Int32
 	max   int32
+	t     testing.TB
 }
 
 func (g guardedEnvironments) AppEnvironments(app string) client.AppEnvironmentAPI {
@@ -44,15 +45,19 @@ type guardedEnvironmentAPI struct {
 
 func (e guardedEnvironmentAPI) Get(ctx context.Context, name string) (*client.AppEnvironment, string, error) {
 	if e.g.calls.Add(1) > e.g.max {
+		// Fail the test too: waitForRelease returns a recorded outcome ahead of
+		// this error, so a wait that sets its outcome and keeps polling would
+		// otherwise pass.
+		e.g.t.Errorf("environment GET %d after the wait should have ended", e.g.calls.Load())
 		return nil, "", &client.APIError{StatusCode: 400, Code: "test_unexpected_poll", Message: "environment read after the wait should have ended"}
 	}
 	return e.AppEnvironmentAPI.Get(ctx, name)
 }
 
 // onePollFactory limits the wait to maxGets environment GETs.
-func onePollFactory(fake *clienttest.Fake, maxGets int32) *cli.Factory {
+func onePollFactory(t testing.TB, fake *clienttest.Fake, maxGets int32) *cli.Factory {
 	f := factoryWith(fake)
-	guard := guardedEnvironments{Interface: fake, calls: new(atomic.Int32), max: maxGets}
+	guard := guardedEnvironments{Interface: fake, calls: new(atomic.Int32), max: maxGets, t: t}
 	f.Client = func() (client.Interface, error) { return guard, nil }
 	return f
 }
@@ -90,7 +95,7 @@ func TestWaitUsesRequestedReleaseOutcomeIncludingRecoveryAndSupersession(t *test
 				later.Status = &status
 				fake.GetAppEnvironmentSeq["shop"]["production"] = []*client.AppEnvironment{&first, &later}
 			}
-			out, _, err := run(onePollFactory(fake, 2), "wait", "shop", "production", "--timeout", "1m", "-o", "json")
+			out, _, err := run(onePollFactory(t, fake, 2), "wait", "shop", "production", "--timeout", "1m", "-o", "json")
 			if cli.ExitCode(err) != tc.code {
 				t.Fatalf("exit=%d err=%v out=%s", cli.ExitCode(err), err, out)
 			}
@@ -122,7 +127,7 @@ func TestWaitRequestedReleaseSnapshotUsesNewerNameWithoutInventingReplacement(t 
 	e := fake.AppEnvironmentsByApp["shop"]["production"]
 	target := recordedRelease("shop-production-1", "Superseded", 1, 1, e)
 	fake.AppReleases = []client.AppRelease{target}
-	_, _, err := run(onePollFactory(fake, 2), "wait", "shop", "production", "--timeout", "1m")
+	_, _, err := run(onePollFactory(t, fake, 2), "wait", "shop", "production", "--timeout", "1m")
 	if cli.ExitCode(err) != 1 || !strings.Contains(err.Error(), "newer release name is not available") {
 		t.Fatalf("err=%v", err)
 	}

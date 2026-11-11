@@ -132,6 +132,9 @@ type Condition struct {
 	Reason             string `json:"reason,omitempty" yaml:"reason,omitempty"`
 	Message            string `json:"message,omitempty" yaml:"message,omitempty"`
 	LastTransitionTime string `json:"lastTransitionTime,omitempty" yaml:"lastTransitionTime,omitempty"`
+	// ObservedGeneration is the generation the condition was judged for; 0
+	// when the platform does not report it.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
 }
 
 // CreateDatabaseRequest is the POST body. An empty Engine or Version takes

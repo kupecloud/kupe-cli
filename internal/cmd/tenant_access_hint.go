@@ -14,8 +14,8 @@ import (
 // printErrorHint writes the hint block for err to stderr, each line indented
 // under the error Cobra has already printed. Nothing is written when there
 // is no hint.
-func printErrorHint(io *cli.IOStreams, flags *cli.GlobalFlags, err error) {
-	hint := errorHint(err, cli.NewFactory(io, flags), flags, config.LoadEnv())
+func printErrorHint(io *cli.IOStreams, f *cli.Factory, err error) {
+	hint := errorHint(err, f, f.Flags, config.LoadEnv())
 	if hint == "" {
 		return
 	}
@@ -35,7 +35,9 @@ func errorHint(err error, f *cli.Factory, flags *cli.GlobalFlags, env config.Env
 	if client.ErrorCode(err) != client.CodeTenantAccessDenied {
 		return ""
 	}
-	// An unreadable config still gets the generic advice.
+	// The Factory memoises Config, so this is the config the command ran
+	// with, not a second read. An unreadable config still gets the generic
+	// advice.
 	cfg, _ := f.Config()
 	return tenantAccessHint(flags, env, cfg)
 }
@@ -54,10 +56,6 @@ func tenantAccessHint(flags *cli.GlobalFlags, env config.Env, cfg *config.Config
 	}
 
 	r := config.Resolve(config.Flags{Context: flags.Context}, config.Env{Context: env.Context}, cfg)
-	var lines []string
-	if r.ContextName != "" {
-		lines = append(lines, "current context: "+r.ContextName)
-	}
 	var others []string
 	if cfg != nil {
 		for _, c := range cfg.Contexts {
@@ -66,9 +64,27 @@ func tenantAccessHint(flags *cli.GlobalFlags, env config.Env, cfg *config.Config
 			}
 		}
 	}
+	slices.Sort(others)
+	yours := ""
 	if len(others) > 0 {
-		slices.Sort(others)
-		lines = append(lines, fmt.Sprintf("switch with: kupe config use-context NAME (your contexts: %s)", strings.Join(others, ", ")))
+		yours = fmt.Sprintf(" (your contexts: %s)", strings.Join(others, ", "))
+	}
+
+	// --context and KUPE_CONTEXT outrank currentContext, so use-context
+	// would change nothing while either is set: point at the one in use.
+	var lines []string
+	switch {
+	case flags.Context != "":
+		lines = append(lines, fmt.Sprintf("the context %s comes from --context; pass another: --context NAME%s", r.ContextName, yours))
+	case env.Context != "":
+		lines = append(lines, fmt.Sprintf("the context %s comes from KUPE_CONTEXT; change or unset it%s", r.ContextName, yours))
+	default:
+		if r.ContextName != "" {
+			lines = append(lines, "current context: "+r.ContextName)
+		}
+		if yours != "" {
+			lines = append(lines, "switch with: kupe config use-context NAME"+yours)
+		}
 	}
 	lines = append(lines, login)
 	return strings.Join(lines, "\n")

@@ -34,7 +34,16 @@ import (
 func Execute(ctx context.Context) int {
 	io := cli.System()
 	flags := &cli.GlobalFlags{}
-	root := newRootCmd(io, flags)
+	return execute(ctx, io, flags, cli.NewFactory(io, flags), os.Args[1:])
+}
+
+// execute is Execute with its inputs injected, so tests can drive the whole
+// path, error hints included, with a fake client. The one Factory serves the
+// command and the hint, so the config is read once and the hint describes
+// the config the command used.
+func execute(ctx context.Context, io *cli.IOStreams, flags *cli.GlobalFlags, f *cli.Factory, args []string) int {
+	root := newRootCmdWithFactory(io, flags, f)
+	root.SetArgs(args)
 
 	err := root.ExecuteContext(ctx)
 
@@ -52,7 +61,7 @@ func Execute(ctx context.Context) int {
 		// Multi-line hints are split and each line is indented so the block
 		// reads as a coherent group rather than wrapping into one wall of
 		// text.
-		printErrorHint(io, flags, err)
+		printErrorHint(io, f, err)
 	}
 	return cli.ExitCode(err)
 }
@@ -77,6 +86,12 @@ func updateNotice(ctx context.Context, io *cli.IOStreams) string {
 }
 
 func newRootCmd(io *cli.IOStreams, flags *cli.GlobalFlags) *cobra.Command {
+	return newRootCmdWithFactory(io, flags, cli.NewFactory(io, flags))
+}
+
+// newRootCmdWithFactory builds the command tree around an existing Factory,
+// which must have been built from the same io and flags.
+func newRootCmdWithFactory(io *cli.IOStreams, flags *cli.GlobalFlags, factory *cli.Factory) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "kupe",
 		Short: "Official CLI for Kupe Cloud",
@@ -109,8 +124,6 @@ Full reference: https://docs.kupe.cloud/platform/kupe-cli/`,
 	flags.Bind(root)
 	root.SetHelpTemplate(helpTemplate)
 	root.SetFlagErrorFunc(flagParseError)
-
-	factory := cli.NewFactory(io, flags)
 
 	root.AddCommand(newVersionCmd(io))
 	root.AddCommand(newCompletionCmd())

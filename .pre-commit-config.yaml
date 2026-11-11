@@ -90,7 +90,7 @@ repos:
         entry: bash .github/hooks/go-env.sh make --no-print-directory lint
         language: system
         pass_filenames: false
-        files: ^(.*\.go|go\.(mod|sum)|\.golangci\.yaml)$
+        files: ^(.*\.go|go\.(mod|sum)|\.golangci\.yaml|Makefile)$
         stages:
           - manual
       - id: go-version-drift

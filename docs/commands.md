@@ -161,7 +161,7 @@ Authenticate and store credentials for the current or a new context.
 | `--oidc-base-url URL` | Override Authentik base URL for OIDC login. |
 | `--oidc-client-id ID` | Override the OIDC public client ID. |
 | `--context NAME` | Name for the context in the config file. Default: the tenant name. |
-| `--no-switch` | Keep the current context and only store the new credentials. The new context still becomes current when no context is set. |
+| `--no-switch` | Keep the current context and only store the new credentials. The new context still becomes current when no context is set or the current one no longer exists. |
 
 **Examples:**
 

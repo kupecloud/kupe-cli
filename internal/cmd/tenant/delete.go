@@ -256,7 +256,9 @@ func backupLine(b *client.Backup) string {
 func mapDeleteErr(err error, name string) error {
 	code := client.ErrorCode(err)
 	switch {
-	case client.IsForbidden(err):
+	// A tenant the caller cannot reach at all is not an ownership refusal;
+	// it keeps the client mapping and gets the context-switch hint.
+	case client.IsForbidden(err) && code != client.CodeTenantAccessDenied:
 		return cli.WrapAPI(cli.ExitAuth, fmt.Sprintf("only the tenant owner may delete tenant %q", name), err).
 			WithHint("the owner is the contact email shown by \"kupe tenant get\"; log in with OIDC as that user (kupe auth login) and retry")
 	case client.IsConflict(err) && code == client.TenantDeleteCodeClustersExist:

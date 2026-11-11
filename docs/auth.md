@@ -210,6 +210,15 @@ kupe auth login --tenant acme-dev --context dev --no-switch   # prod stays curre
 kupe config use-context staging   # for a quick switch
 ```
 
+A command run against a tenant you are not in fails with `access denied to tenant "NAME"` (API code `tenant_access_denied`). The CLI adds a hint naming the current context, the other contexts you could switch to, and `kupe auth login --tenant NAME`:
+
+```text
+Error: access denied to tenant "aware" (request-id: ca64cf61-…)
+  current context: aware
+  switch with: kupe config use-context NAME (your contexts: acme-corp, demo)
+  or log in to the tenant you want: kupe auth login --tenant NAME
+```
+
 ## Logout
 
 `kupe auth logout` (optionally `--context NAME` or `--all`):

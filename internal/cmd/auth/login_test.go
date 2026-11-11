@@ -186,11 +186,6 @@ func TestLoginRejectsInvalidTenantName(t *testing.T) {
 	}
 }
 
-// TestOIDCLoginEndToEnd drives runLogin through the OIDC path against a
-// fake Authentik that runs a complete RFC 8628 device flow and a fake
-// kupe-api that validates the resulting access token. Verifies the
-// stored OIDCTokenSet, the persisted Context fields, and the email
-// extracted from the id_token.
 // startFakeAuthentik serves the OIDC discovery, device and token endpoints
 // for a device flow that is approved on the first poll. The token response
 // carries access token "oidc-access" and an id_token with email u@a.com.
@@ -235,6 +230,11 @@ func startFakeAuthentik(t *testing.T) string {
 	return authentik.URL
 }
 
+// TestOIDCLoginEndToEnd drives runLogin through the OIDC path against a
+// fake Authentik that runs a complete RFC 8628 device flow and a fake
+// kupe-api that validates the resulting access token. Verifies the
+// stored OIDCTokenSet, the persisted Context fields, and the email
+// extracted from the id_token.
 func TestOIDCLoginEndToEnd(t *testing.T) {
 	t.Cleanup(auth.SetBrowserOpenerForTest(func(string) error { return nil }))
 	t.Setenv("KUPE_API_TOKEN", "")

@@ -43,29 +43,32 @@ repos:
           - --write-changes
         exclude: ^(go\.sum|coverage\.out|testdata/)
 
+  # Every hook that runs Go goes through .github/hooks/go-env.sh, so it runs on
+  # the go.mod toolchain (and lint cache) make uses; a caller's GOTOOLCHAIN
+  # wins, and CI's setup-go sets local (kupe-control-operator#555).
   - repo: local
     hooks:
       - id: actionlint
         name: actionlint
-        entry: bash -c 'GOWORK=off go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12'
+        entry: bash .github/hooks/go-env.sh env GOWORK=off go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
         language: system
         pass_filenames: false
         files: ^\.github/workflows/.*\.ya?ml$
       - id: gofmt
         name: gofmt
-        entry: gofmt -w
+        entry: bash .github/hooks/go-env.sh gofmt -w
         language: system
         types:
           - go
       - id: govulncheck
         name: govulncheck
-        entry: bash -c 'GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...'
+        entry: bash .github/hooks/go-env.sh env GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
         language: system
         pass_filenames: false
         files: ^(cmd/|internal/|test/|go\.mod|\.goreleaser\.yaml|Makefile)
       - id: gosec
         name: gosec
-        entry: bash -c 'GOWORK=off go run github.com/securego/gosec/v2/cmd/gosec@v2.25.0 -exclude-generated ./...'
+        entry: bash .github/hooks/go-env.sh env GOWORK=off go run github.com/securego/gosec/v2/cmd/gosec@v2.25.0 -exclude-generated ./...
         language: system
         pass_filenames: false
         files: ^(cmd/|internal/|test/|go\.mod|\.goreleaser\.yaml|Makefile)
@@ -84,7 +87,7 @@ repos:
         # golangci-version default; main run 39923837440 log), with the
         # repository's .golangci.yaml, so CI's result is unchanged. The old
         # hook pinned v2.11.4; bump this deliberately, in its own change.
-        entry: bash -c 'GOWORK=off go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run --timeout=10m'
+        entry: bash .github/hooks/go-env.sh env GOWORK=off go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run --timeout=10m
         language: system
         pass_filenames: false
         files: ^(.*\.go|go\.(mod|sum)|\.golangci\.yaml)$
@@ -99,7 +102,7 @@ repos:
         files: ^(Dockerfile|go\.mod)$
       - id: go-unit-tests
         name: go vet + unit tests (race, coverage)
-        entry: bash .github/hooks/go-unit-tests.sh
+        entry: bash .github/hooks/go-env.sh bash .github/hooks/go-unit-tests.sh
         language: system
         pass_filenames: false
         files: ^(.*\.go|go\.(mod|sum)|.*/testdata/.*|\.github/hooks/go-unit-tests\.sh)$
@@ -107,7 +110,7 @@ repos:
           - manual
       - id: go-mod-tidy
         name: go mod tidy
-        entry: bash .github/hooks/go-mod-tidy.sh
+        entry: bash .github/hooks/go-env.sh bash .github/hooks/go-mod-tidy.sh
         language: system
         pass_filenames: false
         files: ^(.*\.go|go\.(mod|sum)|\.github/hooks/go-mod-tidy\.sh)$
@@ -117,7 +120,7 @@ repos:
       # never compiles it. Compile only, never run (same as `make vet-live`).
       - id: go-vet-live
         name: go vet live suite (compile only)
-        entry: bash -c 'GOWORK=off go vet -tags=live ./test/live/...'
+        entry: bash .github/hooks/go-env.sh bash -c 'GOWORK=off go vet -tags=live ./test/live/...'
         language: system
         pass_filenames: false
         files: ^(.*\.go|go\.(mod|sum))$

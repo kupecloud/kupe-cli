@@ -105,8 +105,8 @@ homebrew_casks:
     description: "Official CLI for Kupe Cloud"
     license: "Apache-2.0"
     commit_author:
-      name: kupecloud-bot
-      email: bot@kupe.cloud
+      name: "kupey[bot]"
+      email: "297991083+kupey[bot]@users.noreply.github.com"
     binaries:
       - kupe
     # macOS Gatekeeper workaround for unsigned binaries. Homebrew downloads
@@ -160,8 +160,8 @@ scoops:
     description: "Official CLI for Kupe Cloud"
     license: Apache-2.0
     commit_author:
-      name: kupecloud-bot
-      email: bot@kupe.cloud
+      name: "kupey[bot]"
+      email: "297991083+kupey[bot]@users.noreply.github.com"
 
 release:
   github:

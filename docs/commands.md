@@ -1485,13 +1485,17 @@ version to it, then prints the database without waiting. It cancels an
 upgrade that is waiting, taking its backup, rolled back, or failed, and the
 platform accepts it whether or not it currently offers upgrades. It exits `2`
 when the database is already set to the major it runs ("nothing to cancel") or
-does not report a running version yet. It also exits `2` and sends nothing
-when the platform has not applied the last change yet (`observedGeneration`
-below `generation`: try again in a moment), when the upgrade has already
-finished (`UpgradeInProgress` `False`, `UpgradeSucceeded`, unless the
-switched-off hold applies), or when nothing is waiting, rolled back, failed or
-held: an older platform could read the cancel as undoing a finished upgrade.
-Once the database is offline and moving
+does not report a running version yet. The CLI decides as the platform's admission check does, from the
+`UpgradeInProgress` condition and that condition's own `observedGeneration`.
+A condition that is missing, or older than the latest change, admits the
+cancel. A current condition admits it while the upgrade waits or takes its
+backup, or after a rollback, a failure or the switched-off hold; the Ready
+reasons of those holds count too, because a blocked database (quota, cluster)
+rewrites Ready. The CLI exits `2` and sends nothing when the condition is
+current and says the upgrade already finished (`False`, `UpgradeSucceeded`,
+unless the switched-off hold applies), when it records nothing to cancel, or
+when the database has not applied the change the condition was judged for
+(try again in a moment). Once the database is offline and moving
 its data the platform answers `database_upgrade_in_progress` (exit `5`).
 
 The detail view (`kupe database get NAME`) has an `Upgrade` row while an

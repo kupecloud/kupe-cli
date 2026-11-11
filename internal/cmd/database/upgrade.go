@@ -200,42 +200,47 @@ func cancelUpgrade(ctx context.Context, f *cli.Factory, api client.Interface, na
 }
 
 // cancelRefusal is why setting db back to the major it runs would not be a
-// cancel, or nil when it is one (or when the platform should decide). An
-// older operator reads a version equal to the running major as a cancel
-// right after a successful upgrade, before currentVersion has moved, and
-// would undo the upgrade; so a cancel is only sent when the status shows
-// something to cancel: an upgrade waiting or taking its backup, a rollback,
-// a failure, or the switched-off hold.
+// cancel, or nil when it is one (or when the platform should decide). It
+// mirrors the operator webhook's upgradeCancellable, which reads the
+// UpgradeInProgress condition and that condition's own observedGeneration:
+// a condition that is missing, or older than the latest spec change, is a
+// raise the operator has not acted on, so a cancel is admitted. A current
+// condition admits it while the upgrade waits or takes its backup (True) or
+// after a rollback, a failure or the switched-off hold (False); a current
+// UpgradeSucceeded never does, since the data is already on the new major.
+// The Ready reasons of those holds, and the v1.49.0 VersionUnsupported hold,
+// are extra admits: a blocker such as quota rewrites Ready on a pass that
+// still stamps the condition.
 func cancelRefusal(db *client.Database, name string) error {
 	st := db.Status
-	if st == nil || st.ObservedGeneration < db.Generation {
-		return cli.MisuseError(fmt.Sprintf("database %q has not applied its last change yet, so a cancel could be misread", name)).
-			WithHint(fmt.Sprintf("try again in a moment; check it:  kupe db get %s", name))
+	if st == nil {
+		return cli.MisuseError(fmt.Sprintf("database %q does not report its status yet, so there is nothing to cancel", name)).
+			WithHint(fmt.Sprintf("check it:  kupe db get %s", name))
 	}
 	inProgress := st.Condition(client.ConditionUpgradeInProgress)
-	ready := st.Condition("Ready")
 	if st.Phase == client.PhaseUpgrading || (inProgress != nil && inProgress.Status == "True" && inProgress.Reason == client.ReasonUpgrading) {
 		// Too late to cancel: the platform's own answer says so.
 		return nil
 	}
-	if inProgress != nil && inProgress.Status == "True" &&
-		(inProgress.Reason == client.ReasonUpgradeWaiting || inProgress.Reason == client.ReasonPreUpgradeBackup) {
+	if inProgress == nil || inProgress.ObservedGeneration < db.Generation {
 		return nil
 	}
-	if ready != nil && ready.Status == "False" &&
-		(ready.Reason == client.ReasonUpgradeRolledBack || ready.Reason == client.ReasonUpgradeFailed || ready.Reason == client.ReasonUpgradeSwitchedOff) {
-		return nil
+	if st.ObservedGeneration < db.Generation {
+		return cli.MisuseError(fmt.Sprintf("database %q has not applied its last change yet, so a cancel could be misread", name)).
+			WithHint(fmt.Sprintf("try again in a moment; check it:  kupe db get %s", name))
 	}
-	if switchedOffHold(db, "") {
+	ready := st.Condition("Ready")
+	switch {
+	case inProgress.Status == "True" && (inProgress.Reason == client.ReasonUpgradeWaiting || inProgress.Reason == client.ReasonPreUpgradeBackup):
 		return nil
-	}
-	if inProgress != nil && inProgress.Status != "True" && inProgress.Reason == client.ReasonUpgradeSucceeded {
-		// Only a condition judged for the current generation says the upgrade
-		// finished; an older one may be the result of an earlier upgrade.
-		if inProgress.ObservedGeneration < db.Generation {
-			return cli.MisuseError(fmt.Sprintf("the platform has not judged this upgrade of database %q yet", name)).
-				WithHint(fmt.Sprintf("check it:  kupe db get %s   and try again", name))
-		}
+	case inProgress.Status != "True" && (inProgress.Reason == client.ReasonUpgradeRolledBack || inProgress.Reason == client.ReasonUpgradeFailed || inProgress.Reason == client.ReasonUpgradeSwitchedOff):
+		return nil
+	case ready != nil && ready.Status == "False" &&
+		(ready.Reason == client.ReasonUpgradeRolledBack || ready.Reason == client.ReasonUpgradeFailed || ready.Reason == client.ReasonUpgradeSwitchedOff):
+		return nil
+	case switchedOffHold(db, ""):
+		return nil
+	case inProgress.Status != "True" && inProgress.Reason == client.ReasonUpgradeSucceeded:
 		return cli.MisuseError(fmt.Sprintf("nothing to cancel: the upgrade of database %q has already finished", name)).
 			WithHint(fmt.Sprintf("check it:  kupe db get %s", name))
 	}

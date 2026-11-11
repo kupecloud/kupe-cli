@@ -25,7 +25,8 @@ export GOFLAGS := -mod=readonly
 GOCACHE ?= $(PWD)/.tmp/go-build
 # golangci-lint's cache stays in this checkout: from v2.12 its keys ignore the
 # checkout path, so a shared cache reports another worktree's files, even a
-# removed one. A caller value wins (CI's gates job sets and caches its own).
+# removed one. A caller value wins; this repo's CI does not set one, so CI
+# lints with a cold cache in the checkout.
 export GOLANGCI_LINT_CACHE ?= $(CURDIR)/.tmp/golangci-lint
 GORELEASER_VERSION := v2.15.2
 

@@ -23,6 +23,10 @@ GO := go
 # fails with "inconsistent vendoring"); only the image build uses -mod=vendor.
 export GOFLAGS := -mod=readonly
 GOCACHE ?= $(PWD)/.tmp/go-build
+# golangci-lint's cache stays in this checkout: from v2.12 its keys ignore the
+# checkout path, so a shared cache reports another worktree's files, even a
+# removed one. A caller value wins (CI's gates job sets and caches its own).
+export GOLANGCI_LINT_CACHE ?= $(CURDIR)/.tmp/golangci-lint
 GORELEASER_VERSION := v2.15.2
 
 # ldflags inject into internal/build.

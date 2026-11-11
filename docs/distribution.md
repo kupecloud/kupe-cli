@@ -114,8 +114,8 @@ brews:                                  # NOT homebrew_casks — formula install
     description: "Official CLI for Kupe Cloud"
     license: "Apache-2.0"
     commit_author:
-      name: kupecloud-bot
-      email: bot@kupe.cloud
+      name: "kupey[bot]"
+      email: "297991083+kupey[bot]@users.noreply.github.com"
     install: |
       bin.install "kupe"
       generate_completions_from_executable(bin/"kupe", "completion")
@@ -131,8 +131,8 @@ scoops:
     description: "Official CLI for Kupe Cloud"
     license: Apache-2.0
     commit_author:
-      name: kupecloud-bot
-      email: bot@kupe.cloud
+      name: "kupey[bot]"
+      email: "297991083+kupey[bot]@users.noreply.github.com"
 
 release:
   github:

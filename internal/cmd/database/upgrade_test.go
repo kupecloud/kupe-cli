@@ -260,7 +260,10 @@ func TestUpgrade_WaitEndsOnTheNewMajor(t *testing.T) {
 }
 
 func TestUpgrade_WaitKeepsGoingThroughProgress(t *testing.T) {
-	// The Ready reason of each step must not end the wait.
+	// The Ready reason of each step must not end the wait, even Degraded
+	// ones with a grace of one nanosecond: waiting and backing up are the
+	// platform's to resolve.
+	shortGrace(t)
 	for _, step := range []*client.Database{
 		upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "waiting for a backup from the last 26 hours", client.ReasonUpgradeWaiting),
 		upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonPreUpgradeBackup, "taking the backup", client.ReasonPreUpgradeBackup),
@@ -286,16 +289,131 @@ func shortGrace(t *testing.T) {
 	t.Cleanup(func() { upgradeDegradedGrace = old })
 }
 
-func TestUpgrade_WaitEndsWhenMajorsAreSwitchedOff(t *testing.T) {
-	// The operator holds the database Degraded, Ready False MajorChangeUnsupported.
-	fake := waitFake(upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, client.ReasonMajorChangeUnsupported, "major upgrades are not offered", ""))
-	_, _, err := upgradeRun(t, fake)
-	assertExit(t, err, cli.ExitUnavailable)
-	if !strings.Contains(err.Error(), "major upgrades are not offered") {
-		t.Errorf("err = %v; want the platform's message", err)
+// addCondition appends a condition to db's status and returns db.
+func addCondition(db *client.Database, typ, status, reason, message string) *client.Database {
+	db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: typ, Status: status, Reason: reason, Message: message})
+	return db
+}
+
+// heldV149 is the v1.49.0 switched-off hold: Running, Ready True and only
+// VersionUnsupported True says so; inProgress is the UpgradeInProgress
+// condition the operator left (status, reason), or "" for none.
+func heldV149(inProgressStatus, inProgressReason string) *client.Database {
+	db := upgradeState("18", "17.6", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", "")
+	addCondition(db, client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "major 18 is not offered")
+	if inProgressReason != "" {
+		addCondition(db, client.ConditionUpgradeInProgress, inProgressStatus, inProgressReason, "")
 	}
-	if h := hint(err); !strings.Contains(h, "kupe db upgrade orders-db --cancel") {
-		t.Errorf("hint = %q; want the cancel command", h)
+	return db
+}
+
+func TestUpgrade_WaitEndsWhenMajorsAreSwitchedOff(t *testing.T) {
+	held551 := upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeSwitchedOff, "major upgrades are switched off on this platform; set the version back to 17", "")
+	addCondition(held551, client.ConditionUpgradeInProgress, "False", client.ReasonUpgradeSwitchedOff, "")
+	tests := []struct {
+		name string
+		db   *client.Database
+		want string
+	}{
+		{"operator with the explicit reason: Ready False UpgradeSwitchedOff", held551, "set the version back to 17"},
+		{"v1.49.0 with no upgrade recorded", heldV149("False", "NoUpgrade"), "major 18 is not offered"},
+		{"v1.49.0 with a stale UpgradeWaiting", heldV149("True", client.ReasonUpgradeWaiting), "major 18 is not offered"},
+		{"v1.49.0 with a stale UpgradeSucceeded", heldV149("False", client.ReasonUpgradeSucceeded), "major 18 is not offered"},
+		{"v1.49.0 with no UpgradeInProgress at all", heldV149("", ""), "major 18 is not offered"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shortGrace(t)
+			_, _, err := upgradeRun(t, waitFake(tt.db))
+			assertExit(t, err, cli.ExitUnavailable)
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("err = %v; want Ready's message %q", err, tt.want)
+			}
+			if h := hint(err); !strings.Contains(h, "kupe db upgrade orders-db --cancel") {
+				t.Errorf("hint = %q; want the cancel command", h)
+			}
+		})
+	}
+}
+
+// The stale VersionUnsupported of an earlier hold must not end a wait that
+// is still working, or one that has finished.
+func TestUpgrade_StaleVersionUnsupportedDoesNotEndTheWait(t *testing.T) {
+	shortGrace(t)
+	for _, tt := range []struct {
+		name string
+		db   *client.Database
+	}{
+		{"phase Upgrading", addCondition(upgradeState("18", "17.6", 2, 2, client.PhaseUpgrading, false, client.ReasonUpgrading, "upgrading", client.ReasonUpgrading),
+			client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "stale")},
+		{"phase Upgrading with Ready True", addCondition(upgradeState("18", "17.6", 2, 2, client.PhaseUpgrading, true, "DatabaseHealthy", "", ""),
+			client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "stale")},
+		{"Ready False PreUpgradeBackup", addCondition(upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonPreUpgradeBackup, "taking the backup", client.ReasonPreUpgradeBackup),
+			client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "stale")},
+		{"Ready False UpgradeWaiting", addCondition(upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "waiting", client.ReasonUpgradeWaiting),
+			client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "stale")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := upgradeRun(t, waitFake(tt.db), "--wait-timeout", "1s")
+			assertExit(t, err, cli.ExitTimeout)
+		})
+	}
+	t.Run("a finished upgrade still succeeds", func(t *testing.T) {
+		done := addCondition(upgradeState("18", "18.1", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""),
+			client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "stale")
+		if _, _, err := upgradeRun(t, waitFake(done)); err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+	})
+}
+
+// The window after a successful upgrade, and a stale hold of an earlier
+// upgrade, as an older operator leaves them.
+func TestUpgrade_CancelGuard(t *testing.T) {
+	succeeded := func(spec, current string, gen, obs int64) *client.Database {
+		db := upgradeState(spec, current, gen, obs, client.PhaseRunning, true, "DatabaseHealthy", "", "")
+		return addCondition(db, client.ConditionUpgradeInProgress, "False", client.ReasonUpgradeSucceeded, "")
+	}
+	tests := []struct {
+		name     string
+		db       *client.Database
+		wantExit int
+		wantText string
+	}{
+		{"after success, before currentVersion moved: refused", succeeded("18", "17.6", 2, 2), cli.ExitMisuse, "already finished"},
+		{"the change is not applied yet: refused", upgradeState("18", "17.6", 3, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "w", client.ReasonUpgradeWaiting), cli.ExitMisuse, "try again in a moment"},
+		{"nothing recorded to cancel: refused", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""), cli.ExitMisuse, "no upgrade that is waiting"},
+		{"the stale hold of an earlier upgrade: allowed", addCondition(succeeded("18", "17.6", 2, 2), client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "x"), cli.ExitOK, ""},
+		{"Ready False UpgradeSwitchedOff: allowed", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeSwitchedOff, "off", ""), cli.ExitOK, ""},
+		{"UpgradeInProgress True UpgradeWaiting: allowed", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, "x", "w", client.ReasonUpgradeWaiting), cli.ExitOK, ""},
+		{"Ready False UpgradeFailed: allowed", upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, client.ReasonUpgradeFailed, "f", ""), cli.ExitOK, ""},
+	}
+	for _, how := range []struct {
+		name string
+		args []string
+	}{{"--cancel", []string{"--cancel"}}, {"--version R", []string{"--version", "17"}}} {
+		for _, tt := range tests {
+			t.Run(how.name+" "+tt.name, func(t *testing.T) {
+				fake := clienttest.New()
+				fake.DatabasesByName["orders-db"] = tt.db
+				f := factoryWith(t, fake)
+				interactive(f, "")
+				_, _, err := run(f, newUpgradeCmd(f), append([]string{"orders-db"}, how.args...)...)
+				assertExit(t, err, tt.wantExit)
+				if tt.wantExit != cli.ExitOK {
+					if !strings.Contains(err.Error()+hint(err), tt.wantText) {
+						t.Errorf("err = %v hint = %q; want %q", err, hint(err), tt.wantText)
+					}
+					if got := patchedVersions(fake); len(got) != 0 {
+						t.Errorf("sent %v", got)
+					}
+					return
+				}
+				if fake.DatabasesByName["orders-db"].Version != "17" {
+					t.Error("the cancel was not sent")
+				}
+			})
+		}
 	}
 }
 

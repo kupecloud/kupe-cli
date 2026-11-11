@@ -61,7 +61,7 @@ needs no confirmation and does not wait. Once the database is offline for the
 upgrade, the platform refuses it.
 
 Requesting the major the database already runs starts no upgrade: it does
-nothing, or cancels an upgrade that is still waiting, like --cancel. A major
+nothing, or cancels a requested upgrade, like --cancel. A major
 below the one the database runs is refused.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  kupe database upgrade orders-db --version 18
@@ -119,6 +119,11 @@ func runUpgrade(ctx context.Context, f *cli.Factory, name string, opts *upgradeO
 	if current.Version != opts.version {
 		// The major it already runs is a cancel of a pending upgrade, not an
 		// upgrade: nothing goes offline, so nothing to confirm.
+		if opts.version == running {
+			if refusal := cancelRefusal(current, name); refusal != nil {
+				return refusal
+			}
+		}
 		if opts.version != running {
 			from := running
 			if from == "" {
@@ -176,6 +181,9 @@ func cancelUpgrade(ctx context.Context, f *cli.Factory, api client.Interface, na
 			refusal = cli.MisuseError(fmt.Sprintf("nothing to cancel: database %q is set to the major it runs, %s", name, running))
 			return nil
 		}
+		if refusal = cancelRefusal(db, name); refusal != nil {
+			return nil
+		}
 		return &client.PatchDatabaseRequest{Version: &running}
 	})
 	if err != nil {
@@ -189,6 +197,74 @@ func cancelUpgrade(ctx context.Context, f *cli.Factory, api client.Interface, na
 		return refusal
 	}
 	return printer.Database.One(f.IOStreams, format, updated)
+}
+
+// cancelRefusal is why setting db back to the major it runs would not be a
+// cancel, or nil when it is one (or when the platform should decide). An
+// older operator reads a version equal to the running major as a cancel
+// right after a successful upgrade, before currentVersion has moved, and
+// would undo the upgrade; so a cancel is only sent when the status shows
+// something to cancel: an upgrade waiting or taking its backup, a rollback,
+// a failure, or the switched-off hold.
+func cancelRefusal(db *client.Database, name string) error {
+	st := db.Status
+	if st == nil || st.ObservedGeneration < db.Generation {
+		return cli.MisuseError(fmt.Sprintf("database %q has not applied its last change yet, so a cancel could be misread", name)).
+			WithHint(fmt.Sprintf("try again in a moment; check it:  kupe db get %s", name))
+	}
+	inProgress := st.Condition(client.ConditionUpgradeInProgress)
+	ready := st.Condition("Ready")
+	if st.Phase == client.PhaseUpgrading || (inProgress != nil && inProgress.Status == "True" && inProgress.Reason == client.ReasonUpgrading) {
+		// Too late to cancel: the platform's own answer says so.
+		return nil
+	}
+	if inProgress != nil && inProgress.Status == "True" &&
+		(inProgress.Reason == client.ReasonUpgradeWaiting || inProgress.Reason == client.ReasonPreUpgradeBackup) {
+		return nil
+	}
+	if ready != nil && ready.Status == "False" &&
+		(ready.Reason == client.ReasonUpgradeRolledBack || ready.Reason == client.ReasonUpgradeFailed || ready.Reason == client.ReasonUpgradeSwitchedOff) {
+		return nil
+	}
+	if switchedOffHold(db, "") {
+		return nil
+	}
+	if inProgress != nil && inProgress.Status != "True" && inProgress.Reason == client.ReasonUpgradeSucceeded {
+		return cli.MisuseError(fmt.Sprintf("nothing to cancel: the upgrade of database %q has already finished", name)).
+			WithHint(fmt.Sprintf("check it:  kupe db get %s", name))
+	}
+	return cli.MisuseError(fmt.Sprintf("nothing to cancel: database %q has no upgrade that is waiting, rolled back or failed", name)).
+		WithHint(fmt.Sprintf("check it:  kupe db get %s", name))
+}
+
+// switchedOffHold reports whether the platform stopped offering major
+// upgrades after the request and holds the database until it is set back.
+// Ready False UpgradeSwitchedOff says so. A v1.49.0 operator only reports
+// VersionUnsupported True MajorChangeUnsupported, which is stale during an
+// upgrade, so it counts only when the phase is not Upgrading, Ready is not
+// False with a reason of a running upgrade, and (when target is set) the
+// database does not already run target.
+func switchedOffHold(db *client.Database, target string) bool {
+	st := db.Status
+	if st == nil {
+		return false
+	}
+	ready := st.Condition("Ready")
+	if ready != nil && ready.Status == "False" && ready.Reason == client.ReasonUpgradeSwitchedOff {
+		return true
+	}
+	if st.Phase == client.PhaseUpgrading {
+		return false
+	}
+	if ready != nil && ready.Status == "False" &&
+		(ready.Reason == client.ReasonUpgradeWaiting || ready.Reason == client.ReasonPreUpgradeBackup || ready.Reason == client.ReasonUpgrading) {
+		return false
+	}
+	if target != "" && runningMajor(db) == target {
+		return false
+	}
+	vu := st.Condition(client.ConditionVersionUnsupported)
+	return vu != nil && vu.Status == "True" && vu.Reason == client.ReasonMajorChangeUnsupported
 }
 
 // runningMajor is the major of the version the database runs, "" until the
@@ -249,9 +325,20 @@ func waitForUpgrade(ctx context.Context, io *cli.IOStreams, api client.Interface
 		ready := st.Condition("Ready")
 		if ready != nil && ready.Status != "True" {
 			switch ready.Reason {
-			case client.ReasonUpgradeRolledBack, client.ReasonUpgradeFailed, client.ReasonMajorChangeUnsupported:
+			case client.ReasonUpgradeRolledBack, client.ReasonUpgradeFailed:
 				return false, &upgradeEnded{reason: ready.Reason, message: ready.Message}
 			}
+		}
+		// The hold comes before the Degraded grace: a v1.49.0 operator may
+		// also report it as Degraded.
+		if switchedOffHold(db, target) {
+			e := &upgradeEnded{reason: client.ReasonUpgradeSwitchedOff}
+			if ready != nil && ready.Reason == client.ReasonUpgradeSwitchedOff {
+				e.message = ready.Message
+			} else if vu := st.Condition(client.ConditionVersionUnsupported); vu != nil {
+				e.message = vu.Message
+			}
+			return false, e
 		}
 		// Degraded is progress while the platform is still waiting to start
 		// or backing up (it begins once the database is healthy). Otherwise
@@ -294,7 +381,7 @@ func upgradeWaitErr(err error, name, target string) error {
 	case errors.As(err, &ended):
 		msg := ended.message
 		switch ended.reason {
-		case client.ReasonMajorChangeUnsupported:
+		case client.ReasonUpgradeSwitchedOff:
 			if msg == "" {
 				msg = "the platform does not offer major upgrades"
 			}

@@ -67,7 +67,8 @@ type DatabaseStatus struct {
 	Phase              string                  `json:"phase,omitempty" yaml:"phase,omitempty"`
 	// CurrentVersion is the full engine version running, e.g. "18.0".
 	CurrentVersion string `json:"currentVersion,omitempty" yaml:"currentVersion,omitempty"`
-	// PreviousVersion is set while a major version upgrade is in progress.
+	// PreviousVersion is the full version the database ran before a major
+	// upgrade; set while the phase is Upgrading.
 	PreviousVersion  string `json:"previousVersion,omitempty" yaml:"previousVersion,omitempty"`
 	InstancesReady   int32  `json:"instancesReady" yaml:"instancesReady"`
 	InstancesDesired int32  `json:"instancesDesired" yaml:"instancesDesired"`
@@ -131,6 +132,9 @@ type Condition struct {
 	Reason             string `json:"reason,omitempty" yaml:"reason,omitempty"`
 	Message            string `json:"message,omitempty" yaml:"message,omitempty"`
 	LastTransitionTime string `json:"lastTransitionTime,omitempty" yaml:"lastTransitionTime,omitempty"`
+	// ObservedGeneration is the generation the condition was judged for; 0
+	// when the platform does not report it.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
 }
 
 // CreateDatabaseRequest is the POST body. An empty Engine or Version takes
@@ -202,8 +206,16 @@ const (
 	// deletion protection on.
 	DatabaseDeleteCodeProtected = "deletion_protected"
 	// DatabaseCodeMajorUpgradeUnavailable: 400 from PATCH when the version
-	// changes and the platform does not offer major upgrades.
+	// is raised and the platform does not offer major upgrades.
 	DatabaseCodeMajorUpgradeUnavailable = "major_upgrade_unavailable"
+	// DatabaseCodeUpgradeNotReady: 409 from PATCH when the database cannot
+	// take the upgrade yet (not healthy, no recent backup, no room for a
+	// backup) or the version is more than one major above the running one.
+	// The message says why. ErrorCode lower-cases the API's upper-case code.
+	DatabaseCodeUpgradeNotReady = "database_upgrade_not_ready"
+	// DatabaseCodeUpgradeInProgress: 409 from PATCH while a major upgrade
+	// is running and the change is not a cancel.
+	DatabaseCodeUpgradeInProgress = "database_upgrade_in_progress"
 	// DatabaseCodeStorageShrinkUnsupported: 400 from PATCH when the
 	// requested storage is smaller than the current size.
 	DatabaseCodeStorageShrinkUnsupported = "storage_shrink_unsupported"
@@ -402,6 +414,54 @@ const conditionReady = "Ready"
 func (s *DatabaseStatus) Ready() bool {
 	return s != nil && conditionTrue(s.Conditions, conditionReady)
 }
+
+// Condition returns the condition of type t, or nil when the status does
+// not carry one.
+func (s *DatabaseStatus) Condition(t string) *Condition {
+	if s == nil {
+		return nil
+	}
+	for i := range s.Conditions {
+		if s.Conditions[i].Type == t {
+			return &s.Conditions[i]
+		}
+	}
+	return nil
+}
+
+// Condition types and Ready reasons of a major upgrade.
+const (
+	// ConditionUpgradeInProgress is True while an upgrade is asked for or
+	// running, with reason UpgradeWaiting, PreUpgradeBackup or Upgrading.
+	ConditionUpgradeInProgress = "UpgradeInProgress"
+	// ReasonUpgradeWaiting: a check is not met yet; the message says which.
+	ReasonUpgradeWaiting = "UpgradeWaiting"
+	// ReasonPreUpgradeBackup: the platform is taking the backup first.
+	ReasonPreUpgradeBackup = "PreUpgradeBackup"
+	// ReasonUpgrading: the data is being moved; the database is offline.
+	ReasonUpgrading = "Upgrading"
+	// ReasonUpgradeRolledBack is Ready's reason when the upgrade stopped
+	// before it changed any data and the database runs its old major.
+	ReasonUpgradeRolledBack = "UpgradeRolledBack"
+	// ReasonUpgradeSwitchedOff is the reason of Ready and UpgradeInProgress
+	// (both False) when the platform stopped offering major upgrades after
+	// the request: the database is held, Running, until the version is set
+	// back. From kupe-control-operator PR 551.
+	ReasonUpgradeSwitchedOff = "UpgradeSwitchedOff"
+	// ConditionVersionUnsupported is True with reason
+	// ReasonMajorChangeUnsupported while the spec asks for a major the
+	// platform does not offer. v1.49.0 reports the switched-off hold only
+	// through it.
+	ConditionVersionUnsupported = "VersionUnsupported"
+	// ReasonMajorChangeUnsupported is VersionUnsupported's reason.
+	ReasonMajorChangeUnsupported = "MajorChangeUnsupported"
+	// ReasonUpgradeSucceeded is the UpgradeInProgress reason, with status
+	// False, after an upgrade finished.
+	ReasonUpgradeSucceeded = "UpgradeSucceeded"
+	// ReasonUpgradeFailed is Ready's reason when the upgrade failed; the
+	// message says whether the database still runs its old major.
+	ReasonUpgradeFailed = "UpgradeFailed"
+)
 
 // conditionTrue reports whether the condition of type t is True.
 func conditionTrue(conditions []Condition, t string) bool {

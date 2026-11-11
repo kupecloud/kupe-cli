@@ -118,12 +118,16 @@ func sourceNotFound(err error, source *client.DatabaseSource) error {
 	return cli.WrapAPI(cli.ExitMisuse, "the restore source was not found", err).WithHint(hint)
 }
 
-// translateUpdateErr adds the refusal only a resize can get: a smaller
-// storage size.
+// translateUpdateErr adds the refusals only an update can get: a smaller
+// storage size, and any change while a major upgrade runs.
 func translateUpdateErr(err error, name string) error {
 	if client.ErrorCode(err) == client.DatabaseCodeStorageShrinkUnsupported {
 		return cli.WrapAPI(cli.ExitMisuse, "database storage can grow but never shrink", err).
 			WithHint(fmt.Sprintf("pass a --storage at least the current size, shown by:  kupe db get %s", name))
+	}
+	// A resize, an HA change or a settings change while an upgrade runs.
+	if client.ErrorCode(err) == client.DatabaseCodeUpgradeInProgress {
+		return translateUpgradeRefusal(err, name)
 	}
 	return translateErr(err, name)
 }
@@ -144,7 +148,25 @@ func translateUpgradeErr(err error, name string) error {
 	if client.ErrorCode(err) == client.DatabaseCodeMajorUpgradeUnavailable {
 		return cli.WrapAPI(cli.ExitUnavailable, "the platform refused the major version upgrade", err)
 	}
+	if out := translateUpgradeRefusal(err, name); out != nil {
+		return out
+	}
 	return translateErr(err, name)
+}
+
+// translateUpgradeRefusal maps the two conflicts a version change can get
+// beyond the shared ones, or returns nil for any other error. The platform's
+// message says what is wrong and is kept as it is.
+func translateUpgradeRefusal(err error, name string) error {
+	switch client.ErrorCode(err) {
+	case client.DatabaseCodeUpgradeNotReady:
+		return cli.WrapAPI(cli.ExitConflict, "the database is not ready to upgrade", err).
+			WithHint(fmt.Sprintf("the message above says what is missing; check the database:  kupe db get %s", name))
+	case client.DatabaseCodeUpgradeInProgress:
+		return cli.WrapAPI(cli.ExitConflict, "a major upgrade of the database is already running", err).
+			WithHint(fmt.Sprintf("see where it is:  kupe db get %s   (the Upgrade row)", name))
+	}
+	return nil
 }
 
 // translateRotateErr: a database being deleted is the shared terminating

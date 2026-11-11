@@ -124,6 +124,7 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Name", Get: func(v any) string { return database(v).Name }},
 		{Name: "Engine", Get: func(v any) string { return database(v).Engine }},
 		{Name: "Version", Get: func(v any) string { return databaseVersionDisplay(database(v)) }},
+		{Name: "Upgrade", OmitEmpty: true, Get: func(v any) string { return databaseUpgradeDisplay(database(v)) }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(databaseStatus(database(v)).Phase, colorEnabled)
 		}},
@@ -228,6 +229,30 @@ func bindingStatus(b *client.DatabaseBinding) client.DatabaseBindingStatus { ret
 func databaseVersionDisplay(db *client.Database) string {
 	st := databaseStatus(db)
 	return versionDisplay(db.Version, st.CurrentVersion, st.PreviousVersion)
+}
+
+// databaseUpgradeDisplay is what a major upgrade is doing, for the detail
+// view: the message of the UpgradeInProgress condition while it is True, or
+// of Ready after the platform rolled the upgrade back or it failed. Empty
+// otherwise, so the row only shows when there is something to say.
+func databaseUpgradeDisplay(db *client.Database) string {
+	st := databaseStatus(db)
+	if c := st.Condition(client.ConditionUpgradeInProgress); c != nil && c.Status == "True" {
+		return upgradeText(c)
+	}
+	if c := st.Condition("Ready"); c != nil && c.Status != "True" &&
+		(c.Reason == client.ReasonUpgradeRolledBack || c.Reason == client.ReasonUpgradeFailed) {
+		return upgradeText(c)
+	}
+	return ""
+}
+
+// upgradeText is the condition's message, or its reason when it has none.
+func upgradeText(c *client.Condition) string {
+	if c.Message != "" {
+		return c.Message
+	}
+	return c.Reason
 }
 
 // databaseInstances renders "ready/desired", empty before the platform

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -131,15 +132,29 @@ func TestWaitPinsMatchingRevisionThenKeepsFailedRequestedOutcome(t *testing.T) {
 }
 
 func TestWaitRejectsIncarnationReplacementBetweenEnvironmentAndHistoryGET(t *testing.T) {
-	gets := 0
+	// The server fixes the request order: environment GET (original UID),
+	// history, environment GET (replacement UID). Both the counter and the
+	// order log are guarded because handlers run on server goroutines.
+	var mu sync.Mutex
+	var order []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e := releaseEnvironment()
+		mu.Lock()
+		defer mu.Unlock()
 		if strings.HasSuffix(r.URL.Path, "/releases") {
+			order = append(order, "history")
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []client.AppRelease{recordedRelease("shop-production-1", "Succeeded", 1, 1, e)}})
 			return
 		}
-		gets++
-		if gets > 1 {
+		order = append(order, "environment")
+		if len(order) > 3 {
+			// The wait must stop at the replacement. Fail the request so a
+			// regression ends the wait instead of polling to the deadline.
+			t.Errorf("request after replacement was observed: %v", order)
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			return
+		}
+		if len(order) == 3 {
 			e.UID = "replacement-uid"
 		}
 		_ = json.NewEncoder(w).Encode(e)
@@ -147,9 +162,17 @@ func TestWaitRejectsIncarnationReplacementBetweenEnvironmentAndHistoryGET(t *tes
 	defer server.Close()
 	f := factoryWith(clienttest.New())
 	f.Client = func() (client.Interface, error) { return client.New(server.URL, "acme", "", "test"), nil }
-	_, _, err := run(f, "wait", "shop", "production", "--timeout", "20ms")
-	if cli.ExitCode(err) != 1 || !strings.Contains(err.Error(), "replaced") || gets != 2 {
-		t.Fatalf("gets=%d err=%v", gets, err)
+	// The wait ends on the replacement outcome, not on the deadline. The
+	// timeout is only a ceiling, large enough that a loaded host cannot
+	// expire it between the three requests.
+	_, _, err := run(f, "wait", "shop", "production", "--timeout", "1m")
+	mu.Lock()
+	defer mu.Unlock()
+	if cli.ExitCode(err) != 1 || err == nil || !strings.Contains(err.Error(), "replaced") {
+		t.Fatalf("order=%v err=%v", order, err)
+	}
+	if want := []string{"environment", "history", "environment"}; !reflect.DeepEqual(order, want) {
+		t.Fatalf("order=%v, want %v", order, want)
 	}
 }
 

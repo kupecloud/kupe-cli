@@ -78,7 +78,7 @@ func TestNewAppCommandsPreserveAppsUnavailableMessageAndFallback(t *testing.T) {
 		{"deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"},
 		{"deploy", "shop", "production", "--image", "hello:release", "--yes", "--wait=false"},
 		{"retry", "shop", "production", "--yes", "--wait=false"},
-		{"wait", "shop", "production", "--timeout", "20ms"},
+		{"wait", "shop", "production", "--timeout", "1m"},
 		{"releases", "shop", "production"},
 		{"releases", "shop"},
 		{"image", "resolve", "hello:release"},
@@ -91,7 +91,11 @@ func TestNewAppCommandsPreserveAppsUnavailableMessageAndFallback(t *testing.T) {
 				fake.ListAppEnvironmentsErr = refusal
 				fake.ListAppReleasesErr = refusal
 				fake.ResolveAppImageErr = refusal
-				_, _, err := run(factoryWith(fake), args...)
+				f := factoryWith(fake)
+				if args[0] == "wait" {
+					f = onePollFactory(fake, 1) // the refusal ends the wait on its first read
+				}
+				_, _, err := run(f, args...)
 				want := message
 				if strings.TrimSpace(message) == "" {
 					want = "apps are not available on this platform"

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,40 @@ import (
 
 func recordedRelease(name, phase string, number, revision int64, env *client.AppEnvironment) client.AppRelease {
 	return client.AppRelease{Name: name, Number: number, DeploymentRevision: revision, Trigger: "Deploy", Runtime: client.AppReleaseRuntime{AppWeb: *env.Web}, Status: client.AppReleaseStatus{Phase: phase}}
+}
+
+// guardedEnvironments fails the wait on any environment GET past max with a
+// terminal 4xx (a 5xx would be tolerated as transient). A test that expects its
+// outcome within one poll uses it with a long --timeout ceiling, so a
+// regression that keeps polling fails at once rather than at the ceiling.
+type guardedEnvironments struct {
+	client.Interface
+	calls *atomic.Int32
+	max   int32
+}
+
+func (g guardedEnvironments) AppEnvironments(app string) client.AppEnvironmentAPI {
+	return guardedEnvironmentAPI{g.Interface.AppEnvironments(app), g}
+}
+
+type guardedEnvironmentAPI struct {
+	client.AppEnvironmentAPI
+	g guardedEnvironments
+}
+
+func (e guardedEnvironmentAPI) Get(ctx context.Context, name string) (*client.AppEnvironment, string, error) {
+	if e.g.calls.Add(1) > e.g.max {
+		return nil, "", &client.APIError{StatusCode: 400, Code: "test_unexpected_poll", Message: "environment read after the wait should have ended"}
+	}
+	return e.AppEnvironmentAPI.Get(ctx, name)
+}
+
+// onePollFactory limits the wait to maxGets environment GETs.
+func onePollFactory(fake *clienttest.Fake, maxGets int32) *cli.Factory {
+	f := factoryWith(fake)
+	guard := guardedEnvironments{Interface: fake, calls: new(atomic.Int32), max: maxGets}
+	f.Client = func() (client.Interface, error) { return guard, nil }
+	return f
 }
 
 func TestWaitUsesRequestedReleaseOutcomeIncludingRecoveryAndSupersession(t *testing.T) {
@@ -55,7 +90,7 @@ func TestWaitUsesRequestedReleaseOutcomeIncludingRecoveryAndSupersession(t *test
 				later.Status = &status
 				fake.GetAppEnvironmentSeq["shop"]["production"] = []*client.AppEnvironment{&first, &later}
 			}
-			out, _, err := run(factoryWith(fake), "wait", "shop", "production", "--timeout", "20ms", "-o", "json")
+			out, _, err := run(onePollFactory(fake, 2), "wait", "shop", "production", "--timeout", "1m", "-o", "json")
 			if cli.ExitCode(err) != tc.code {
 				t.Fatalf("exit=%d err=%v out=%s", cli.ExitCode(err), err, out)
 			}
@@ -87,7 +122,7 @@ func TestWaitRequestedReleaseSnapshotUsesNewerNameWithoutInventingReplacement(t 
 	e := fake.AppEnvironmentsByApp["shop"]["production"]
 	target := recordedRelease("shop-production-1", "Superseded", 1, 1, e)
 	fake.AppReleases = []client.AppRelease{target}
-	_, _, err := run(factoryWith(fake), "wait", "shop", "production", "--timeout", "20ms")
+	_, _, err := run(onePollFactory(fake, 2), "wait", "shop", "production", "--timeout", "1m")
 	if cli.ExitCode(err) != 1 || !strings.Contains(err.Error(), "newer release name is not available") {
 		t.Fatalf("err=%v", err)
 	}
@@ -151,7 +186,7 @@ func TestWaitRejectsIncarnationReplacementBetweenEnvironmentAndHistoryGET(t *tes
 			// The wait must stop at the replacement. Fail the request so a
 			// regression ends the wait instead of polling to the deadline.
 			t.Errorf("request after replacement was observed: %v", order)
-			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 			return
 		}
 		if len(order) == 3 {
@@ -168,7 +203,7 @@ func TestWaitRejectsIncarnationReplacementBetweenEnvironmentAndHistoryGET(t *tes
 	_, _, err := run(f, "wait", "shop", "production", "--timeout", "1m")
 	mu.Lock()
 	defer mu.Unlock()
-	if cli.ExitCode(err) != 1 || err == nil || !strings.Contains(err.Error(), "replaced") {
+	if cli.ExitCode(err) != 1 || !strings.Contains(err.Error(), "replaced") {
 		t.Fatalf("order=%v err=%v", order, err)
 	}
 	if want := []string{"environment", "history", "environment"}; !reflect.DeepEqual(order, want) {

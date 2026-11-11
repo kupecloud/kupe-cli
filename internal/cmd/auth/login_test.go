@@ -305,3 +305,111 @@ func TestExitCodeFromClientError(t *testing.T) {
 		}
 	}
 }
+
+// TestLoginSwitchesCurrentContext pins issue #69: login makes the logged-in
+// context current by default and says so, naming the previous context only
+// when there was a different one. Covers the token path end to end; the OIDC
+// path calls the same helpers.
+func TestLoginSwitchesCurrentContext(t *testing.T) {
+	tests := []struct {
+		name        string
+		existing    []string // contexts already in the config
+		current     string   // currentContext before login
+		noSwitch    bool
+		wantCurrent string
+		wantStderr  string // "" means no "Switched" line at all
+	}{
+		{
+			name:        "first login switches with no previous",
+			wantCurrent: "acme-corp",
+			wantStderr:  "Switched current context to acme-corp.\n",
+		},
+		{
+			name:        "new tenant switches away from another context",
+			existing:    []string{"aware"},
+			current:     "aware",
+			wantCurrent: "acme-corp",
+			wantStderr:  "Switched current context to acme-corp (was aware).\n",
+		},
+		{
+			name:        "re-login to the current context prints nothing",
+			existing:    []string{"aware", "acme-corp"},
+			current:     "acme-corp",
+			wantCurrent: "acme-corp",
+		},
+		{
+			name:        "no-switch keeps the current context",
+			existing:    []string{"aware"},
+			current:     "aware",
+			noSwitch:    true,
+			wantCurrent: "aware",
+		},
+		{
+			name:        "no-switch still sets a context when none is current",
+			existing:    []string{"aware"},
+			noSwitch:    true,
+			wantCurrent: "acme-corp",
+			wantStderr:  "Switched current context to acme-corp.\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("KUPE_API_TOKEN", "")
+			api := startFakeAPI(t, "acme-corp", "kupe_ok")
+			f, cfgPath := testFactory(t)
+			io, _, errOut := cli.Test()
+			f.IOStreams = io
+
+			seed := &config.Config{CurrentContext: tt.current}
+			for _, name := range tt.existing {
+				seed.SetContext(config.Context{Name: name, Tenant: name})
+			}
+			if err := seed.Save(cfgPath); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := execLogin(f, &loginOpts{
+				method:   methodToken,
+				tenant:   "acme-corp",
+				token:    "kupe_ok",
+				apiURL:   api,
+				noSwitch: tt.noSwitch,
+			}); err != nil {
+				t.Fatalf("login: %v", err)
+			}
+
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.CurrentContext != tt.wantCurrent {
+				t.Errorf("currentContext=%q; want %q", cfg.CurrentContext, tt.wantCurrent)
+			}
+			got := ""
+			for line := range strings.Lines(errOut.String()) {
+				if strings.HasPrefix(line, "Switched current context") {
+					got += line
+				}
+			}
+			if got != tt.wantStderr {
+				t.Errorf("switch line=%q; want %q (stderr: %q)", got, tt.wantStderr, errOut.String())
+			}
+		})
+	}
+}
+
+// TestLoginSetDefaultIsHiddenNoOp keeps old scripts that pass --set-default
+// working now that switching is the default.
+func TestLoginSetDefaultIsHiddenNoOp(t *testing.T) {
+	cmd := newLoginCmd(nil)
+	fl := cmd.Flags().Lookup("set-default")
+	if fl == nil {
+		t.Fatal("--set-default removed; scripts passing it would fail")
+	}
+	if !fl.Hidden {
+		t.Error("--set-default should be hidden")
+	}
+	if cmd.Flags().Lookup("no-switch") == nil {
+		t.Error("--no-switch flag missing")
+	}
+}

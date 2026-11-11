@@ -183,7 +183,7 @@ Steps:
 4. Validate by calling `GET /api/v1/tenants/{tenant}` with the access token.
 5. Store the OIDC token set in keyring (or plaintext fallback).
 6. Write context to `config.yaml`, including `authMethod: oidc` and any non-default OIDC settings.
-7. Set `currentContext` if `--set-default` was passed, or if there are no other contexts.
+7. Set `currentContext` to this context, unless `--no-switch` was passed and another context is already current. When the current context changes, print `Switched current context to NAME (was OLD).`, without `(was OLD)` when none was current.
 
 For API-key login, pass `--method token`; the CLI prompts for the token with echo suppressed when no `--token` flag is provided.
 
@@ -194,8 +194,7 @@ kupe auth login \
   --method token \
   --tenant acme-corp \
   --token "$KUPE_BOOTSTRAP_TOKEN" \
-  --context prod \
-  --set-default
+  --context prod
 ```
 
 No prompts. Same validation + storage. Exits `3` on invalid token, `4` if tenant doesn't exist, `0` on success.
@@ -206,7 +205,8 @@ Running `kupe auth login` again with a different tenant creates a new context (d
 
 ```bash
 kupe auth login --tenant acme-staging --context staging
-kupe auth login --tenant acme-corp --context prod --set-default
+kupe auth login --tenant acme-corp --context prod      # prod is now current
+kupe auth login --tenant acme-dev --context dev --no-switch   # prod stays current
 kupe config use-context staging   # for a quick switch
 ```
 

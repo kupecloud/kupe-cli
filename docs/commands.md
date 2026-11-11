@@ -161,7 +161,7 @@ Authenticate and store credentials for the current or a new context.
 | `--oidc-base-url URL` | Override Authentik base URL for OIDC login. |
 | `--oidc-client-id ID` | Override the OIDC public client ID. |
 | `--context NAME` | Name for the context in the config file. Default: the tenant name. |
-| `--set-default` | Make this context the current one. Default when only one context exists. |
+| `--no-switch` | Keep the current context and only store the new credentials. The new context still becomes current when no context is set. |
 
 **Examples:**
 
@@ -177,10 +177,13 @@ and enter this code:
     ABCD-EFGH
 
 Logged in to tenant Acme Corp (acme-corp) as billy@acme.com.
+Switched current context to acme-corp (was staging).
 
 # Scripted API-key bootstrap
-$ kupe auth login --method token --tenant acme-corp --token "$KUPE_TOKEN" --context prod --set-default
+$ kupe auth login --method token --tenant acme-corp --token "$KUPE_TOKEN" --context prod
 ```
+
+The logged-in context becomes the current one. When that changes the current context, login prints `Switched current context to NAME (was OLD).` on stderr, leaving out `(was OLD)` when no context was current before; a re-login to the current context prints nothing extra. `--set-default` is still accepted, is hidden and has no effect.
 
 Validates the resulting bearer token by calling `GET /api/v1/tenants/{tenant}`. Stores either the OIDC token set or API key in the OS keyring/plaintext fallback (see [auth.md](./auth.md)).
 

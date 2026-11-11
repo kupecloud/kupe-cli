@@ -25,9 +25,9 @@ func upgradeState(spec, current string, generation, observed int64, phase string
 	if ready {
 		status = "True"
 	}
-	db.Status.Conditions = []client.Condition{{Type: "Ready", Status: status, Reason: reason, Message: message}}
+	db.Status.Conditions = []client.Condition{{Type: "Ready", Status: status, Reason: reason, Message: message, ObservedGeneration: observed}}
 	if inProgress != "" {
-		db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: client.ConditionUpgradeInProgress, Status: "True", Reason: inProgress, Message: message})
+		db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: client.ConditionUpgradeInProgress, Status: "True", Reason: inProgress, Message: message, ObservedGeneration: observed})
 	}
 	return db
 }
@@ -291,7 +291,7 @@ func shortGrace(t *testing.T) {
 
 // addCondition appends a condition to db's status and returns db.
 func addCondition(db *client.Database, typ, status, reason, message string) *client.Database {
-	db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: typ, Status: status, Reason: reason, Message: message})
+	db.Status.Conditions = append(db.Status.Conditions, client.Condition{Type: typ, Status: status, Reason: reason, Message: message, ObservedGeneration: db.Status.ObservedGeneration})
 	return db
 }
 
@@ -380,6 +380,10 @@ func TestUpgrade_CancelGuard(t *testing.T) {
 		db.Status.Conditions[len(db.Status.Conditions)-1].ObservedGeneration = judged
 		return db
 	}
+	blocked := func(held string) *client.Database {
+		db := upgradeState("18", "17.6", 2, 2, client.PhaseDegraded, false, "QuotaExceeded", "no quota left", "")
+		return addCondition(db, client.ConditionUpgradeInProgress, "False", held, "")
+	}
 	tests := []struct {
 		name     string
 		db       *client.Database
@@ -387,9 +391,22 @@ func TestUpgrade_CancelGuard(t *testing.T) {
 		wantText string
 	}{
 		{"after success, before currentVersion moved: refused", succeeded("18", "17.6", 2, 2), cli.ExitMisuse, "already finished"},
-		{"an UpgradeSucceeded judged for an older generation: refused, neutrally", succeeded("18", "17.6", 3, 3), cli.ExitMisuse, "has not judged this upgrade"},
-		{"the change is not applied yet: refused", upgradeState("18", "17.6", 3, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "w", client.ReasonUpgradeWaiting), cli.ExitMisuse, "try again in a moment"},
-		{"nothing recorded to cancel: refused", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""), cli.ExitMisuse, "no upgrade that is waiting"},
+		{"an UpgradeSucceeded judged for an older generation: allowed, as the webhook does (b)", succeeded("18", "17.6", 3, 3), cli.ExitOK, ""},
+		{"no UpgradeInProgress condition yet: allowed, as the webhook does (b)", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""), cli.ExitOK, ""},
+		{"a current condition but the database has not applied the change: refused", func() *client.Database {
+			db := upgradeState("18", "17.6", 3, 2, client.PhaseRunning, false, client.ReasonUpgradeWaiting, "w", client.ReasonUpgradeWaiting)
+			for i := range db.Status.Conditions {
+				db.Status.Conditions[i].ObservedGeneration = 3
+			}
+			return db
+		}(), cli.ExitMisuse, "try again in a moment"},
+		{"a current NoUpgrade: nothing to cancel", addCondition(upgradeState("18", "17.6", 2, 2, client.PhaseRunning, true, "DatabaseHealthy", "", ""),
+			client.ConditionUpgradeInProgress, "False", "NoUpgrade", ""), cli.ExitMisuse, "no upgrade that is waiting"},
+		// (a) A blocker (quota, namespace, cluster, restore) rewrites Ready on a
+		// pass that still stamps UpgradeInProgress: the webhook admits the cancel.
+		{"held rolled back on a blocked pass: allowed (a)", blocked(client.ReasonUpgradeRolledBack), cli.ExitOK, ""},
+		{"held failed on a blocked pass: allowed (a)", blocked(client.ReasonUpgradeFailed), cli.ExitOK, ""},
+		{"held switched off on a blocked pass: allowed (a)", blocked(client.ReasonUpgradeSwitchedOff), cli.ExitOK, ""},
 		{"the stale hold of an earlier upgrade: allowed", addCondition(succeeded("18", "17.6", 2, 2), client.ConditionVersionUnsupported, "True", client.ReasonMajorChangeUnsupported, "x"), cli.ExitOK, ""},
 		{"Ready False UpgradeSwitchedOff: allowed", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, client.ReasonUpgradeSwitchedOff, "off", ""), cli.ExitOK, ""},
 		{"UpgradeInProgress True UpgradeWaiting: allowed", upgradeState("18", "17.6", 2, 2, client.PhaseRunning, false, "x", "w", client.ReasonUpgradeWaiting), cli.ExitOK, ""},

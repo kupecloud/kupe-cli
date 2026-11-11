@@ -46,7 +46,9 @@ type loginOpts struct {
 	method       string
 	oidcBaseURL  string
 	oidcClientID string
-	setDefault   bool
+	noSwitch     bool
+	// setDefault is accepted and ignored: login switches by default now.
+	setDefault bool
 }
 
 func newLoginCmd(f *cli.Factory) *cobra.Command {
@@ -79,7 +81,10 @@ If KUPE_API_TOKEN is already set, this command refuses to run: the env-var
 path is already authenticated and a login would be a no-op.
 
 Context name defaults to the tenant name. Use --context to override when you
-want more than one context per tenant (e.g., two API environments).`,
+want more than one context per tenant (e.g., two API environments).
+
+The logged-in context becomes the current one. Pass --no-switch to keep the
+current context and only store the new credentials.`,
 		Example: `  # Interactive OIDC login on your laptop
   kupe auth login --tenant acme
 
@@ -93,7 +98,7 @@ want more than one context per tenant (e.g., two API environments).`,
   # it without echo. Passing it inline leaves the token in shell history and
   # process listings. For pure CI auth, prefer exporting KUPE_API_TOKEN (no
   # login or config file needed at all).
-  kupe auth login --method token --tenant acme --context prod --set-default`,
+  kupe auth login --method token --tenant acme --context prod`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLogin(cmd, f, opts)
 		},
@@ -106,7 +111,11 @@ want more than one context per tenant (e.g., two API environments).`,
 	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL, with or without scheme (env: KUPE_OIDC_BASE_URL, default "+strings.TrimPrefix(build.OIDCBaseURL, "https://")+"). Issuer is built as {base}/application/o/{client-id}/.")
 	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (env: KUPE_OIDC_CLIENT_ID, default "+build.OIDCClientID+")")
 	cmd.Flags().StringVar(&opts.context, "context", "", "Context name (default: tenant name)")
-	cmd.Flags().BoolVar(&opts.setDefault, "set-default", false, "Mark this context as the current one")
+	cmd.Flags().BoolVar(&opts.noSwitch, "no-switch", false, "Keep the current context instead of switching to this one")
+	// --set-default predates switching by default. Kept hidden so scripts
+	// that pass it keep working.
+	cmd.Flags().BoolVar(&opts.setDefault, "set-default", false, "No effect: login switches to the new context by default")
+	_ = cmd.Flags().MarkHidden("set-default")
 
 	return cmd
 }
@@ -235,9 +244,7 @@ func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *con
 	}
 	cfg.SetContext(ctx)
 
-	if opts.setDefault || len(cfg.Contexts) == 1 || cfg.CurrentContext == "" {
-		cfg.CurrentContext = contextName
-	}
+	previous := switchCurrentContext(cfg, contextName, opts.noSwitch)
 
 	if err := saveConfig(f, cfg); err != nil {
 		return err
@@ -252,6 +259,7 @@ func runTokenLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *con
 	// does need an explicit one because its URL line doesn't end with
 	// blank space.
 	fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
+	printContextSwitch(io, cfg, previous)
 	printPlaintextWarningIfFallback(f, ref)
 	return nil
 }
@@ -337,9 +345,7 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	}
 	cfg.SetContext(ctx)
 
-	if opts.setDefault || len(cfg.Contexts) == 1 || cfg.CurrentContext == "" {
-		cfg.CurrentContext = contextName
-	}
+	previous := switchCurrentContext(cfg, contextName, opts.noSwitch)
 
 	if err := saveConfig(f, cfg); err != nil {
 		return err
@@ -355,8 +361,36 @@ func runOIDCLogin(cmd *cobra.Command, f *cli.Factory, opts *loginOpts, cfg *conf
 	} else {
 		fmt.Fprintf(io.ErrOut, "Logged in to tenant %s.\n", label)
 	}
+	printContextSwitch(io, cfg, previous)
 	printPlaintextWarningIfFallback(f, ref)
 	return nil
+}
+
+// switchCurrentContext makes contextName the current context and returns the
+// context that was current before. Login is an explicit "work in this tenant
+// now", so it switches by default; leaving the old context current sent the
+// next command to a tenant the user had not just logged in to. noSwitch keeps
+// the current context, unless none is set: a config with no current context
+// is unusable without --context.
+func switchCurrentContext(cfg *config.Config, contextName string, noSwitch bool) string {
+	previous := cfg.CurrentContext
+	if !noSwitch || previous == "" {
+		cfg.CurrentContext = contextName
+	}
+	return previous
+}
+
+// printContextSwitch tells the user when login changed the current context,
+// naming the previous one when there was one. Silent when nothing changed.
+func printContextSwitch(io *cli.IOStreams, cfg *config.Config, previous string) {
+	if cfg.CurrentContext == previous {
+		return
+	}
+	if previous == "" {
+		fmt.Fprintf(io.ErrOut, "Switched current context to %s.\n", cfg.CurrentContext)
+		return
+	}
+	fmt.Fprintf(io.ErrOut, "Switched current context to %s (was %s).\n", cfg.CurrentContext, previous)
 }
 
 // printPlaintextWarningIfFallback emits a multi-line warning banner when

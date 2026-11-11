@@ -1452,7 +1452,7 @@ Before it sends anything the command reads the database and asks
 confirm:`. Anything but `yes` exits `2` and sends nothing; without `--yes` a
 non-interactive run exits `2`. Asking for the major the database already runs
 starts no upgrade and asks nothing: it cancels one that was requested and is
-still waiting. A major below the running one exits `2` before any question. `--cancel` never asks.
+requested. A major below the running one exits `2` before any question. `--cancel` never asks.
 
 **Waiting.** The upgrade is done when the phase is `Running`, the operator has
 applied the request (`status.observedGeneration` has reached `generation`),
@@ -1471,7 +1471,7 @@ standby is rebuilding after the upgrade (`Running`, `Ready` `False`).
 | --- | --- | --- |
 | `UpgradeRolledBack` | `1` | The upgrade stopped before it changed any data and the database runs its old major. The hint is `kupe db upgrade NAME --cancel`. |
 | `UpgradeFailed` | `1` | The upgrade failed; the platform's message says whether the database still runs its old major. The hints are `kupe database backup list NAME` and `--cancel`. |
-| `MajorChangeUnsupported` | `7` | The platform stopped offering major upgrades after the request. It holds the database as it is, Degraded, with the platform's message. The hint is `--cancel`. |
+| `UpgradeSwitchedOff` | `7` | The platform stopped offering major upgrades after the request. It holds the database as it is, with the platform's message. The hint is `--cancel`. An older platform reports the hold only as `VersionUnsupported` `True` (reason `MajorChangeUnsupported`); the CLI treats that as the hold unless an upgrade is running (phase `Upgrading`, or Ready `False` with `UpgradeWaiting`, `PreUpgradeBackup` or `Upgrading`) or the database already runs the new major. |
 | `Degraded` for 5 minutes, any other Ready reason | `1` | Not an upgrade failure (a blocked or unhealthy database). If the upgrade had finished (`UpgradeInProgress` `False`, `UpgradeSucceeded`) the message says the database was upgraded to the target but is not healthy. `Degraded` with `UpgradeWaiting` or `PreUpgradeBackup` is progress. |
 | `spec.version` no longer the target | `1` | Another request changed or cancelled the version. |
 
@@ -1480,12 +1480,18 @@ back with `--cancel`; run the upgrade again after that. A database that starts
 being deleted ends the wait with exit `1`. A timeout exits `8` and an
 interrupt `130`; the upgrade was requested and carries on.
 
-**Cancel.** `--cancel` reads the major of `status.currentVersion` and sets the
+**Cancel.** `--cancel` (and `--version` with the running major) reads the major of `status.currentVersion` and sets the
 version to it, then prints the database without waiting. It cancels an
 upgrade that is waiting, taking its backup, rolled back, or failed, and the
 platform accepts it whether or not it currently offers upgrades. It exits `2`
 when the database is already set to the major it runs ("nothing to cancel") or
-does not report a running version yet. Once the database is offline and moving
+does not report a running version yet. It also exits `2` and sends nothing
+when the platform has not applied the last change yet (`observedGeneration`
+below `generation`: try again in a moment), when the upgrade has already
+finished (`UpgradeInProgress` `False`, `UpgradeSucceeded`, unless the
+switched-off hold applies), or when nothing is waiting, rolled back, failed or
+held: an older platform could read the cancel as undoing a finished upgrade.
+Once the database is offline and moving
 its data the platform answers `database_upgrade_in_progress` (exit `5`).
 
 The detail view (`kupe database get NAME`) has an `Upgrade` row while an

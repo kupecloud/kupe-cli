@@ -1187,7 +1187,7 @@ reports none, which reads as `off`. Whether the pooler is serving is the
 `defaults` while the database keeps the platform defaults (7 days, `Daily`).
 `Last Backup` is when the newest full backup finished (`never` until the first
 one completes), `Restore Window` the oldest and newest points the database can
-be restored to, and `Backup Size` the storage every full backup and the WAL
+be restored to (empty until restore windows are available), and `Backup Size` the storage every full backup and the WAL
 kept take up, manual backups included, in binary units (empty until measured).
 
 Exits `4` if the database doesn't exist.
@@ -1291,7 +1291,7 @@ while reading its storage or the API refuses the restore.
 | Refusal (`code`) | Exit | Hint |
 | --- | --- | --- |
 | The source does not exist (`restore_source_not_found`, 400) | `2` | `kupe database backup list` or `kupe database list` |
-| The backup has not completed, or the database has no restore window yet (`restore_source_not_ready`, 409) | `5` | check the source with `kupe database backup get` or `kupe database get` |
+| The backup has not completed, the database has no finished backup yet (latest point), or has no restore window yet (`--point-in-time`) (`restore_source_not_ready`, 409) | `5` | check the source with `kupe database backup get` or `kupe database get`; leave out `--point-in-time` for the latest point |
 | `--point-in-time` outside the restore window (`restore_point_outside_window`, 400) | `2` | pick a moment inside the `Restore Window`, or leave the flag out |
 | `--version` other than the source's major (`restore_version_mismatch`, 400) | `2` | leave out `--version`, or give the source's |
 | `--storage` less than the source's (`restore_storage_too_small`, 400) | `2` | leave out `--storage`, or give at least the source's |

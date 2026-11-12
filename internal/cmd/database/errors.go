@@ -78,9 +78,14 @@ func translateRestoreErr(err error, source *client.DatabaseSource) error {
 	case client.RestoreCodeSourceNotFound:
 		return sourceNotFound(err, source)
 	case client.RestoreCodeSourceNotReady:
-		hint := "a database can be restored once its first backup has completed and it has a restore window\n" + check
-		if source.Backup != "" {
+		var hint string
+		switch {
+		case source.Backup != "":
 			hint = "a backup can be restored once it is Completed\n" + check
+		case source.PointInTime != "":
+			hint = "restoring to a point in time needs a restore window, which is not available yet; leave out --point-in-time to restore the latest point once a backup has completed\n" + check
+		default:
+			hint = "the latest point can be restored once the database has a finished backup\n" + check
 		}
 		return cli.WrapAPI(cli.ExitConflict, "the restore source is not ready yet", err).WithHint(hint)
 	case client.RestoreCodePointOutsideWindow:

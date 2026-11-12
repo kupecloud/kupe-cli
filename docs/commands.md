@@ -1173,7 +1173,7 @@ Deletion Protection:  on
 Pooler:               on: transaction, 1 instance
 Backups:              14 days, DailyThenWeekly
 Last Backup:          2026-10-12T02:14:07Z (8h ago)
-Restore Window:       2026-10-09T10:02:41Z to 2026-10-12T10:41:33Z
+Restore Window:
 Backup Size:          3.2 GiB
 Created:              2026-10-09T10:00:00Z (3d ago)
 ```
@@ -1187,8 +1187,9 @@ reports none, which reads as `off`. Whether the pooler is serving is the
 `defaults` while the database keeps the platform defaults (7 days, `Daily`).
 `Last Backup` is when the newest full backup finished (`never` until the first
 one completes), `Restore Window` the oldest and newest points the database can
-be restored to (empty until restore windows are available), and `Backup Size` the storage every full backup and the WAL
-kept take up, manual backups included, in binary units (empty until measured).
+be restored to (empty until restore windows are available), and `Backup Size`
+the storage every full backup and the WAL kept take up, manual backups
+included, in binary units (empty until measured).
 
 Exits `4` if the database doesn't exist.
 
@@ -1266,9 +1267,9 @@ kupe db create orders-db --cpu 500m --memory 1Gi --storage 10Gi --pooler --pool-
 [`kupe database backup`](#kupe-database-backup--manual-backups)) instead of
 starting it empty: it holds the data as it was when the backup completed. The
 database the backup was taken of may have been deleted. `--from DATABASE`
-restores it from another database as it was at `--point-in-time`, a moment
-inside that database's restore window (the `Restore Window` row of
-`kupe database get`); without `--point-in-time`, the latest point. The request
+restores it from another database at its latest point. Restoring to a point
+in time (`--point-in-time`, a moment inside the database's restore window, the
+`Restore Window` row of `kupe database get`) is not available yet. The request
 sends `source` (`backup`, or `database` and `pointInTime`) and no `version`
 unless `--version` is given.
 
@@ -1291,7 +1292,7 @@ while reading its storage or the API refuses the restore.
 | Refusal (`code`) | Exit | Hint |
 | --- | --- | --- |
 | The source does not exist (`restore_source_not_found`, 400) | `2` | `kupe database backup list` or `kupe database list` |
-| The backup has not completed, the database has no finished backup yet (latest point), or has no restore window yet (`--point-in-time`) (`restore_source_not_ready`, 409) | `5` | check the source with `kupe database backup get` or `kupe database get`; leave out `--point-in-time` for the latest point |
+| The backup has not completed, the database has no usable backup yet (latest point; this can take a few minutes after the first backup finishes), or has no restore window yet (`--point-in-time`) (`restore_source_not_ready`, 409) | `5` | check the source with `kupe database backup get` or `kupe database get`; leave out `--point-in-time` for the latest point |
 | `--point-in-time` outside the restore window (`restore_point_outside_window`, 400) | `2` | pick a moment inside the `Restore Window`, or leave the flag out |
 | `--version` other than the source's major (`restore_version_mismatch`, 400) | `2` | leave out `--version`, or give the source's |
 | `--storage` less than the source's (`restore_storage_too_small`, 400) | `2` | leave out `--storage`, or give at least the source's |

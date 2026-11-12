@@ -1986,7 +1986,7 @@ func TestCreate_RestoreRefusals(t *testing.T) {
 			cli.ExitConflict, "kupe database backup get b1"},
 		{"latest without a usable backup", []string{"--from", "orders-db"},
 			&client.APIError{StatusCode: 409, Code: client.RestoreCodeSourceNotReady, Message: `database "orders-db" has no usable backup yet`},
-			cli.ExitConflict, "the latest point can be restored once the database has a finished backup\ncheck it:  kupe database get orders-db"},
+			cli.ExitConflict, "restoring to the latest point needs a usable backup, which can take a few minutes after the first backup finishes; try again shortly\ncheck it:  kupe database get orders-db"},
 		{"point in time without a restore window", []string{"--from", "orders-db", "--point-in-time", "2026-10-30T09:00:00Z"},
 			&client.APIError{StatusCode: 409, Code: client.RestoreCodeSourceNotReady, Message: `database "orders-db" has no restore window yet`},
 			cli.ExitConflict, "needs a restore window, which is not available yet; leave out --point-in-time"},

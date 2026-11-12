@@ -64,8 +64,9 @@ does not offer backups, either flag is refused.
 starting it empty. --from restores it from another database as it was at
 --point-in-time, a moment inside that database's restore window (RFC 3339,
 for example 2026-10-30T09:00:00Z); without --point-in-time, the latest point.
-A point in time needs a restore window, which databases do not have yet; the
-latest point needs a finished backup.
+Restoring to a point in time is not available yet; restoring to the latest
+point needs a usable backup, which can take a few minutes after the first
+backup finishes.
 The new database runs the source's major version: leave out --version, or
 give that one. Its storage must be at least the source's; --storage defaults
 to the source's. The source is unchanged, and the new database counts against

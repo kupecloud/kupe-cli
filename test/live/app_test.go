@@ -97,11 +97,11 @@ func cleanupApp(t *testing.T, name, env string) {
 		return
 	}
 	_ = runCLI(t, "app", "env", "update", name, env, "--deletion-protection=false", "--wait=false")
-	// env delete waits for the environment to go by default; the poll below is
-	// the bound if that wait gives up or the delete was refused once.
+	// Deletes run with --wait=false so these polls, not the CLI's 30m default
+	// wait, bound each step inside the go test timeout.
 	deadline := time.Now().Add(15 * time.Minute)
 	for runCLI(t, "app", "env", "get", name, env).exitCode != 4 {
-		_ = runCLI(t, "app", "env", "delete", name, env, "--yes")
+		_ = runCLI(t, "app", "env", "delete", name, env, "--yes", "--wait=false")
 		if time.Now().After(deadline) {
 			t.Errorf("cleanup: environment %s/%s is still present; app %s left behind", name, env, name)
 			return
@@ -111,7 +111,7 @@ func cleanupApp(t *testing.T, name, env string) {
 	_ = runCLI(t, "app", "update", name, "--deletion-protection=false")
 	deadline = time.Now().Add(5 * time.Minute)
 	for {
-		if r := runCLI(t, "app", "delete", name, "--yes"); r.exitCode == 0 || r.exitCode == 4 {
+		if r := runCLI(t, "app", "delete", name, "--yes", "--wait=false"); r.exitCode == 0 || r.exitCode == 4 {
 			return
 		}
 		if time.Now().After(deadline) {

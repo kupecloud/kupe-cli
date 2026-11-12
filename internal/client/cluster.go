@@ -61,6 +61,12 @@ type ClusterStatus struct {
 	Phase              string `json:"phase,omitempty" yaml:"phase,omitempty"`
 	KubernetesVersion  string `json:"kubernetesVersion,omitempty" yaml:"kubernetesVersion,omitempty"`
 	Endpoint           string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
+	// VersionEndOfSupport is the YYYY-MM-DD end-of-support date of the
+	// cluster's Kubernetes minor. Empty when none is set.
+	VersionEndOfSupport string `json:"versionEndOfSupport,omitempty" yaml:"versionEndOfSupport,omitempty"`
+	// Conditions are the operator's status conditions. The CLI reads
+	// VersionEndOfSupport (reason + message) from them.
+	Conditions []ClusterCondition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 	// HAConfigured is true once the operator has confirmed both 3/3 apiserver
 	// replicas AND 3/3 deployed-etcd replicas are Ready. Etcd readiness is
 	// required because the OSS deployed-etcd path runs etcd in its own
@@ -82,6 +88,19 @@ type ClusterStatus struct {
 	HAEtcdReplicasReady   int32 `json:"haEtcdReplicasReady,omitempty" yaml:"haEtcdReplicasReady,omitempty"`
 	HAEtcdReplicasDesired int32 `json:"haEtcdReplicasDesired,omitempty" yaml:"haEtcdReplicasDesired,omitempty"`
 }
+
+// ClusterCondition is one entry of status.conditions.
+type ClusterCondition struct {
+	Type               string `json:"type" yaml:"type"`
+	Status             string `json:"status,omitempty" yaml:"status,omitempty"`
+	Reason             string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	Message            string `json:"message,omitempty" yaml:"message,omitempty"`
+	LastTransitionTime string `json:"lastTransitionTime,omitempty" yaml:"lastTransitionTime,omitempty"`
+}
+
+// ConditionVersionEndOfSupport is the condition type the operator sets for
+// the Kubernetes end-of-support state.
+const ConditionVersionEndOfSupport = "VersionEndOfSupport"
 
 // CreateClusterRequest is the POST body.
 type CreateClusterRequest struct {

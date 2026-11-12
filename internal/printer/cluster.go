@@ -53,6 +53,7 @@ func clusterDetailColumns(colorEnabled bool) Columns {
 			return ux.ColorPhase(phaseOf(cluster(v)), colorEnabled)
 		}},
 		{Name: "High Availability", Get: func(v any) string { return haDetailDisplay(cluster(v)) }},
+		{Name: "Version Support", OmitEmpty: true, Get: func(v any) string { return versionSupportDisplay(cluster(v)) }},
 		{Name: "Endpoint", Get: func(v any) string { return statusOf(cluster(v)).Endpoint }},
 		{Name: "CPU", Get: func(v any) string { return resourceOf(cluster(v)).CPU }},
 		{Name: "Memory", Get: func(v any) string { return resourceOf(cluster(v)).Memory }},
@@ -154,6 +155,52 @@ func haReadyCount(st client.ClusterStatus) string {
 	}
 	return "(cp " + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ", etcd ") +
 		itoaSuffix(int(st.HAEtcdReplicasReady), "/") + itoaSuffix(int(st.HAEtcdReplicasDesired), ")")
+}
+
+// versionSupportDisplay is the `cluster get` Kubernetes support line, built
+// from the structured end-of-support date and the VersionEndOfSupport
+// condition's reason; the message is used only when there is no date (the
+// Unsupported reason). Empty when neither the date nor the condition is set.
+func versionSupportDisplay(c *client.Cluster) string {
+	st := statusOf(c)
+	var cond *client.ClusterCondition
+	for i := range st.Conditions {
+		if st.Conditions[i].Type == client.ConditionVersionEndOfSupport {
+			cond = &st.Conditions[i]
+			break
+		}
+	}
+	date := st.VersionEndOfSupport
+	reason := ""
+	if cond != nil {
+		reason = cond.Reason
+	}
+	switch reason {
+	case "EndOfSupportReached":
+		if date != "" {
+			return "ended " + date + ": upgrade the cluster to a newer version"
+		}
+		return "ended: upgrade the cluster to a newer version"
+	case "EndOfSupportApproaching":
+		if date != "" {
+			return "ends " + date + ": upgrade the cluster before then"
+		}
+		return "end of support approaching: upgrade the cluster before it ends"
+	case "Unsupported":
+		if cond.Message != "" {
+			return cond.Message
+		}
+		return "no longer supported"
+	case "Supported":
+		if date != "" {
+			return "supported until " + date
+		}
+		return "supported"
+	}
+	if date != "" {
+		return "ends " + date
+	}
+	return ""
 }
 
 func cluster(v any) *client.Cluster { return rowOf[client.Cluster](v) }

@@ -432,18 +432,21 @@ Get a single cluster. Default renders a compact details block; use `-o yaml` or 
 
 ```bash
 $ kupe cluster get prod
-Name:         prod
-Display Name: Prod
-Type:         shared
-Version:      1.32 (running 1.32.3)
-Phase:        Running
-Endpoint:     https://prod.acme.clusters.kupe.cloud
+Name:            prod
+Display Name:    Prod
+Type:            shared
+Version:         1.32 (running 1.32.3)
+Phase:           Running
+Version Support: supported until 2027-02-28
+Endpoint:        https://prod.acme.clusters.kupe.cloud
 Resources:
   CPU:        4
   Memory:     16Gi
   Storage:    100Gi
-Created:      2026-04-08T09:00:00Z (12d ago)
+Created:         2026-04-08T09:00:00Z (12d ago)
 ```
+
+`Version Support` shows the Kubernetes end-of-support state and date (`supported until`, `ends`, `ended`, or the platform's message when the version is no longer supported). It is omitted when the platform sets none. `-o json` / `-o yaml` carry `status.versionEndOfSupport` and the `VersionEndOfSupport` entry in `status.conditions`.
 
 Exits `4` if the cluster doesn't exist.
 

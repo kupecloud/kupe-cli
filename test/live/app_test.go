@@ -26,12 +26,7 @@ func TestAppLifecycle(t *testing.T) {
 		t.Skip("KUPE_LIVE_APP_CLUSTER is unset; app lifecycle needs a designated existing cluster")
 	}
 	name := uniqueName("app")
-	t.Cleanup(func() {
-		_ = runCLI(t, "app", "env", "update", name, "production", "--deletion-protection=false", "--wait=false")
-		_ = runCLI(t, "app", "env", "delete", name, "production", "--yes")
-		_ = runCLI(t, "app", "update", name, "--deletion-protection=false")
-		_ = runCLI(t, "app", "delete", name, "--yes")
-	})
+	t.Cleanup(func() { cleanupApp(t, name, "production") })
 	runCLIExpectOK(t, "app", "create", name, "--no-deletion-protection")
 	runCLIExpectOK(t, "app", "env", "create", name, "production", "--cluster", cluster, "--image", helloAppImage, "--port", "8080", "--no-deletion-protection")
 	var got map[string]any
@@ -81,9 +76,48 @@ func TestAppLifecycle(t *testing.T) {
 		t.Fatalf("recovered wait exit=%d stderr=%s", failed.exitCode, failed.stderr)
 	}
 	r := runCLI(t, "cluster", "delete", cluster, "--yes")
-	if r.exitCode != 5 || !strings.Contains(r.stderr, "CLUSTER_IN_USE") {
+	// The CLI prints the server's message, never its error code, so assert the
+	// exit (5, conflict) and that the message names the blocking environment.
+	if r.exitCode != 5 || !strings.Contains(r.stderr, "used by app environments") || !strings.Contains(r.stderr, name+"/production") {
 		t.Fatalf("cluster delete exit=%d stderr=%s", r.exitCode, r.stderr)
 	}
 	runCLIExpectOK(t, "app", "env", "delete", name, "production", "--yes")
+	waitForExit(t, 4, 10*time.Minute, "app", "env", "get", name, "production")
 	runCLIExpectOK(t, "app", "delete", name, "--yes")
+	waitForExit(t, 4, 5*time.Minute, "app", "get", name)
+}
+
+// cleanupApp removes the app and its environment without leaving either
+// behind. App delete is refused while an environment is still deleting, so
+// the environment must be gone (env get exits 4) before the app is deleted.
+// Each step is bounded; a leftover app is reported as a test error.
+func cleanupApp(t *testing.T, name, env string) {
+	t.Helper()
+	if runCLI(t, "app", "get", name).exitCode == 4 {
+		return
+	}
+	_ = runCLI(t, "app", "env", "update", name, env, "--deletion-protection=false", "--wait=false")
+	// env delete waits for the environment to go by default; the poll below is
+	// the bound if that wait gives up or the delete was refused once.
+	deadline := time.Now().Add(15 * time.Minute)
+	for runCLI(t, "app", "env", "get", name, env).exitCode != 4 {
+		_ = runCLI(t, "app", "env", "delete", name, env, "--yes")
+		if time.Now().After(deadline) {
+			t.Errorf("cleanup: environment %s/%s is still present; app %s left behind", name, env, name)
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
+	_ = runCLI(t, "app", "update", name, "--deletion-protection=false")
+	deadline = time.Now().Add(5 * time.Minute)
+	for {
+		if r := runCLI(t, "app", "delete", name, "--yes"); r.exitCode == 0 || r.exitCode == 4 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("cleanup: app %s could not be deleted; remove it with kupe app delete %s --yes", name, name)
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
 }

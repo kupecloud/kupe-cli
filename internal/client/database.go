@@ -236,7 +236,8 @@ const (
 	// database does not exist (field spec.source).
 	RestoreCodeSourceNotFound = "restore_source_not_found"
 	// RestoreCodeSourceNotReady: 409 from a restore of a backup that has
-	// not completed, or of a database with no restore window yet.
+	// not completed, of a database with no usable backup yet (latest point), or
+	// of one with no restore window yet (point in time).
 	RestoreCodeSourceNotReady = "restore_source_not_ready"
 	// RestoreCodePointOutsideWindow: 400 from a restore point outside the
 	// source database's restore window (field spec.source.pointInTime).

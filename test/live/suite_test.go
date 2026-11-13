@@ -108,12 +108,9 @@ func buildBinary() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root := wd
-	for filepath.Base(root) != "kupe-cli" && root != "/" {
-		root = filepath.Dir(root)
-	}
-	if root == "/" {
-		return "", fmt.Errorf("could not locate kupe-cli module root from %s", wd)
+	root, err := findModuleRoot(wd)
+	if err != nil {
+		return "", err
 	}
 
 	cmd := exec.Command("go", "build", "-o", out, "./cmd/kupe") //#nosec G204 -- fixed args under test

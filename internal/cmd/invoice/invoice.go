@@ -28,7 +28,7 @@ two periods start on the same date. Always list invoices rather than
 constructing names. -o json surfaces the line items (what was used, and
 how much) for downstream scripts or spreadsheets.
 
-No output format shows an amount: no totals, tax, credits or prices.`,
+No output format shows an amount: no totals, tax or credits.`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newGetCmd(f))

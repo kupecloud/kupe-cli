@@ -2316,7 +2316,7 @@ form (`<tenant>-<YYYYMMDD-HHMMSS>`) is used when two periods start on the
 same date. Always list invoices rather than constructing names — run
 `kupe invoice list` before `kupe invoice get`.
 
-No output format shows an amount: no totals, tax, credits or prices.
+No output format shows an amount: no totals, tax or credits.
 
 ### `kupe invoice list`
 
@@ -2344,7 +2344,7 @@ Line Items:    12 (use -o json for details)
 
 Line items (per-resource usage rows with `description`, `cluster`,
 `resourceType` and `quantity`) are only meaningfully rendered as structured
-output — `-o json` or `-o yaml`. They carry no price or amount.
+output — `-o json` or `-o yaml`. They carry no amount.
 
 ```bash
 kupe invoice get acme-20260301 -o json | jq '.status.lineItems[] | {resourceType, quantity}'

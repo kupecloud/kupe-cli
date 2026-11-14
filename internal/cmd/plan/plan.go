@@ -61,7 +61,7 @@ func newGetCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get NAME",
 		Short: "Show one plan by name",
-		Long: `Show a single plan's resource limits, pricing, and feature flags.
+		Long: `Show a single plan's resource limits and feature flags.
 NAME is the plan slug (e.g. starter, pro, business). Run
 "kupe plan list" to see available plan names.`,
 		Args:    cobra.ExactArgs(1),

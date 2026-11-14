@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 )
@@ -298,4 +300,30 @@ func TestDeployIsOnlyAnAppCommand(t *testing.T) {
 	if err != nil || command.CommandPath() != "kupe app deploy" || len(command.Aliases) != 0 {
 		t.Fatalf("command=%v err=%v", command, err)
 	}
+}
+
+// No command text points tenants at prices (PRICE-33): the CLI shows no
+// amount and links to no pricing page. Walks Short, Long, Example and every
+// flag's usage across the whole tree, hidden commands and flags included.
+func TestNoPricingInHelpText(t *testing.T) {
+	banned := regexp.MustCompile(`(?i)kupe\.cloud/pricing|kupe\.cloud/calculator|£|pricing|price`)
+	io, _, _ := cli.Test()
+	root := newRootCmd(io, &cli.GlobalFlags{})
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		check := func(field, text string) {
+			if m := banned.FindString(text); m != "" {
+				t.Errorf("command %q %s mentions %q: %s", c.CommandPath(), field, m, text)
+			}
+		}
+		check("Short", c.Short)
+		check("Long", c.Long)
+		check("Example", c.Example)
+		c.LocalFlags().VisitAll(func(f *pflag.Flag) { check("flag --"+f.Name+" usage", f.Usage) })
+		c.PersistentFlags().VisitAll(func(f *pflag.Flag) { check("flag --"+f.Name+" usage", f.Usage) })
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(root)
 }

@@ -228,3 +228,26 @@ func runCmd(cmd interface {
 var _ = fmt.Sprintf
 var _ = ux.ErrWaitTimeout
 var _ = errors.Is
+
+// TestCreateHANoticeKeepsChargeNoteWithoutPricing pins the HA pre-create
+// notice (PRICE-33): it states the hourly charge and when it accrues, and
+// points at no pricing page.
+func TestCreateHANoticeKeepsChargeNoteWithoutPricing(t *testing.T) {
+	fake := clienttest.New()
+	f := factoryWith(t, fake)
+
+	err := runCmd(newCreateCmd(f), "prod", "--high-availability", "--cpu-limit", "2", "--memory-limit", "8Gi",
+		"--storage-limit", "50Gi", "--wait=false")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got := f.IOStreams.ErrOut.(interface{ String() string }).String()
+	if !strings.Contains(got, "HA adds an hourly charge to your bill. It accrues from when 3/3 replicas are ready") {
+		t.Errorf("HA notice lost its charge note: %q", got)
+	}
+	for _, banned := range []string{"pricing", "kupe.cloud", "£"} {
+		if strings.Contains(strings.ToLower(got), banned) {
+			t.Errorf("HA notice mentions %q: %q", banned, got)
+		}
+	}
+}

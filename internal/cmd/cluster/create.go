@@ -100,8 +100,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 			if opts.highAvailability {
 				fmt.Fprintf(f.IOStreams.ErrOut,
 					"Creating %q with HA control plane.\n"+
-						"HA adds an hourly charge to your bill. It accrues from when 3/3 replicas are ready, not from cluster creation.\n"+
-						"See https://kupe.cloud/pricing for the exact rate on your tier.\n\n",
+						"HA adds an hourly charge to your bill. It accrues from when 3/3 replicas are ready, not from cluster creation.\n\n",
 					name)
 			}
 
@@ -119,7 +118,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "CPU limit for the cluster (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "Memory limit for the cluster (e.g. 8Gi, 512Mi)")
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "Storage limit for the cluster (e.g. 50Gi)")
-	cmd.Flags().BoolVar(&opts.highAvailability, "high-availability", false, "Provision a 3-replica HA control plane. Adds an hourly charge (see https://kupe.cloud/pricing for the rate).")
+	cmd.Flags().BoolVar(&opts.highAvailability, "high-availability", false, "Provision a 3-replica HA control plane. Adds an hourly charge.")
 	// --ha is a short alias people will reach for in shell prompts. Hidden so
 	// it doesn't crowd --help; documented in the --high-availability flag help.
 	cmd.Flags().BoolVar(&opts.highAvailability, "ha", false, "Alias for --high-availability")

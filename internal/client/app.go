@@ -25,8 +25,9 @@ type AppRelease struct {
 
 // Runtime is flat on the wire: image is runtime.image, with no web wrapper.
 type AppReleaseRuntime struct {
-	AppWeb  `yaml:",inline"`
-	Secrets []AppReleaseSecret `json:"secrets" yaml:"secrets"`
+	AppWeb    `yaml:",inline"`
+	Secrets   []AppReleaseSecret `json:"secrets" yaml:"secrets"`
+	Databases []AppDatabase      `json:"databases" yaml:"databases"`
 }
 type AppReleaseSecret struct {
 	Name string   `json:"name" yaml:"name"`
@@ -142,6 +143,7 @@ type AppEnvironment struct {
 	Web                *AppWeb               `json:"web" yaml:"web"`
 	Secrets            []AppSecret           `json:"secrets" yaml:"secrets"`
 	Domains            []string              `json:"domains" yaml:"domains"`
+	Databases          []AppDatabase         `json:"databases" yaml:"databases"`
 	Status             *AppEnvironmentStatus `json:"status,omitempty" yaml:"status,omitempty"`
 }
 type AppQuantities struct {
@@ -185,25 +187,48 @@ type AppHealthChecks struct {
 	Readiness *AppProbe `json:"readiness,omitempty" yaml:"readiness,omitempty"`
 	Liveness  *AppProbe `json:"liveness,omitempty" yaml:"liveness,omitempty"`
 }
+
+// AppDatabase connects a database in the tenant to an environment. Env names
+// the variable that carries the connection URL; the API defaults it to
+// DATABASE_URL.
+type AppDatabase struct {
+	Name            string `json:"name" yaml:"name"`
+	Database        string `json:"database" yaml:"database"`
+	LogicalDatabase string `json:"logicalDatabase,omitempty" yaml:"logicalDatabase,omitempty"`
+	Env             string `json:"env" yaml:"env"`
+}
+
+// AppDatabaseStatus reports one connection. The Secret fields name the
+// delivered Secrets, never their values.
+type AppDatabaseStatus struct {
+	Name            string `json:"name" yaml:"name"`
+	Env             string `json:"env" yaml:"env"`
+	Phase           string `json:"phase" yaml:"phase"`
+	Message         string `json:"message" yaml:"message"`
+	RuntimeSecret   string `json:"runtimeSecret" yaml:"runtimeSecret"`
+	MigrationSecret string `json:"migrationSecret" yaml:"migrationSecret"`
+}
 type AppSecret struct {
 	Name string `json:"name" yaml:"name"`
 	Path string `json:"path" yaml:"path"`
 }
 type CreateAppEnvironmentRequest struct {
-	Environment        string      `json:"environment" yaml:"environment"`
-	Cluster            string      `json:"cluster" yaml:"cluster"`
-	DeletionProtection *bool       `json:"deletionProtection,omitempty" yaml:"deletionProtection,omitempty"`
-	Web                *AppWeb     `json:"web" yaml:"web"`
-	Secrets            []AppSecret `json:"secrets,omitempty" yaml:"secrets,omitempty"`
-	Domains            []string    `json:"domains,omitempty" yaml:"domains,omitempty"`
+	Environment        string        `json:"environment" yaml:"environment"`
+	Cluster            string        `json:"cluster" yaml:"cluster"`
+	DeletionProtection *bool         `json:"deletionProtection,omitempty" yaml:"deletionProtection,omitempty"`
+	Web                *AppWeb       `json:"web" yaml:"web"`
+	Secrets            []AppSecret   `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+	Domains            []string      `json:"domains,omitempty" yaml:"domains,omitempty"`
+	Databases          []AppDatabase `json:"databases,omitempty" yaml:"databases,omitempty"`
 }
 type PatchAppEnvironmentRequest struct {
 	// Web is the complete effective configuration. Its absent checks and probe
 	// alternatives must be explicit nulls in the recursive merge patch.
-	Web                *AppWeb      `json:"web,omitempty"`
-	Secrets            *[]AppSecret `json:"secrets,omitempty"`
-	Domains            *[]string    `json:"domains,omitempty"`
-	DeletionProtection *bool        `json:"deletionProtection,omitempty"`
+	Web                *AppWeb        `json:"web,omitempty"`
+	Secrets            *[]AppSecret   `json:"secrets,omitempty"`
+	Domains            *[]string      `json:"domains,omitempty"`
+	Databases          *[]AppDatabase `json:"databases,omitempty"`
+	DeletionProtection *bool          `json:"deletionProtection,omitempty"`
 }
 
 func (p PatchAppEnvironmentRequest) MarshalJSON() ([]byte, error) {
@@ -251,6 +276,7 @@ type AppEnvironmentStatus struct {
 	Recovery              *AppRecovery         `json:"recovery" yaml:"recovery"`
 	Domains               []AppDomainStatus    `json:"domains" yaml:"domains"`
 	Secrets               []AppSecretStatus    `json:"secrets" yaml:"secrets"`
+	Databases             []AppDatabaseStatus  `json:"databases" yaml:"databases"`
 	Conditions            []Condition          `json:"conditions" yaml:"conditions"`
 	ObservedGeneration    int64                `json:"observedGeneration" yaml:"observedGeneration"`
 }

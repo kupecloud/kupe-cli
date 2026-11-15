@@ -47,6 +47,17 @@ func appEnvironmentDetailColumns(color bool) Columns {
 	add("Desired web", func(e *client.AppEnvironment) string { return appJSON(e.Web) })
 	add("Vault references", func(e *client.AppEnvironment) string { return appJSON(e.Secrets) })
 	add("Desired domains", func(e *client.AppEnvironment) string { return strings.Join(e.Domains, ", ") })
+	add("Databases", func(e *client.AppEnvironment) string {
+		var rows []string
+		for _, d := range e.Databases {
+			target := d.Database
+			if d.LogicalDatabase != "" {
+				target += "/" + d.LogicalDatabase
+			}
+			rows = append(rows, d.Name+" "+target+" "+d.Env)
+		}
+		return strings.Join(rows, "\n")
+	})
 	add("Namespace", func(e *client.AppEnvironment) string { return valueOf(e.Status).Namespace })
 	add("Deployment", func(e *client.AppEnvironment) string {
 		d := valueOf(valueOf(e.Status).Deployment)
@@ -72,6 +83,17 @@ func appEnvironmentDetailColumns(color bool) Columns {
 			row := s.Name + " " + s.Phase
 			if len(s.MissingKeys) > 0 {
 				row += " (missing: " + strings.Join(s.MissingKeys, ", ") + ")"
+			}
+			rows = append(rows, row)
+		}
+		return strings.Join(rows, "\n")
+	})
+	add("Database status", func(e *client.AppEnvironment) string {
+		var rows []string
+		for _, d := range valueOf(e.Status).Databases {
+			row := d.Name + " " + d.Phase
+			if d.Message != "" {
+				row += " (" + d.Message + ")"
 			}
 			rows = append(rows, row)
 		}

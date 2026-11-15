@@ -135,7 +135,7 @@ func TestEnvironmentDeleteNeedsConfirmationAndDoesNotTreatDisabledAsGone(t *test
 }
 
 func TestDeleteRefusalHints(t *testing.T) {
-	for _, tc := range []struct{ code, hint string }{{"deletion_protected", "--deletion-protection=false"}, {"namespace_in_use", "bindings"}} {
+	for _, tc := range []struct{ code, hint string }{{"deletion_protected", "--deletion-protection=false"}, {"namespace_in_use", "database bindings"}} {
 		t.Run(tc.code, func(t *testing.T) {
 			fake := clienttest.New()
 			fake.DeleteAppEnvironmentErr = &client.APIError{StatusCode: 409, Code: tc.code, Message: "operator refusal"}

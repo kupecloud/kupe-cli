@@ -9,6 +9,7 @@ import (
 	"io"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -144,7 +145,7 @@ func mergeEnvironmentMap(current, patch map[string]any) {
 func environmentRequest(current *client.AppEnvironment) client.CreateAppEnvironmentRequest {
 	if current != nil {
 		p := current.DeletionProtection
-		return client.CreateAppEnvironmentRequest{Environment: current.Environment, Cluster: current.Cluster, DeletionProtection: &p, Web: current.Web, Secrets: current.Secrets, Domains: current.Domains}
+		return client.CreateAppEnvironmentRequest{Environment: current.Environment, Cluster: current.Cluster, DeletionProtection: &p, Web: current.Web, Secrets: current.Secrets, Domains: current.Domains, Databases: current.Databases}
 	}
 	n := int32(1)
 	return client.CreateAppEnvironmentRequest{Web: &client.AppWeb{Replicas: &n, Resources: &client.AppResources{Requests: client.AppQuantities{CPU: "250m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "1", Memory: "512Mi"}}}}
@@ -231,6 +232,9 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 		req.DeletionProtection = &o.protection
 	}
 	if err := applyEnvironmentLists(&req, o); err != nil {
+		return req, err
+	}
+	if err := applyDatabaseFlags(&req, o); err != nil {
 		return req, err
 	}
 	if cmd.Flags().Changed("readiness") {
@@ -328,6 +332,141 @@ func applyEnvironmentLists(req *client.CreateAppEnvironmentRequest, o *envOption
 			}
 		}
 		req.Domains = kept
+	}
+	return nil
+}
+
+const (
+	databaseHelp       = "Connect a database: CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]. VARIABLE defaults to DATABASE_URL"
+	databaseUsage      = "--database must use CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]"
+	defaultDatabaseEnv = "DATABASE_URL"
+	envConflictHint    = "set the variable with --database CONNECTION=DATABASE:VARIABLE"
+)
+
+// parseDatabaseFlag splits CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]:
+// once on "=", then the right side once on ":" and the left once on "/".
+// env is empty when no variable was given.
+func parseDatabaseFlag(value string) (client.AppDatabase, error) {
+	name, rest, ok := strings.Cut(value, "=")
+	if !ok || name == "" {
+		return client.AppDatabase{}, cli.MisuseError(databaseUsage)
+	}
+	target, env, hasEnv := strings.Cut(rest, ":")
+	database, logical, hasLogical := strings.Cut(target, "/")
+	if database == "" || (hasEnv && env == "") || (hasLogical && logical == "") {
+		return client.AppDatabase{}, cli.MisuseError(databaseUsage)
+	}
+	return client.AppDatabase{Name: name, Database: database, LogicalDatabase: logical, Env: env}, nil
+}
+
+// applyDatabaseFlags merges --database and --remove-database into the list
+// that came from the current environment and the file.
+func applyDatabaseFlags(req *client.CreateAppEnvironmentRequest, o *envOptions) error {
+	added := make([]client.AppDatabase, 0, len(o.databases))
+	for _, value := range o.databases {
+		conn, err := parseDatabaseFlag(value)
+		if err != nil {
+			return err
+		}
+		added = append(added, conn)
+	}
+	for _, conn := range added {
+		if slices.Contains(o.removeDatabases, conn.Name) {
+			return cli.MisuseError(fmt.Sprintf("--database and --remove-database both name connection %q; run two updates", conn.Name))
+		}
+	}
+	databases := slices.Clone(req.Databases)
+	for _, conn := range added {
+		i := slices.IndexFunc(databases, func(d client.AppDatabase) bool { return d.Name == conn.Name })
+		switch {
+		case i < 0:
+			databases = append(databases, conn)
+		case databases[i].Database != conn.Database || databases[i].LogicalDatabase != conn.LogicalDatabase:
+			return cli.MisuseError(fmt.Sprintf("connection %q already uses database %q; remove it with --remove-database %s, then add it again in a second update", conn.Name, databases[i].Database, conn.Name))
+		case conn.Env != "":
+			databases[i].Env = conn.Env
+		}
+	}
+	databases = slices.DeleteFunc(databases, func(d client.AppDatabase) bool { return slices.Contains(o.removeDatabases, d.Name) })
+	// The API gives a connection without a variable DATABASE_URL; apply the
+	// same default so the checks below see the value that is written.
+	for i := range databases {
+		if databases[i].Env == "" {
+			databases[i].Env = defaultDatabaseEnv
+		}
+	}
+	req.Databases = databases
+	return nil
+}
+
+// sameDatabases treats a missing list and an empty one as equal, so removing
+// an unknown connection stays a no-op.
+func sameDatabases(a, b []client.AppDatabase) bool {
+	return len(a) == 0 && len(b) == 0 || reflect.DeepEqual(a, b)
+}
+
+// validateDatabases mirrors the API's checks and sentences (ERR-12), in its
+// order. The derived binding-name length and the database's existence are left
+// to the API.
+func validateDatabases(databases []client.AppDatabase, web []client.AppEnvVar) error {
+	if len(databases) > 5 {
+		return cli.MisuseError("databases must contain at most 5 connections")
+	}
+	names := map[string]bool{}
+	for _, conn := range databases {
+		if len(conn.Name) > 55 || len(validation.IsDNS1123Label(conn.Name)) > 0 || names[conn.Name] {
+			return cli.MisuseError("connection names must be unique RFC 1123 labels of at most 55 characters")
+		}
+		names[conn.Name] = true
+		if conn.LogicalDatabase != "" && (len(conn.LogicalDatabase) > 53 || !logicalDatabaseName.MatchString(conn.LogicalDatabase)) {
+			return cli.MisuseError("logicalDatabase must start with a lowercase letter and use only lowercase letters, digits and underscores, at most 53 characters")
+		}
+		env := conn.Env
+		if env == "" {
+			env = defaultDatabaseEnv
+		}
+		if len(env) > 253 || len(validation.IsEnvVarName(env)) > 0 {
+			return cli.MisuseError("env must be a valid environment variable name")
+		}
+	}
+	envOf := func(conn client.AppDatabase) string {
+		if conn.Env == "" {
+			return defaultDatabaseEnv
+		}
+		return conn.Env
+	}
+	for i, conn := range databases {
+		env := envOf(conn)
+		if slices.ContainsFunc(web, func(v client.AppEnvVar) bool { return v.Name == env }) {
+			return cli.MisuseError(fmt.Sprintf("variable %q is already set in web.env; choose another name with env", env)).WithHint(envConflictHint)
+		}
+		for _, earlier := range databases[:i] {
+			if envOf(earlier) == env {
+				return cli.MisuseError(fmt.Sprintf("variable %q is already used by connection %q; choose another name with env", env, earlier.Name)).WithHint(envConflictHint)
+			}
+		}
+	}
+	for j, conn := range databases {
+		for _, earlier := range databases[:j] {
+			if earlier.Database != conn.Database || earlier.LogicalDatabase != conn.LogicalDatabase {
+				continue
+			}
+			if conn.LogicalDatabase != "" {
+				return cli.MisuseError(fmt.Sprintf("connections %q and %q both use logical database %q of database %q; remove one of them", earlier.Name, conn.Name, conn.LogicalDatabase, conn.Database))
+			}
+			return cli.MisuseError(fmt.Sprintf("connections %q and %q both use database %q; remove one of them", earlier.Name, conn.Name, conn.Database))
+		}
+	}
+	return nil
+}
+
+var logicalDatabaseName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+func databaseNamed(databases []client.AppDatabase, name string) *client.AppDatabase {
+	for _, d := range databases {
+		if d.Name == name {
+			return &d
+		}
 	}
 	return nil
 }
@@ -438,7 +577,7 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 		}
 		hosts[h] = true
 	}
-	return nil
+	return validateDatabases(req.Databases, w.Env)
 }
 
 // vaultReferencePath is the grammar the API accepts for a Vault path: it
@@ -499,6 +638,14 @@ func changedTargets(before, after *client.AppEnvironment, o *envOptions, file ma
 	for _, values := range [][]string{o.domains, o.removeDomains} {
 		for _, host := range values {
 			if hasDomain(before.Domains, host) != hasDomain(after.Domains, host) {
+				return true
+			}
+		}
+	}
+	for _, values := range [][]string{o.databases, o.removeDatabases} {
+		for _, v := range values {
+			name, _, _ := strings.Cut(v, "=")
+			if !reflect.DeepEqual(databaseNamed(before.Databases, name), databaseNamed(after.Databases, name)) {
 				return true
 			}
 		}

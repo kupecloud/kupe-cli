@@ -105,7 +105,7 @@ func (f *Fake) AppEnvironments(app string) client.AppEnvironmentAPI {
 			name: func(req client.CreateAppEnvironmentRequest) string { return req.Environment },
 			build: func(req client.CreateAppEnvironmentRequest) *client.AppEnvironment {
 				f.AppEnvironmentCreates = append(f.AppEnvironmentCreates, req)
-				return &client.AppEnvironment{Name: app + "-" + req.Environment, App: app, Environment: req.Environment, Cluster: req.Cluster, UID: "env-uid", Generation: 1, DeploymentRevision: 1, DeletionProtection: req.DeletionProtection == nil || *req.DeletionProtection, Web: req.Web, Secrets: req.Secrets, Domains: req.Domains, Status: &client.AppEnvironmentStatus{Phase: client.PhaseRunning, ObservedGeneration: 1}}
+				return &client.AppEnvironment{Name: app + "-" + req.Environment, App: app, Environment: req.Environment, Cluster: req.Cluster, UID: "env-uid", Generation: 1, DeploymentRevision: 1, DeletionProtection: req.DeletionProtection == nil || *req.DeletionProtection, Web: req.Web, Secrets: req.Secrets, Domains: req.Domains, Databases: req.Databases, Status: &client.AppEnvironmentStatus{Phase: client.PhaseRunning, ObservedGeneration: 1}}
 			},
 			apply: func(env *client.AppEnvironment, req client.PatchAppEnvironmentRequest) {
 				f.AppEnvironmentPatches = append(f.AppEnvironmentPatches, req)
@@ -117,6 +117,9 @@ func (f *Fake) AppEnvironments(app string) client.AppEnvironmentAPI {
 				}
 				if req.Domains != nil {
 					env.Domains = *req.Domains
+				}
+				if req.Databases != nil {
+					env.Databases = *req.Databases
 				}
 				if req.DeletionProtection != nil {
 					env.DeletionProtection = *req.DeletionProtection

@@ -893,12 +893,15 @@ kupe app env create shop production -f environment.yaml
 kupe app env create shop staging -f - < environment.yaml
 kupe app env update shop production --set-env LOG_LEVEL=info
 kupe app env update shop production --unset-env OLD_SETTING
+kupe database create orders
+kupe app env update shop production --database main=orders
 ```
 
 Create and update accept a YAML or JSON specification with `-f FILE`; `-f -`
 reads stdin. Unknown fields, duplicate fields and multiple documents are refused.
 The file uses the API fields `environment` (create only), `cluster` (create only),
-`deletionProtection`, `web`, `secrets` and `domains`. Flags override file values.
+`deletionProtection`, `web`, `secrets`, `domains` and `databases` (a list of
+`{name, database, logicalDatabase, env}`). Flags override file values.
 Files are bounded to 1 MiB.
 
 | Flag | Meaning |
@@ -913,10 +916,49 @@ Files are bounded to 1 MiB.
 | `--secret-env VAR=SECRET:KEY` | Use a declared secret key; repeatable. |
 | `--domain HOST` | Add an exact hostname; repeatable. |
 | `--readiness tcp\|http:/path` | Set the readiness check. |
+| `--database CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]` | Connect a database; repeatable. `VARIABLE` defaults to `DATABASE_URL`. |
 | `--unset-env NAME`, `--remove-secret NAME`, `--remove-domain HOST` | Remove one entry on update. |
+| `--remove-database CONNECTION` | Remove a database connection by name on update. The database and its backups stay. |
 | `--no-deletion-protection` | Turn deletion protection off. |
 | `--deletion-protection=BOOL` | Turn protection on or off on update. |
 | `--wait`, `--wait-timeout` | Wait by default; timeout defaults to 30m. |
+
+#### Database connections
+
+The CLI does not create databases. Create one with `kupe database create`, then
+connect it with `--database`. The platform delivers the connection URL to the
+web container in the variable you name:
+
+```bash
+kupe database create orders
+kupe app env update shop production --database main=orders
+kupe app env update shop production --database reports=orders/analytics:REPORTS_URL
+```
+
+- `main=orders` connects database `orders` as connection `main`, in
+  `DATABASE_URL`. `/analytics` selects one of the database's logical databases
+  and `:REPORTS_URL` names the variable.
+- A connection that already exists keeps its database; repeating it with a
+  different `:VARIABLE` changes only the variable. To point it at another
+  database, remove it with `--remove-database` and add it again in a second
+  update. `--database` and `--remove-database` cannot name the same connection
+  in one command.
+- At most 5 connections. Connection names are unique lowercase labels of at
+  most 55 characters. A variable cannot repeat across connections or collide
+  with a `web.env` name. Each database (and logical database) is connected once
+  per environment. The CLI checks these before the request; the API stays
+  authoritative and does not check that the database exists, so a missing one
+  shows in the `Database status` row of `env get`.
+- `env get` shows `Databases` (`main orders/shop DATABASE_URL`) and
+  `Database status` (`main Ready`, or `main Pending (message)`). `-o json|yaml`
+  carry the API fields, including the delivered Secret names
+  (`runtimeSecret`, `migrationSecret`), never values.
+- Removing a connection keeps the database and its backups. It does not revoke
+  the database's owner password that migrations use; rotating that password is
+  database-wide, and two apps on one database share it.
+- `APP_DATABASE_DUPLICATE` exits 2 with a hint to remove the extra connection.
+  `APP_DATABASE_ENV_CONFLICT` and `APP_DATABASE_SECRET_IN_USE` keep the API
+  message; `databases_unavailable` exits 4.
 
 The hidden `--env` alias for `--set-env` has been removed. Use `--set-env` on
 create, update and deploy; `--env` is now refused as an unknown flag.
@@ -940,8 +982,10 @@ Domain status includes the DNS record to create. Secret status shows names and
 missing keys; the CLI never fetches Vault values.
 
 `kupe app env delete APP ENV` deletes the namespace and everything in it, keeping
-the cluster and Vault entries. Turn protection off first, remove independent
-secret deliveries or service bindings into its namespace, then type the environment
+the cluster, Vault entries and connected databases and their backups; only the
+environment's own database connections are removed. Turn protection off first,
+remove secrets and database bindings you created yourself in the namespace (the
+environment's own connections don't block it), then type the environment
 name or pass `--yes`. It waits until the environment is gone; `--wait=false` returns
 at acceptance. Both deletes use `--wait-timeout` (default 30m).
 

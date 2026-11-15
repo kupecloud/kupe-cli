@@ -52,10 +52,12 @@ func newEnvCmd(f *cli.Factory) *cobra.Command {
 			case "get":
 				return service.GetCmd(f, cmdutil.Help{Short: child.Short})
 			default:
-				return service.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: child.Short, Long: `Delete the environment, its namespace and everything in it. The cluster
-and Vault entries are kept. Turn off deletion protection first, then type
-the environment name to confirm, or use --yes. By default, wait until it is gone.`}, ConfirmByName: true, WaitTimeout: 30 * time.Minute, Warning: func(io *cli.IOStreams, _ string) {
-					fmt.Fprintln(io.ErrOut, "The environment namespace and everything in it will be deleted. The cluster and Vault entries are kept.")
+				return service.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: child.Short, Long: `Delete the environment, its namespace and everything in it. The cluster,
+Vault entries and connected databases are kept; only this environment's
+database connections are removed. Turn off deletion protection first, then
+type the environment name to confirm, or use --yes. By default, wait until it
+is gone.`}, ConfirmByName: true, WaitTimeout: 30 * time.Minute, Warning: func(io *cli.IOStreams, _ string) {
+					fmt.Fprintln(io.ErrOut, "The environment namespace and everything in it will be deleted. The cluster, Vault entries and connected databases and their backups are kept.")
 				}})
 			}
 		}
@@ -93,6 +95,7 @@ type envOptions struct {
 	file, cluster, image, cpu, memory, cpuLimit, memoryLimit, readiness, output string
 	port, replicas                                                              int32
 	env, secretEnv, secrets, domains, unsetEnv, removeSecrets, removeDomains    []string
+	databases, removeDatabases                                                  []string
 	noProtection, protection, wait                                              bool
 	waitTimeout                                                                 time.Duration
 }
@@ -110,7 +113,7 @@ use an immutable digest. --cpu and --memory set requests; --cpu-limit and
 and keep the current configuration on update.
 
 Updates retain list entries unless you replace them in a file or remove them
-with --unset-env, --remove-secret or --remove-domain. The cluster and environment
+with --unset-env, --remove-secret, --remove-domain or --remove-database. The cluster and environment
 name cannot change. By default, wait until the new generation is observed and
 the environment settles. --wait=false returns as soon as the change is accepted.`, Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		parent, name := args[0], args[1]
@@ -195,10 +198,15 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 			if !reflect.DeepEqual(req.Domains, current.Domains) {
 				patch.Domains = &req.Domains
 			}
+			if !sameDatabases(req.Databases, current.Databases) {
+				// A removed last connection is an explicit empty list, never null.
+				databases := append([]client.AppDatabase{}, req.Databases...)
+				patch.Databases = &databases
+			}
 			if req.DeletionProtection != nil && *req.DeletionProtection != current.DeletionProtection {
 				patch.DeletionProtection = req.DeletionProtection
 			}
-			if patch.Web == nil && patch.Secrets == nil && patch.Domains == nil && patch.DeletionProtection == nil {
+			if patch.Web == nil && patch.Secrets == nil && patch.Domains == nil && patch.Databases == nil && patch.DeletionProtection == nil {
 				return nil
 			}
 			return &patch
@@ -228,6 +236,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().StringArrayVar(&o.secretEnv, "secret-env", nil, envReferenceHelp)
 	cmd.Flags().StringArrayVar(&o.secrets, "secret", nil, "Declare a Vault reference: NAME=VAULT_PATH")
 	cmd.Flags().StringArrayVar(&o.domains, "domain", nil, "Add an exact hostname")
+	cmd.Flags().StringArrayVar(&o.databases, "database", nil, databaseHelp)
 	cmd.Flags().StringVar(&o.readiness, "readiness", "", "Readiness check: tcp or http:/path")
 	cmd.Flags().BoolVar(&o.noProtection, "no-deletion-protection", false, "Turn deletion protection off")
 	if update {
@@ -235,6 +244,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 		cmd.Flags().StringArrayVar(&o.unsetEnv, "unset-env", nil, unsetEnvHelp)
 		cmd.Flags().StringArrayVar(&o.removeSecrets, "remove-secret", nil, "Remove a Vault reference by name")
 		cmd.Flags().StringArrayVar(&o.removeDomains, "remove-domain", nil, "Remove a hostname")
+		cmd.Flags().StringArrayVar(&o.removeDatabases, "remove-database", nil, "Remove a database connection by name. The database and its backups stay")
 	}
 	cmd.Flags().BoolVar(&o.wait, "wait", true, "Wait until the environment settles")
 	cmd.Flags().DurationVar(&o.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")

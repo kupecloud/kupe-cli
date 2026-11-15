@@ -63,3 +63,35 @@ func TestAppEnvironmentShowsSecretChanges(t *testing.T) {
 		})
 	}
 }
+
+func TestAppEnvironmentShowsDatabases(t *testing.T) {
+	io, _, _ := cli.Test()
+	io.Out = &bytes.Buffer{}
+	env := &client.AppEnvironment{App: "shop", Environment: "production",
+		Databases: []client.AppDatabase{{Name: "main", Database: "orders", LogicalDatabase: "shop", Env: "DATABASE_URL"}, {Name: "reports", Database: "orders", Env: "REPORTS_URL"}},
+		Status: &client.AppEnvironmentStatus{Databases: []client.AppDatabaseStatus{
+			{Name: "main", Env: "DATABASE_URL", Phase: "Ready", RuntimeSecret: "main-app", MigrationSecret: "main-migrate"},
+			{Name: "reports", Env: "REPORTS_URL", Phase: "Pending", Message: "waiting for the database connection to be ready"}}}}
+	if err := AppEnvironment.One(io, &Format{Kind: Table}, env); err != nil {
+		t.Fatal(err)
+	}
+	got := io.Out.(*bytes.Buffer).String()
+	for _, text := range []string{"main orders/shop DATABASE_URL", "reports orders REPORTS_URL", "main Ready", "reports Pending (waiting for the database connection to be ready)"} {
+		if !strings.Contains(got, text) {
+			t.Errorf("missing %q in %s", text, got)
+		}
+	}
+	if strings.Contains(got, "main-app") || strings.Contains(got, "main-migrate") {
+		t.Errorf("table shows secret names: %s", got)
+	}
+	io, _, _ = cli.Test()
+	io.Out = &bytes.Buffer{}
+	if err := AppEnvironment.One(io, &Format{Kind: JSON}, env); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{`"runtimeSecret": "main-app"`, `"migrationSecret": "main-migrate"`, `"logicalDatabase": "shop"`} {
+		if !strings.Contains(io.Out.(*bytes.Buffer).String(), text) {
+			t.Errorf("json missing %q", text)
+		}
+	}
+}

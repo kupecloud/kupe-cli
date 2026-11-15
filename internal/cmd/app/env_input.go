@@ -340,7 +340,7 @@ const (
 	databaseHelp       = "Connect a database: CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]. VARIABLE defaults to DATABASE_URL"
 	databaseUsage      = "--database must use CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]"
 	defaultDatabaseEnv = "DATABASE_URL"
-	envConflictHint    = "set the variable with --database CONNECTION=DATABASE:VARIABLE"
+	envConflictHint    = "set the variable with --database CONNECTION=DATABASE[/POSTGRES_DATABASE]:VARIABLE"
 )
 
 // parseDatabaseFlag splits CONNECTION=DATABASE[/POSTGRES_DATABASE][:VARIABLE]:
@@ -382,7 +382,7 @@ func applyDatabaseFlags(req *client.CreateAppEnvironmentRequest, o *envOptions) 
 		case i < 0:
 			databases = append(databases, conn)
 		case databases[i].Database != conn.Database || databases[i].LogicalDatabase != conn.LogicalDatabase:
-			return cli.MisuseError(fmt.Sprintf("connection %q already uses database %q; remove it with --remove-database %s, then add it again in a second update", conn.Name, databases[i].Database, conn.Name))
+			return cli.MisuseError(fmt.Sprintf("connection %q already uses database %q; remove it with --remove-database %s, then add it again in a second update", conn.Name, databaseTarget(databases[i]), conn.Name))
 		case conn.Env != "":
 			databases[i].Env = conn.Env
 		}
@@ -418,6 +418,9 @@ func validateDatabases(databases []client.AppDatabase, web []client.AppEnvVar) e
 			return cli.MisuseError("connection names must be unique RFC 1123 labels of at most 55 characters")
 		}
 		names[conn.Name] = true
+		if len(conn.Database) > 63 || !databaseName.MatchString(conn.Database) || strings.Contains(conn.Database, "--") {
+			return cli.MisuseError("database must be the name of one of your databases")
+		}
 		if conn.LogicalDatabase != "" && (len(conn.LogicalDatabase) > 53 || !logicalDatabaseName.MatchString(conn.LogicalDatabase)) {
 			return cli.MisuseError("logicalDatabase must start with a lowercase letter and use only lowercase letters, digits and underscores, at most 53 characters")
 		}
@@ -460,8 +463,16 @@ func validateDatabases(databases []client.AppDatabase, web []client.AppEnvVar) e
 	return nil
 }
 
+var databaseName = regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
 var logicalDatabaseName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// databaseTarget renders a connection's database as DATABASE[/POSTGRES_DATABASE].
+func databaseTarget(d client.AppDatabase) string {
+	if d.LogicalDatabase != "" {
+		return d.Database + "/" + d.LogicalDatabase
+	}
+	return d.Database
+}
 func databaseNamed(databases []client.AppDatabase, name string) *client.AppDatabase {
 	for _, d := range databases {
 		if d.Name == name {
@@ -570,6 +581,10 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 			}
 		}
 	}
+	// The API validates databases before domains; keep its order.
+	if err := validateDatabases(req.Databases, w.Env); err != nil {
+		return err
+	}
 	hosts := map[string]bool{}
 	for _, h := range req.Domains {
 		if !validDomain.MatchString(h) || len(h) > 253 || hosts[h] {
@@ -577,7 +592,7 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 		}
 		hosts[h] = true
 	}
-	return validateDatabases(req.Databases, w.Env)
+	return nil
 }
 
 // vaultReferencePath is the grammar the API accepts for a Vault path: it

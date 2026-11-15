@@ -74,3 +74,15 @@ func (f *Fake) ResolveAppImage(_ context.Context, image string) (*client.ImageRe
 	}
 	return cloneAppValue(f.ImageResolution), nil
 }
+func (f *Fake) ReportDeployWithoutImage(ctx context.Context, detected string) error {
+	f.mu.Lock()
+	f.record("ReportDeployWithoutImage")
+	f.NoImageReports = append(f.NoImageReports, detected)
+	block, err := f.BlockNoImageReport, f.NoImageReportErr
+	f.mu.Unlock()
+	if block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return err
+}

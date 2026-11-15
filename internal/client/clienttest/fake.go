@@ -24,13 +24,18 @@ import (
 // a real API from the command's perspective. A caller can also override any
 // method by setting a per-method error field.
 type Fake struct {
-	mu                     sync.Mutex
-	AppReleases            []client.AppRelease
-	AppReleaseSequences    [][]client.AppRelease
-	ListAppReleasesErr     error
-	ImageResolution        *client.ImageResolution
-	ResolveAppImageErr     error
-	ResolvedImages         []string
+	mu                  sync.Mutex
+	AppReleases         []client.AppRelease
+	AppReleaseSequences [][]client.AppRelease
+	ListAppReleasesErr  error
+	ImageResolution     *client.ImageResolution
+	ResolveAppImageErr  error
+	ResolvedImages      []string
+	// NoImageReports records each ReportDeployWithoutImage call. The error is
+	// returned after recording; BlockNoImageReport waits for the context.
+	NoImageReports         []string
+	NoImageReportErr       error
+	BlockNoImageReport     bool
 	RetryAppEnvironmentErr error
 	AppRetryResponse       *client.AppRetry
 	AppRetryETags          []string

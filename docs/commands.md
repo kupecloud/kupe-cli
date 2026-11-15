@@ -938,15 +938,20 @@ kupe app env update shop production --database reports=orders/analytics:REPORTS_
 - `main=orders` connects database `orders` as connection `main`, in
   `DATABASE_URL`. `/analytics` selects one of the database's logical databases
   and `:REPORTS_URL` names the variable.
-- A connection that already exists keeps its database; repeating it with a
-  different `:VARIABLE` changes only the variable. To point it at another
-  database, remove it with `--remove-database` and add it again in a second
-  update. `--database` and `--remove-database` cannot name the same connection
-  in one command.
-- At most 5 connections. Connection names are unique lowercase labels of at
-  most 55 characters. A variable cannot repeat across connections or collide
-  with a `web.env` name. Each database (and logical database) is connected once
-  per environment. The CLI checks these before the request; the API stays
+- A connection that already exists keeps its database and logical database;
+  repeating it with a different `:VARIABLE` changes only the variable. Repeat
+  `/POSTGRES_DATABASE` as well when the connection has one, for example
+  `--database reports=orders/analytics:NEW_URL`. To point it at another
+  database or logical database, remove it with `--remove-database` and add it
+  again in a second update. `--database` and `--remove-database` cannot name the
+  same connection in one command.
+- The CLI checks these before the request, in the API's order and with its
+  sentences: at most 5 connections; connection names are unique lowercase labels
+  of at most 55 characters; the database is a valid database name; a logical
+  database starts with a lowercase letter and uses lowercase letters, digits and
+  underscores (at most 53); a variable is a valid name that does not repeat
+  across connections or collide with a `web.env` name; each database (and
+  logical database) is connected once per environment. The API stays
   authoritative and does not check that the database exists, so a missing one
   shows in the `Database status` row of `env get`.
 - `env get` shows `Databases` (`main orders/shop DATABASE_URL`) and

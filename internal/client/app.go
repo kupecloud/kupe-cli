@@ -87,6 +87,16 @@ func (c *Client) ResolveAppImage(ctx context.Context, image string) (*ImageResol
 	return &result, nil
 }
 
+// ReportDeployWithoutImage tells the API a deploy was tried without an image.
+// detected is "dockerfile" or "none". The API answers 204 with no body.
+// A POST is never retried, apart from the one 429 retry every request gets.
+func (c *Client) ReportDeployWithoutImage(ctx context.Context, detected string) error {
+	_, err := c.request(ctx, http.MethodPost, c.tenantPath("app-deploys", "without-image"), struct {
+		Detected string `json:"detected"`
+	}{detected}, nil)
+	return err
+}
+
 // App is one stateless service and the summary of its environments.
 type App struct {
 	Name               string     `json:"name" yaml:"name"`

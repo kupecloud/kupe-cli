@@ -178,3 +178,31 @@ func TestImageBudgetRetryHintPreservesHourAndRejectsInvalidHeaders(t *testing.T)
 		})
 	}
 }
+
+func TestReportDeployWithoutImageRequest(t *testing.T) {
+	var method, path, body string
+	var calls atomic.Int32
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		method, path, body = r.Method, r.URL.EscapedPath(), string(raw)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	if err := c.ReportDeployWithoutImage(context.Background(), "dockerfile"); err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodPost || path != "/api/v1/tenants/acme/app-deploys/without-image" || body != `{"detected":"dockerfile"}` || calls.Load() != 1 {
+		t.Fatalf("method=%s path=%s body=%s calls=%d", method, path, body, calls.Load())
+	}
+}
+
+func TestReportDeployWithoutImageDoesNotRetryServerErrors(t *testing.T) {
+	var calls atomic.Int32
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	if err := c.ReportDeployWithoutImage(context.Background(), "none"); err == nil || calls.Load() != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls.Load())
+	}
+}

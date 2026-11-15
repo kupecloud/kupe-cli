@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,7 +91,10 @@ An existing environment keeps its configuration unless --image, --set-env,
 --port or --replicas changes it. Use kupe app env update for other changes.
 --dry-run checks and reviews the configuration without writing anything.
 By default, wait for this release's outcome. Recovery still counts as failure.
-Success prints the HTTPS address, or one compact result with -o json.`
+Success prints the HTTPS address, or one compact result with -o json.
+
+With no --image and a Dockerfile in the current directory, print how to build
+and deploy it from CI.`
 	cmd.Flags().BoolVar(&p.dryRun, "dry-run", false, "Check and review the deployment without writing")
 	cmd.Flags().BoolVar(&createCluster, "create-cluster", false, "Create the named cluster if missing (default dev)")
 	cmd.Flags().StringVar(&o.cluster, "cluster", "", "Cluster for a new environment")
@@ -114,6 +119,34 @@ Success prints the HTTPS address, or one compact result with -o json.`
 		return runDeployFlow(cmd, f, o, &yes, createCluster, p, update, args)
 	}
 	return cmd
+}
+
+// deployCIGuidance goes to stderr so -o json output stays parseable.
+const deployCIGuidance = `No image given. Kupe deploys container images; it does not build them.
+There is a Dockerfile here, so build it in CI instead:
+
+  1. Your CI builds the Dockerfile and pushes the image to your Kupe registry.
+  2. The same job deploys it:
+       kupe app deploy APP --image IMAGE --yes
+
+A GitHub Actions workflow that does both:
+  https://docs.kupe.cloud/apps/deploy-an-image/#build-in-your-ci
+
+`
+
+// dockerfileInDir reports whether dir holds a regular file named Dockerfile.
+// The match is exact; the contents are never read.
+func dockerfileInDir(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "Dockerfile"))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// reportNoImage counts a no-image deploy attempt. It is best effort: every
+// error is ignored and the call is capped at two seconds.
+func reportNoImage(ctx context.Context, api client.Interface, detected string) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_ = api.ReportDeployWithoutImage(ctx, detected)
 }
 
 func newDeployFlags(cmd *cobra.Command) bool {
@@ -145,6 +178,13 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 	interactive := interactiveDeploy(f.IOStreams)
 	chooseNames := o.image == ""
 	if o.image == "" {
+		wd, _ := os.Getwd()
+		detected := "none"
+		if wd != "" && dockerfileInDir(wd) {
+			detected = "dockerfile"
+			fmt.Fprint(f.IOStreams.ErrOut, deployCIGuidance)
+		}
+		reportNoImage(cmd.Context(), api, detected)
 		if !interactive {
 			return cli.MisuseError("pass --image to deploy")
 		}

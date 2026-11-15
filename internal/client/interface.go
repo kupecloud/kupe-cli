@@ -13,6 +13,7 @@ type Interface interface {
 	RetryAppEnvironment(ctx context.Context, app, env, etag string) (*AppRetry, string, error)
 	ListAppReleases(ctx context.Context, app, env string) ([]AppRelease, error)
 	ResolveAppImage(ctx context.Context, image string) (*ImageResolution, error)
+	ReportDeployWithoutImage(ctx context.Context, detected string) error
 	// Tenant returns the tenant name the client is scoped to. Used by
 	// commands that want to display "acting as tenant X" without issuing a
 	// network call.

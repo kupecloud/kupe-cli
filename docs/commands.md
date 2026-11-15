@@ -54,6 +54,7 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `POST /api/v1/tenants/{tenant}/apps/{app}/environments/{env}/retry` | `kupe app retry` | v1 |
 | `GET /api/v1/tenants/{tenant}/apps/{app}/environments/{env}/releases` | `kupe app releases` (also used by `wait`) | v1 |
 | `POST /api/v1/tenants/{tenant}/app-images/resolve` | `kupe app image resolve` (also used by `deploy`) | v1 |
+| `POST /api/v1/tenants/{tenant}/app-deploys/without-image` | `kupe app deploy` with no `--image` (best-effort report) | v1 |
 | `GET /api/v1/tenants/{tenant}/databases` | `kupe database list` | v1 |
 | `POST /api/v1/tenants/{tenant}/databases` | `kupe database create` | v1 |
 | `GET /api/v1/tenants/{tenant}/databases/{name}` | `kupe database get` (also `kupe database wait`) | v1 |
@@ -968,6 +969,9 @@ An existing environment keeps its configuration unless --image, --set-env,
 By default, wait for this release's outcome. Recovery still counts as failure.
 Success prints the HTTPS address, or one compact result with -o json.
 
+With no --image and a Dockerfile in the current directory, print how to build
+and deploy it from CI.
+
 Usage:
   kupe app deploy [APP [ENV]] [--image IMAGE] [flags]
 
@@ -993,6 +997,17 @@ Flags:
       --wait-timeout duration    Give up waiting after this long (default 15m0s)
   -y, --yes                      Confirm the reviewed deploy
 ```
+
+With no `--image`, the command reports the attempt to
+`POST /tenants/{tenant}/app-deploys/without-image` with `{"detected":"dockerfile"}`
+or `{"detected":"none"}`, once per run, after the client is built. A regular file
+named exactly `Dockerfile` in the working directory counts as detected (no
+walking, contents never read). In that case the CLI first prints build-in-your-CI
+guidance to stderr, so `-o json` stays parseable. The existing behaviour then
+continues unchanged: the misuse error when not interactive, the picker in a
+terminal. The report is best effort: a 2 second cap, no retry beyond the
+client's single 429 retry, every error ignored, nothing printed. It never
+changes the exit code. With `--image` there is no check and no report.
 
 Without APP, the image repository's last segment supplies the app name. The
 command reuses an existing app or creates it. Without ENV, it uses the app's

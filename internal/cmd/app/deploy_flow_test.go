@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -533,5 +535,90 @@ func TestDeployFlowExistingRefusesCreateCluster(t *testing.T) {
 		if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "kupe app env update") || len(writes(fake)) != 0 {
 			t.Fatalf("flags=%v err=%v calls=%v", flags, err, fake.Calls)
 		}
+	}
+}
+
+func TestDeployWithoutImageGuidanceAndReport(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		setup      func(t *testing.T, dir string)
+		wantReport string
+		guidance   bool
+	}{
+		{"dockerfile", func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "dockerfile", true},
+		{"none", func(*testing.T, string) {}, "none", false},
+		{"directory named Dockerfile", func(t *testing.T, dir string) {
+			if err := os.Mkdir(filepath.Join(dir, "Dockerfile"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, "none", false},
+		{"lowercase name", func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// Case-insensitive filesystems (macOS) would match either name.
+			if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
+				t.Skip("case-insensitive filesystem")
+			}
+		}, "none", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			tc.setup(t, dir)
+			fake := flowFake()
+			_, errOut, err := run(factoryWith(fake), "deploy")
+			if cli.ExitCode(err) != cli.ExitMisuse || !strings.Contains(err.Error(), "pass --image to deploy") {
+				t.Fatalf("err=%v", err)
+			}
+			if tc.guidance && !strings.HasPrefix(errOut, deployCIGuidance) {
+				t.Fatalf("stderr=%q", errOut)
+			}
+			if !tc.guidance && strings.Contains(errOut, "does not build") {
+				t.Fatalf("unexpected guidance: %q", errOut)
+			}
+			if len(fake.NoImageReports) != 1 || fake.NoImageReports[0] != tc.wantReport {
+				t.Fatalf("reports=%v", fake.NoImageReports)
+			}
+		})
+	}
+}
+
+func TestDeployWithImageDoesNotReport(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := flowFake()
+	_, errOut, err := run(factoryWith(fake), "deploy", "--image", "ghcr.io/acme/api:1.4", "--yes", "--wait=false")
+	if err != nil || len(fake.NoImageReports) != 0 || strings.Contains(errOut, "does not build") {
+		t.Fatalf("err=%v reports=%v stderr=%q", err, fake.NoImageReports, errOut)
+	}
+}
+
+func TestDeployWithoutImageIgnoresReportFailures(t *testing.T) {
+	for _, mode := range []string{"api-error", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			fake := flowFake()
+			if mode == "api-error" {
+				fake.NoImageReportErr = &client.APIError{StatusCode: 429, Message: "slow down"}
+			} else {
+				fake.BlockNoImageReport = true
+			}
+			start := time.Now()
+			out, errOut, err := run(factoryWith(fake), "deploy")
+			if cli.ExitCode(err) != cli.ExitMisuse || err.Error() != "pass --image to deploy" || out != "" || errOut != "" {
+				t.Fatalf("out=%q err=%q result=%v", out, errOut, err)
+			}
+			if len(fake.NoImageReports) != 1 || time.Since(start) > 3*time.Second {
+				t.Fatalf("reports=%v elapsed=%s", fake.NoImageReports, time.Since(start))
+			}
+		})
 	}
 }

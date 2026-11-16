@@ -28,7 +28,7 @@ func TestVersionSupportDisplay(t *testing.T) {
 	}{
 		{"unset", supportCluster("", "", ""), ""},
 		{"nil status", &client.Cluster{Name: "x"}, ""},
-		{"supported", supportCluster("2027-02-28", "Supported", "m"), "supported until 2027-02-28"},
+		{"supported", supportCluster("2027-06-28", "Supported", "m"), "supported until 2027-06-28"},
 		{"supported no date", supportCluster("", "Supported", "m"), "supported"},
 		{"approaching", supportCluster("2026-12-01", "EndOfSupportApproaching", "m"), "ends 2026-12-01: upgrade the cluster before then"},
 		{"reached", supportCluster("2026-11-01", "EndOfSupportReached", "m"), "ended 2026-11-01: upgrade the cluster to a newer version"},
@@ -45,14 +45,14 @@ func TestVersionSupportDisplay(t *testing.T) {
 }
 
 func TestClusterGetSupportOutputs(t *testing.T) {
-	set := supportCluster("2027-02-28", "Supported", "Kubernetes 1.36 is supported until 2027-02-28.")
+	set := supportCluster("2027-06-28", "Supported", "Kubernetes 1.36 is supported until 2027-06-28.")
 	unset := supportCluster("", "", "")
 
 	var tbl bytes.Buffer
 	if err := PrintDetails(&tbl, set, clusterDetailColumns(false)); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(tbl.String(), "Version Support:") || !strings.Contains(tbl.String(), "supported until 2027-02-28") {
+	if !strings.Contains(tbl.String(), "Version Support:") || !strings.Contains(tbl.String(), "supported until 2027-06-28") {
 		t.Errorf("table missing support line:\n%s", tbl.String())
 	}
 	tbl.Reset()
@@ -67,7 +67,7 @@ func TestClusterGetSupportOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"versionEndOfSupport":"2027-02-28"`, `"type":"VersionEndOfSupport"`, `"reason":"Supported"`} {
+	for _, want := range []string{`"versionEndOfSupport":"2027-06-28"`, `"type":"VersionEndOfSupport"`, `"reason":"Supported"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("json missing %s: %s", want, b)
 		}

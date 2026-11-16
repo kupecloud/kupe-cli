@@ -17,7 +17,7 @@ The non-TUI CLI is already great for "I want one thing done now" — `kupe clust
 
 - "Which of my clusters are Degraded right now?"
 - "I want to delete five ephemeral clusters — let me pick them from a list."
-- "Upgrade all staging clusters to 1.33, one at a time."
+- "Upgrade all staging clusters to 1.36, one at a time."
 - "I want to see live resource usage across my tenant."
 
 k9s covers this for raw Kubernetes; `kupe tui` covers it for Kupe resources (clusters, members, secrets, api keys).

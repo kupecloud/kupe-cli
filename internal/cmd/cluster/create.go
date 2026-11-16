@@ -44,7 +44,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 
   # Specific version, fire-and-forget
   kupe cluster create ci-$GITHUB_SHA \
-    --version 1.32 \
+    --version 1.36 \
     --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
     --wait=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -114,7 +114,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 
 	cmd.Flags().StringVar(&opts.displayName, "display-name", "", "Deprecated and ignored: the cluster NAME is its display name")
 	_ = cmd.Flags().MarkDeprecated("display-name", "clusters have no separate display name; the NAME is used everywhere")
-	cmd.Flags().StringVar(&opts.version, "version", "", "Kubernetes minor version (e.g. 1.32). Defaults to the platform default if unset.")
+	cmd.Flags().StringVar(&opts.version, "version", "", "Kubernetes minor version (e.g. 1.36). Defaults to the platform default if unset.")
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "CPU limit for the cluster (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "Memory limit for the cluster (e.g. 8Gi, 512Mi)")
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "Storage limit for the cluster (e.g. 50Gi)")

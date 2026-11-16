@@ -24,6 +24,10 @@ import (
 )
 
 const maxEnvironmentFile = 1 << 20
+const (
+	minPods, maxPods                   = 1, 10
+	minCPUPercent, maxCPUPercent int32 = 10, 100
+)
 const imageHint = `use "kupe app deploy" to deploy a tag, or "kupe app image resolve" to get its digest`
 
 var digestImage = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?((\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?|:[0-9]{1,5})/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*@sha256:[a-f0-9]{64}$`)
@@ -216,6 +220,9 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 	if cmd.Flags().Changed("replicas") {
 		w.Replicas = &o.replicas
 	}
+	if err := o.applyAutoscaling(cmd, w); err != nil {
+		return req, err
+	}
 	for _, entry := range []struct {
 		name, value string
 		dst         *string
@@ -252,6 +259,51 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 	}
 	return req, validateEnvironment(req)
 }
+
+// applyAutoscaling applies the autoscaling flags to w. Flags that were not
+// passed leave the current (or file) values alone.
+func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppWeb) error {
+	changed := func(name string) bool { return cmd.Flags().Changed(name) }
+	anyPods := changed("min-pods") || changed("max-pods") || changed("cpu-percent")
+	switch {
+	case changed("no-autoscaling") && o.noAutoscaling:
+		if anyPods {
+			return cli.MisuseError("--no-autoscaling cannot be combined with --min-pods, --max-pods or --cpu-percent")
+		}
+		w.Autoscaling = nil
+	case anyPods:
+		if w.Autoscaling == nil {
+			if !changed("min-pods") || !changed("max-pods") {
+				return cli.MisuseError("to turn on autoscaling, pass --min-pods and --max-pods together")
+			}
+			w.Autoscaling = &client.AppAutoscaling{}
+		}
+		if changed("min-pods") {
+			w.Autoscaling.MinPods = o.minPods
+		}
+		if changed("max-pods") {
+			w.Autoscaling.MaxPods = o.maxPods
+		}
+		if changed("cpu-percent") {
+			if o.cpuPercent == 0 {
+				// A zero would be dropped from the request and never reach the range check.
+				return cli.MisuseError(cpuPercentMessage)
+			}
+			w.Autoscaling.CPUPercent = o.cpuPercent
+		}
+	}
+	if w.Autoscaling != nil && changed("replicas") {
+		err := cli.MisuseError("autoscaling is on for this environment, so --replicas has no effect; add --no-autoscaling to run a fixed number of pods, or change --min-pods and --max-pods")
+		if cmd.Flags().Lookup("no-autoscaling") == nil {
+			err = err.WithHint("kupe app env update APP ENV --no-autoscaling --replicas N")
+		}
+		return err
+	}
+	return nil
+}
+
+const cpuPercentMessage = "cpu-percent must be between 10 and 100"
+
 func splitAssignment(value, flag string) (string, string, error) {
 	name, value, ok := strings.Cut(value, "=")
 	if !ok || name == "" {
@@ -504,6 +556,17 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 	if w.Replicas == nil || *w.Replicas < 1 || *w.Replicas > 10 {
 		return cli.MisuseError("replicas must be between 1 and 10")
 	}
+	if a := w.Autoscaling; a != nil {
+		if a.MinPods < minPods || a.MinPods > maxPods || a.MaxPods < minPods || a.MaxPods > maxPods {
+			return cli.MisuseError("min-pods and max-pods must be between 1 and 10")
+		}
+		if a.MinPods > a.MaxPods {
+			return cli.MisuseError("min-pods cannot be more than max-pods")
+		}
+		if a.CPUPercent != 0 && (a.CPUPercent < minCPUPercent || a.CPUPercent > maxCPUPercent) {
+			return cli.MisuseError(cpuPercentMessage)
+		}
+	}
 	for _, entry := range []struct{ flag, label, request, limit string }{{"cpu", "CPU", w.Resources.Requests.CPU, w.Resources.Limits.CPU}, {"memory", "memory", w.Resources.Requests.Memory, w.Resources.Limits.Memory}} {
 		request, err := resource.ParseQuantity(entry.request)
 		if err != nil || len(entry.request) > 20 {
@@ -624,7 +687,7 @@ func changedTargets(before, after *client.AppEnvironment, o *envOptions, file ma
 		}
 	}
 	walk(file, nil)
-	for flag, path := range map[string][]string{"image": {"web", "image"}, "port": {"web", "port"}, "replicas": {"web", "replicas"}, "cpu": {"web", "resources", "requests", "cpu"}, "memory": {"web", "resources", "requests", "memory"}, "cpu-limit": {"web", "resources", "limits", "cpu"}, "memory-limit": {"web", "resources", "limits", "memory"}, "readiness": {"web", "healthChecks", "readiness"}, "no-deletion-protection": {"deletionProtection"}, "deletion-protection": {"deletionProtection"}} {
+	for flag, path := range map[string][]string{"image": {"web", "image"}, "port": {"web", "port"}, "replicas": {"web", "replicas"}, "min-pods": {"web", "autoscaling", "minPods"}, "max-pods": {"web", "autoscaling", "maxPods"}, "cpu-percent": {"web", "autoscaling", "cpuPercent"}, "no-autoscaling": {"web", "autoscaling"}, "cpu": {"web", "resources", "requests", "cpu"}, "memory": {"web", "resources", "requests", "memory"}, "cpu-limit": {"web", "resources", "limits", "cpu"}, "memory-limit": {"web", "resources", "limits", "memory"}, "readiness": {"web", "healthChecks", "readiness"}, "no-deletion-protection": {"deletionProtection"}, "deletion-protection": {"deletionProtection"}} {
 		if cmd.Flags().Changed(flag) {
 			paths = append(paths, path)
 		}

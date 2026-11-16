@@ -93,10 +93,10 @@ is gone.`}, ConfirmByName: true, WaitTimeout: 30 * time.Minute, Warning: func(io
 
 type envOptions struct {
 	file, cluster, image, cpu, memory, cpuLimit, memoryLimit, readiness, output string
-	port, replicas                                                              int32
+	port, replicas, minPods, maxPods, cpuPercent                                int32
 	env, secretEnv, secrets, domains, unsetEnv, removeSecrets, removeDomains    []string
 	databases, removeDatabases                                                  []string
-	noProtection, protection, wait                                              bool
+	noProtection, protection, noAutoscaling, wait                               bool
 	waitTimeout                                                                 time.Duration
 }
 
@@ -227,7 +227,10 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().StringVar(&o.cluster, "cluster", "", "Cluster for this environment (create only)")
 	cmd.Flags().StringVar(&o.image, "image", "", "Image digest reference")
 	cmd.Flags().Int32Var(&o.port, "port", 0, "Web port (1-65535)")
-	cmd.Flags().Int32Var(&o.replicas, "replicas", 1, "Number of replicas (1-10)")
+	registerPodFlags(cmd, o)
+	cmd.Flags().Int32Var(&o.minPods, "min-pods", 0, "Fewest pods when autoscaling (1-10)")
+	cmd.Flags().Int32Var(&o.maxPods, "max-pods", 0, "Most pods when autoscaling (1-10)")
+	cmd.Flags().Int32Var(&o.cpuPercent, "cpu-percent", 0, "Average CPU use, as a percentage of the CPU request, that autoscaling aims for (10-100, default 70)")
 	cmd.Flags().StringVar(&o.cpu, "cpu", "", "CPU request per replica")
 	cmd.Flags().StringVar(&o.memory, "memory", "", "Memory request per replica")
 	cmd.Flags().StringVar(&o.cpuLimit, "cpu-limit", "", "CPU limit per replica")
@@ -240,6 +243,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().StringVar(&o.readiness, "readiness", "", "Readiness check: tcp or http:/path")
 	cmd.Flags().BoolVar(&o.noProtection, "no-deletion-protection", false, "Turn deletion protection off")
 	if update {
+		cmd.Flags().BoolVar(&o.noAutoscaling, "no-autoscaling", false, "Stop autoscaling and run a fixed number of pods (--replicas, or the current count)")
 		cmd.Flags().BoolVar(&o.protection, "deletion-protection", false, "Turn deletion protection on or off")
 		cmd.Flags().StringArrayVar(&o.unsetEnv, "unset-env", nil, unsetEnvHelp)
 		cmd.Flags().StringArrayVar(&o.removeSecrets, "remove-secret", nil, "Remove a Vault reference by name")
@@ -250,6 +254,11 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().DurationVar(&o.waitTimeout, "wait-timeout", 30*time.Minute, "Give up waiting after this long")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "", printer.OutputHelpGet)
 	return cmd
+}
+
+// registerPodFlags registers --replicas, shared by env create, env update and deploy.
+func registerPodFlags(cmd *cobra.Command, o *envOptions) {
+	cmd.Flags().Int32Var(&o.replicas, "replicas", 1, "Number of pods (1-10). Not used while autoscaling is on")
 }
 func hasEnvironmentChange(cmd *cobra.Command) bool {
 	changed := false

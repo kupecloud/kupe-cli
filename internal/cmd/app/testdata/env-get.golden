@@ -4,6 +4,7 @@ PHASE:                    Degraded
 ADDRESS:                  https://shop.example.com
 App:                      shop
 Deletion protection:      off
+Pods:                     1
 Desired web:              {"image":"ghcr.io/kupecloud/hello-kupe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","port":8080,"replicas":1,"resources":{"requests":{"cpu":"500m","memory":"256Mi"},"limits":{"cpu":"2","memory":"512Mi"}},"command":null,"args":null,"env":[{"name":"A","value":"old"},{"name":"B","value":"kept"}],"healthChecks":null}
 Vault references:         null
 Desired domains:          shop.example.com

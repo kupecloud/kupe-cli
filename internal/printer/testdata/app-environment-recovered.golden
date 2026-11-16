@@ -4,6 +4,7 @@ PHASE:                    Degraded
 ADDRESS:                  https://shop.example.com
 App:                      shop
 Deletion protection:      off
+Pods:                     -
 Desired web:              null
 Vault references:         null
 Desired domains:          shop.example.com

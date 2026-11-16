@@ -3,6 +3,7 @@ package printer
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kupecloud/kupe-cli/internal/client"
@@ -44,6 +45,7 @@ func appEnvironmentDetailColumns(color bool) Columns {
 	}
 	add("App", func(e *client.AppEnvironment) string { return e.App })
 	add("Deletion protection", func(e *client.AppEnvironment) string { return onOff(e.DeletionProtection) })
+	add("Pods", func(e *client.AppEnvironment) string { return appPods(e.Web) })
 	add("Desired web", func(e *client.AppEnvironment) string { return appJSON(e.Web) })
 	add("Vault references", func(e *client.AppEnvironment) string { return appJSON(e.Secrets) })
 	add("Desired domains", func(e *client.AppEnvironment) string { return strings.Join(e.Domains, ", ") })
@@ -131,4 +133,23 @@ func appJSON(value any) string {
 		return ""
 	}
 	return string(data)
+}
+
+// appPods reads "2" for a fixed count, or "2 to 6, aiming for 70% CPU" when
+// autoscaling is on. An unset percentage shows the platform default of 70.
+func appPods(w *client.AppWeb) string {
+	if w == nil {
+		return ""
+	}
+	if a := w.Autoscaling; a != nil {
+		cpu := a.CPUPercent
+		if cpu == 0 {
+			cpu = 70
+		}
+		return fmt.Sprintf("%d to %d, aiming for %d%% CPU", a.MinPods, a.MaxPods, cpu)
+	}
+	if w.Replicas == nil {
+		return ""
+	}
+	return strconv.Itoa(int(*w.Replicas))
 }

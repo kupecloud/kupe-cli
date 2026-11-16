@@ -220,7 +220,7 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 	if cmd.Flags().Changed("replicas") {
 		w.Replicas = &o.replicas
 	}
-	if err := o.applyAutoscaling(cmd, w); err != nil {
+	if err := o.applyAutoscaling(cmd, w, file); err != nil {
 		return req, err
 	}
 	for _, entry := range []struct {
@@ -262,8 +262,12 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 
 // applyAutoscaling applies the autoscaling flags to w. Flags that were not
 // passed leave the current (or file) values alone.
-func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppWeb) error {
+func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppWeb, file map[string]any) error {
 	changed := func(name string) bool { return cmd.Flags().Changed(name) }
+	if !changed("cpu-percent") && fileCPUPercentIsZero(file) {
+		// An explicit zero would be dropped by omitempty, so refuse it here.
+		return cli.MisuseError(cpuPercentMessage)
+	}
 	anyPods := changed("min-pods") || changed("max-pods") || changed("cpu-percent")
 	switch {
 	case changed("no-autoscaling") && o.noAutoscaling:
@@ -292,14 +296,32 @@ func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppWeb) erro
 			w.Autoscaling.CPUPercent = o.cpuPercent
 		}
 	}
-	if w.Autoscaling != nil && changed("replicas") {
+	// On create the API keeps replicas beside autoscaling, so it is allowed.
+	if w.Autoscaling != nil && changed("replicas") && cmd.Name() != "create" {
 		err := cli.MisuseError("autoscaling is on for this environment, so --replicas has no effect; add --no-autoscaling to run a fixed number of pods, or change --min-pods and --max-pods")
-		if cmd.Flags().Lookup("no-autoscaling") == nil {
+		if cmd.Name() == "deploy" {
 			err = err.WithHint("kupe app env update APP ENV --no-autoscaling --replicas N")
 		}
 		return err
 	}
 	return nil
+}
+
+// fileCPUPercentIsZero reports an explicit web.autoscaling.cpuPercent of 0.
+func fileCPUPercentIsZero(file map[string]any) bool {
+	web, _ := file["web"].(map[string]any)
+	a, _ := web["autoscaling"].(map[string]any)
+	switch n := a["cpuPercent"].(type) {
+	case int:
+		return n == 0
+	case int64:
+		return n == 0
+	case uint64:
+		return n == 0
+	case float64:
+		return n == 0
+	}
+	return false
 }
 
 const cpuPercentMessage = "cpu-percent must be between 10 and 100"

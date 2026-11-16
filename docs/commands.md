@@ -406,9 +406,9 @@ List clusters in the current tenant. Default table columns (from `GET /api/v1/te
 
 ```
 NAME        TYPE     VERSION   PHASE        CPU   MEM    AGE
-prod        shared   1.32      Running      4     16Gi   12d
-staging     shared   1.32      Running      2     8Gi    5d
-ephemeral   shared   1.32      Provisioning 2     4Gi    3m
+prod        shared   1.36      Running      4     16Gi   12d
+staging     shared   1.36      Running      2     8Gi    5d
+ephemeral   shared   1.36      Provisioning 2     4Gi    3m
 ```
 
 With `-o wide`, adds `ENDPOINT`, `K8S-VERSION` (the actual running version from `status.kubernetesVersion`), and `STORAGE`.
@@ -436,7 +436,7 @@ $ kupe cluster get prod
 Name:               prod
 Display Name:       Prod
 Type:               shared
-Version:            1.35 (running 1.35.9)
+Version:            1.36 (running 1.36.6)
 Phase:              Running
 High Availability:  off
 Version Support:    supported until 2027-02-28
@@ -461,7 +461,7 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 |------|---------|-------------|
 | `--type TYPE` | `shared` | `shared` or `dedicated`. Most users can omit this. |
 | `--display-name NAME` | — | **Deprecated, ignored.** Clusters have no separate display name; NAME is used everywhere. |
-| `--version VERSION` | latest | Target Kubernetes version (e.g., `1.32`). Defaults server-side. |
+| `--version VERSION` | latest | Target Kubernetes version (e.g., `1.36`). Defaults server-side. |
 | `--cpu-limit QUANTITY` | required | CPU limit (e.g., `2`, `500m`, `1.5`). |
 | `--memory-limit QUANTITY` | required | Memory limit (e.g., `8Gi`, `512Mi`). |
 | `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
@@ -482,12 +482,12 @@ kupe cluster create prod --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi \
 **Example:**
 
 ```bash
-$ kupe cluster create prod --version 1.32 \
+$ kupe cluster create prod --version 1.36 \
     --cpu-limit 4 --memory-limit 16Gi --storage-limit 100Gi
 Name:         prod
 Display Name: prod
 Type:         shared
-Version:      1.32 (running 1.32.3)
+Version:      1.36 (running 1.36.6)
 Phase:        Running
 Endpoint:     https://prod.acme.clusters.kupe.cloud
 CPU:          4
@@ -534,9 +534,9 @@ Patch a cluster's version or resources. Uses ETag/If-Match internally (see [api-
 | `-o, --output FORMAT` | Same single-resource formats as `create`. |
 
 ```bash
-$ kupe cluster update prod --version 1.33
+$ kupe cluster update prod --version 1.36
 Name:         prod
-Version:      1.33 (running 1.33.0)
+Version:      1.36 (running 1.36.6)
 Phase:        Running
 ```
 

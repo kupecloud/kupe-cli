@@ -3,7 +3,7 @@
 The official command-line interface for [Kupe Cloud](https://kupe.cloud)
 
 ```bash
-kupe cluster create prod --version 1.32 \
+kupe cluster create prod --version 1.36 \
   --cpu-limit 2 --memory-limit 8Gi --storage-limit 50Gi
 kupe cluster kubeconfig prod --merge
 kubectl get pods

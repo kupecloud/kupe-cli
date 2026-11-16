@@ -17,7 +17,7 @@ func supportCluster(date, reason, msg string) *client.Cluster {
 			{Type: client.ConditionVersionEndOfSupport, Reason: reason, Message: msg},
 		}
 	}
-	return &client.Cluster{Name: "prod", Type: "shared", Version: "1.34", Status: st}
+	return &client.Cluster{Name: "prod", Type: "shared", Version: "1.36", Status: st}
 }
 
 func TestVersionSupportDisplay(t *testing.T) {
@@ -45,7 +45,7 @@ func TestVersionSupportDisplay(t *testing.T) {
 }
 
 func TestClusterGetSupportOutputs(t *testing.T) {
-	set := supportCluster("2027-02-28", "Supported", "Kubernetes 1.34 is supported until 2027-02-28.")
+	set := supportCluster("2027-02-28", "Supported", "Kubernetes 1.36 is supported until 2027-02-28.")
 	unset := supportCluster("", "", "")
 
 	var tbl bytes.Buffer

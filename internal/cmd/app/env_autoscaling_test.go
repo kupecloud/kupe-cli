@@ -153,6 +153,10 @@ func TestEnvironmentAutoscalingMisuse(t *testing.T) {
 			if cli.ExitCode(err) != 2 || err.Error() != tc.want || len(fake.AppEnvironmentPatches) != 0 {
 				t.Fatalf("exit=%d err=%v patches=%v", cli.ExitCode(err), err, fake.AppEnvironmentPatches)
 			}
+			var ce *cli.Error
+			if !errors.As(err, &ce) || ce.Hint != "" {
+				t.Fatalf("update must carry no hint: %v", err)
+			}
 		})
 	}
 }
@@ -271,6 +275,9 @@ func TestEnvironmentRMWRefusesConcurrentChangeToFlaggedAutoscaling(t *testing.T)
 		{"flagged max-pods changed", []string{"--max-pods", "8"}, true},
 		{"unflagged max-pods changed", []string{"--min-pods", "3"}, false},
 		{"unflagged cpu-percent changed", []string{"--max-pods", "8"}, false},
+		{"flagged min-pods changed", []string{"--min-pods", "3"}, true},
+		{"flagged cpu-percent changed", []string{"--cpu-percent", "60"}, true},
+		{"flagged no-autoscaling changed", []string{"--no-autoscaling"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			first := envWithAutoscaling(&client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70})
@@ -280,6 +287,12 @@ func TestEnvironmentRMWRefusesConcurrentChangeToFlaggedAutoscaling(t *testing.T)
 			case "flagged max-pods changed":
 				next.Web.Autoscaling.MaxPods = 9
 			case "unflagged max-pods changed":
+				next.Web.Autoscaling.MaxPods = 9
+			case "flagged min-pods changed":
+				next.Web.Autoscaling.MinPods = 4
+			case "flagged cpu-percent changed", "unflagged cpu-percent changed":
+				next.Web.Autoscaling.CPUPercent = 50
+			case "flagged no-autoscaling changed":
 				next.Web.Autoscaling.MaxPods = 9
 			default:
 				next.Web.Autoscaling.CPUPercent = 50
@@ -334,5 +347,18 @@ func TestEnvironmentFileMisuse(t *testing.T) {
 				t.Fatalf("exit=%d err=%v writes=%v", cli.ExitCode(err), err, writes(fake))
 			}
 		})
+	}
+}
+
+func TestEnvironmentFileZeroCPUPercentOverriddenByFlag(t *testing.T) {
+	fake := clienttest.New()
+	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
+	f := factoryWith(fake)
+	f.IOStreams.In = strings.NewReader(`{"web":{"autoscaling":{"minPods":1,"maxPods":3,"cpuPercent":0}}}`)
+	if _, _, err := run(f, "env", "update", "shop", "production", "--wait=false", "-f", "-", "--cpu-percent", "50"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.AppEnvironmentPatches[0].Web.Autoscaling; got == nil || got.CPUPercent != 50 {
+		t.Fatalf("autoscaling=%+v", got)
 	}
 }

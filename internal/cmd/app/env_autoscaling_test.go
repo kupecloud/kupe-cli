@@ -3,6 +3,9 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -171,5 +174,165 @@ func TestDeployRefusesReplicasWhileAutoscaling(t *testing.T) {
 	}
 	if got := fake.AppEnvironmentPatches[0].Web.Autoscaling; got == nil || got.MinPods != 2 || got.MaxPods != 6 {
 		t.Fatalf("autoscaling=%+v", got)
+	}
+}
+
+// An unrelated edit sends the whole web snapshot, so it must carry the current
+// autoscaling unchanged; dropping it would make the merge patch keep it only by
+// luck. Flipping deletion protection touches no web field and sends no web key.
+func TestEnvironmentUnrelatedEditsKeepAutoscalingOnTheWire(t *testing.T) {
+	wantAutoscaling := map[string]any{"minPods": float64(2), "maxPods": float64(6), "cpuPercent": float64(70)}
+	for _, tc := range []struct {
+		name, input string
+		flags       []string
+		noWeb       bool
+	}{
+		{name: "port", flags: []string{"--port", "9090"}},
+		{name: "set-env", flags: []string{"--set-env", "NEW=1"}},
+		{name: "image", flags: []string{"--image", nextDigest}},
+		{name: "readiness", flags: []string{"--readiness", "tcp"}},
+		{name: "file without autoscaling", input: `{"web":{"port":9090}}`},
+		{name: "deletion protection", flags: []string{"--deletion-protection=true"}, noWeb: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := envWithAutoscaling(&client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70})
+			initial, err := json.Marshal(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var patch map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("ETag", `"env-uid.1"`)
+				switch r.Method {
+				case http.MethodGet:
+					_, _ = w.Write(initial)
+				case http.MethodPatch:
+					if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+						t.Error(err)
+					}
+					_, _ = w.Write(initial)
+				default:
+					w.WriteHeader(http.StatusMethodNotAllowed)
+				}
+			}))
+			defer srv.Close()
+			f := factoryWith(clienttest.New())
+			f.Client = func() (client.Interface, error) { return client.New(srv.URL, "acme", "", "test"), nil }
+			args := []string{"env", "update", "shop", "production", "--wait=false", "-o", "json"}
+			if tc.input != "" {
+				f.IOStreams.In = strings.NewReader(tc.input)
+				args = append(args, "-f", "-")
+			}
+			if _, _, err := run(f, append(args, tc.flags...)...); err != nil {
+				t.Fatal(err)
+			}
+			if patch == nil {
+				t.Fatal("no PATCH was sent")
+			}
+			web, present := patch["web"]
+			if tc.noWeb {
+				if present {
+					t.Fatalf("web must not be sent: %v", patch)
+				}
+				return
+			}
+			got, _ := web.(map[string]any)["autoscaling"].(map[string]any)
+			if !reflect.DeepEqual(got, wantAutoscaling) {
+				t.Fatalf("autoscaling=%v patch=%v", got, patch)
+			}
+		})
+	}
+}
+
+func TestDeployKeepsAutoscalingInTheRequest(t *testing.T) {
+	fake := flowFake()
+	fake.AppsByName["shop"] = &client.App{Name: "shop"}
+	e := releaseEnvironment()
+	e.Web.Autoscaling = &client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70}
+	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": e}
+	if _, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(fake.AppEnvironmentPatches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"autoscaling":{"minPods":2,"maxPods":6,"cpuPercent":70}`) {
+		t.Fatalf("patch=%s", data)
+	}
+}
+
+func TestEnvironmentRMWRefusesConcurrentChangeToFlaggedAutoscaling(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		changed bool
+	}{
+		{"flagged max-pods changed", []string{"--max-pods", "8"}, true},
+		{"unflagged max-pods changed", []string{"--min-pods", "3"}, false},
+		{"unflagged cpu-percent changed", []string{"--max-pods", "8"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := envWithAutoscaling(&client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70})
+			next := envWithAutoscaling(&client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70})
+			next.Generation = 2
+			switch tc.name {
+			case "flagged max-pods changed":
+				next.Web.Autoscaling.MaxPods = 9
+			case "unflagged max-pods changed":
+				next.Web.Autoscaling.MaxPods = 9
+			default:
+				next.Web.Autoscaling.CPUPercent = 50
+			}
+			fake := clienttest.New()
+			fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": next}
+			fake.GetAppEnvironmentSeq["shop"] = map[string][]*client.AppEnvironment{"production": {first, next}}
+			fake.UpdateAppEnvironmentErrors = []error{&client.APIError{StatusCode: 412, Code: "precondition_failed"}, nil}
+			_, _, err := run(factoryWith(fake), append([]string{"env", "update", "shop", "production", "--wait=false"}, tc.args...)...)
+			if tc.changed {
+				if cli.ExitCode(err) != 5 || len(fake.AppEnvironmentPatches) != 0 {
+					t.Fatalf("err=%v patches=%v", err, fake.AppEnvironmentPatches)
+				}
+				return
+			}
+			if err != nil || len(fake.AppEnvironmentPatches) != 1 {
+				t.Fatalf("err=%v patches=%v", err, fake.AppEnvironmentPatches)
+			}
+		})
+	}
+}
+
+func TestEnvironmentCreateAllowsReplicasWithAutoscaling(t *testing.T) {
+	fake := flowFake()
+	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{}
+	if _, _, err := run(factoryWith(fake), "env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080", "--replicas", "3", "--min-pods", "2", "--max-pods", "4", "--wait=false"); err != nil {
+		t.Fatal(err)
+	}
+	w := fake.AppEnvironmentCreates[0].Web
+	if *w.Replicas != 3 || w.Autoscaling == nil || w.Autoscaling.MaxPods != 4 {
+		t.Fatalf("web=%+v", w)
+	}
+}
+
+func TestEnvironmentFileMisuse(t *testing.T) {
+	for _, tc := range []struct{ name, verb, input, want string }{
+		{"replicas checked before autoscaling", "create", `{"web":{"replicas":20,"autoscaling":{"minPods":0,"maxPods":3}}}`, "replicas must be between 1 and 10"},
+		{"explicit zero cpuPercent", "update", `{"web":{"autoscaling":{"minPods":1,"maxPods":3,"cpuPercent":0}}}`, "cpu-percent must be between 10 and 100"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := flowFake()
+			fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
+			args := []string{"env", tc.verb, "shop", "production", "--wait=false", "-f", "-"}
+			if tc.verb == "create" {
+				delete(fake.AppEnvironmentsByApp["shop"], "production")
+				args = append(args, "--cluster", "europe", "--image", digest, "--port", "8080")
+			}
+			f := factoryWith(fake)
+			f.IOStreams.In = strings.NewReader(tc.input)
+			_, _, err := run(f, args...)
+			if cli.ExitCode(err) != 2 || err.Error() != tc.want || len(writes(fake)) != 0 {
+				t.Fatalf("exit=%d err=%v writes=%v", cli.ExitCode(err), err, writes(fake))
+			}
+		})
 	}
 }

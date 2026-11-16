@@ -439,7 +439,7 @@ Type:               shared
 Version:            1.36 (running 1.36.6)
 Phase:              Running
 High Availability:  off
-Version Support:    supported until 2027-02-28
+Version Support:    supported until 2027-06-28
 Endpoint:           https://prod.acme.clusters.kupe.cloud
 CPU:                4
 Memory:             16Gi

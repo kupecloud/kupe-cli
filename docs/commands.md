@@ -893,6 +893,8 @@ kupe app env create shop production -f environment.yaml
 kupe app env create shop staging -f - < environment.yaml
 kupe app env update shop production --set-env LOG_LEVEL=info
 kupe app env update shop production --unset-env OLD_SETTING
+kupe app env update shop production --min-pods 2 --max-pods 6 --cpu-percent 70
+kupe app env update shop production --no-autoscaling --replicas 2
 kupe database create orders
 kupe app env update shop production --database main=orders
 ```
@@ -908,7 +910,10 @@ Files are bounded to 1 MiB.
 | --- | --- |
 | `--cluster NAME` | Destination cluster; create only. |
 | `--image DIGEST` | Immutable image digest reference. Tags are refused. |
-| `--port N`, `--replicas N` | Web port and replica count (1–10). |
+| `--port N`, `--replicas N` | Web port and pod count (1–10); the pod count is not used while autoscaling is on. |
+| `--min-pods N`, `--max-pods N` | Fewest and most pods when autoscaling (1–10). To turn autoscaling on, pass both. When it is on, pass either to change one. |
+| `--cpu-percent N` | Average CPU use, as a percentage of the CPU request, that autoscaling aims for (10–100, default 70). |
+| `--no-autoscaling` | Stop autoscaling on update and run a fixed number of pods (`--replicas`, or the current count). Cannot be combined with the three flags above. |
 | `--cpu`, `--memory` | CPU and memory requests per replica. |
 | `--cpu-limit`, `--memory-limit` | CPU and memory limits per replica. |
 | `--set-env NAME=VALUE` | Set or replace a literal variable; repeatable. |
@@ -1038,7 +1043,7 @@ Flags:
   -o, --output string            Output format: table | json | yaml | go-template=...
       --port int32               Web port (1-65535)
       --readiness string         Readiness check: tcp or http:/path
-      --replicas int32           Number of replicas (1-10) (default 1)
+      --replicas int32           Number of pods (1-10). Not used while autoscaling is on (default 1)
       --secret stringArray       Declare a Vault reference: NAME=VAULT_PATH
       --secret-env stringArray   Set a secret reference: VAR=SECRET:KEY
       --set-env stringArray      Set a literal environment variable: NAME=VALUE
@@ -1076,7 +1081,7 @@ HTTPS address comes from environment status after deployment.
 
 An existing environment keeps its resources, secrets, probes, commands,
 arguments, domains and deletion protection. Only image, literal variables,
-port and replicas may change here. Other runtime flags are refused with a
+port and replicas may change here. Deploy refuses --replicas while autoscaling is on, and points to `kupe app env update APP ENV --no-autoscaling --replicas N`. Other runtime flags are refused with a
 pointer to `kupe app env update`. Its cluster stays fixed. A tag resolves once.
 A digest on the existing-environment path is used as supplied. New environments
 resolve tags and digests through the image policy check.

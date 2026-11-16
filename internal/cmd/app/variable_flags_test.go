@@ -21,7 +21,7 @@ func TestVariableFlagCommandTree(t *testing.T) {
 	// Keep the non-variable flags explicit too: an invented variable flag must
 	// fail this check even when its name and help never mention "env".
 	nonVariable := map[string]bool{}
-	for _, name := range strings.Fields("cluster cpu cpu-limit create-cluster database deletion-protection domain dry-run file for help image memory memory-limit no-deletion-protection number output phase port readiness remove-database remove-domain remove-secret replicas secret timeout wait wait-timeout yes") {
+	for _, name := range strings.Fields("cluster cpu cpu-limit cpu-percent create-cluster database deletion-protection domain dry-run file for help image memory max-pods memory-limit min-pods no-autoscaling no-deletion-protection number output phase port readiness remove-database remove-domain remove-secret replicas secret timeout wait wait-timeout yes") {
 		nonVariable[name] = true
 	}
 	var walk func(*cobra.Command)

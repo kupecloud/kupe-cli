@@ -170,7 +170,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 	cmd.Flags().StringVar(&o.image, "image", "", "Image tag or digest reference (required)")
 	registerLiteralVariables(cmd, o)
 	cmd.Flags().Int32Var(&o.port, "port", 0, "Web port (1-65535)")
-	cmd.Flags().Int32Var(&o.replicas, "replicas", 1, "Number of replicas (1-10)")
+	registerPodFlags(cmd, o)
 	cmd.Flags().BoolVarP(yes, "yes", "y", false, "Confirm the reviewed deploy")
 	cmd.Flags().BoolVar(&o.wait, "wait", true, "Wait for the requested release")
 	cmd.Flags().DurationVar(&o.waitTimeout, "wait-timeout", 15*time.Minute, "Give up waiting after this long")

@@ -163,6 +163,16 @@ type AppWeb struct {
 	Args         []string         `json:"args" yaml:"args"`
 	Env          []AppEnvVar      `json:"env" yaml:"env"`
 	HealthChecks *AppHealthChecks `json:"healthChecks" yaml:"healthChecks"`
+	Autoscaling  *AppAutoscaling  `json:"autoscaling,omitempty" yaml:"autoscaling,omitempty"`
+}
+
+// AppAutoscaling keeps the pod count between MinPods and MaxPods, aiming for
+// CPUPercent of the CPU request. A zero CPUPercent is left out so the platform
+// default applies.
+type AppAutoscaling struct {
+	MinPods    int32 `json:"minPods" yaml:"minPods"`
+	MaxPods    int32 `json:"maxPods" yaml:"maxPods"`
+	CPUPercent int32 `json:"cpuPercent,omitempty" yaml:"cpuPercent,omitempty"`
 }
 type AppEnvVar struct {
 	Name      string        `json:"name" yaml:"name"`
@@ -242,7 +252,8 @@ func (p PatchAppEnvironmentRequest) MarshalJSON() ([]byte, error) {
 	}
 	type webPatch struct {
 		*AppWeb
-		HealthChecks *checksPatch `json:"healthChecks"`
+		HealthChecks *checksPatch    `json:"healthChecks"`
+		Autoscaling  *AppAutoscaling `json:"autoscaling"` // explicit null removes autoscaling
 	}
 	probe := func(p *AppProbe) *probePatch {
 		if p == nil {
@@ -252,7 +263,7 @@ func (p PatchAppEnvironmentRequest) MarshalJSON() ([]byte, error) {
 	}
 	var web *webPatch
 	if p.Web != nil {
-		web = &webPatch{AppWeb: p.Web}
+		web = &webPatch{AppWeb: p.Web, Autoscaling: p.Web.Autoscaling}
 		if checks := p.Web.HealthChecks; checks != nil {
 			web.HealthChecks = &checksPatch{Readiness: probe(checks.Readiness), Liveness: probe(checks.Liveness)}
 		}

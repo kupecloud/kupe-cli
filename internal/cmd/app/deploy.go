@@ -61,18 +61,18 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 			o.image = resolved.Reference
 		}
 		var first *client.AppEnvironment
-		var expected *client.AppWeb
+		var expected *client.AppRuntime
 		var mutationErr error
 		changedRuntime := false
 		environments := api.AppEnvironments(app)
 		var reviewedETag string
 		mutate := func(current *client.AppEnvironment) *client.PatchAppEnvironmentRequest {
 			if first != nil {
-				reviewRelease(f.IOStreams, "Review current configuration", app, env, "", current, current.Web, nil)
+				reviewRelease(f.IOStreams, "Review current configuration", app, env, "", current, current.Runtime, nil)
 				mutationErr = staleReviewError()
 				return nil
 			}
-			if strings.TrimSpace(reviewedETag) == "" || current.UID == "" || current.Generation <= 0 || current.Web == nil {
+			if strings.TrimSpace(reviewedETag) == "" || current.UID == "" || current.Generation <= 0 || current.Runtime == nil {
 				mutationErr = cli.New(cli.ExitUnavailable, "environment has no review precondition; deploy was not sent")
 				return nil
 			}
@@ -82,24 +82,24 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 				return nil
 			}
 			var changed []string
-			if current.Web.Image != req.Web.Image {
-				changed = append(changed, "web.image")
+			if current.Runtime.Image != req.Runtime.Image {
+				changed = append(changed, "runtime.image")
 			}
-			if current.Web.Port != req.Web.Port {
-				changed = append(changed, "web.port")
+			if current.Runtime.Port != req.Runtime.Port {
+				changed = append(changed, "runtime.port")
 			}
-			if !reflect.DeepEqual(current.Web.Replicas, req.Web.Replicas) {
-				changed = append(changed, "web.replicas")
+			if !reflect.DeepEqual(current.Runtime.Replicas, req.Runtime.Replicas) {
+				changed = append(changed, "runtime.replicas")
 			}
-			if !reflect.DeepEqual(current.Web.Env, req.Web.Env) {
-				changed = append(changed, "web.env")
+			if !reflect.DeepEqual(current.Runtime.Env, req.Runtime.Env) {
+				changed = append(changed, "runtime.env")
 			}
 			if presentation.review != nil {
-				presentation.review(current, req.Web, changed)
+				presentation.review(current, req.Runtime, changed)
 			} else {
-				reviewRelease(f.IOStreams, "Review deploy", app, env, source, current, req.Web, changed)
+				reviewRelease(f.IOStreams, "Review deploy", app, env, source, current, req.Runtime, changed)
 			}
-			first, expected = current, req.Web
+			first, expected = current, req.Runtime
 			if presentation.dryRun {
 				return nil
 			}
@@ -111,15 +111,15 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 				mutationErr = contextErr
 				return nil
 			}
-			if reflect.DeepEqual(current.Web, req.Web) {
+			if reflect.DeepEqual(current.Runtime, req.Runtime) {
 				return nil
 			}
-			fmt.Fprintf(f.IOStreams.ErrOut, "deploying %s\n", req.Web.Image)
+			fmt.Fprintf(f.IOStreams.ErrOut, "deploying %s\n", req.Runtime.Image)
 			changedRuntime = true
-			return &client.PatchAppEnvironmentRequest{Web: req.Web}
+			return &client.PatchAppEnvironmentRequest{Runtime: req.Runtime}
 		}
 		// Keep the shared RMW policy, but require the exact reviewed read's
-		// opaque precondition before allowing its complete web snapshot to PATCH.
+		// opaque precondition before allowing its complete runtime snapshot to PATCH.
 		item, err := client.UpdateResourceRMW(cmd.Context(),
 			func(ctx context.Context) (*client.AppEnvironment, string, error) {
 				current, etag, getErr := environments.Get(ctx, env)
@@ -145,7 +145,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 		if !changedRuntime {
 			fmt.Fprintln(f.IOStreams.ErrOut, "Configuration unchanged; no release requested.")
 			if o.wait {
-				target := releaseTarget{uid: item.UID, name: requestedRelease(item), revision: deploymentRevision(item), web: item.Web, secrets: item.Secrets, notice: deployReleaseNotice(f.IOStreams)}
+				target := releaseTarget{uid: item.UID, name: requestedRelease(item), revision: deploymentRevision(item), runtime: item.Runtime, secrets: item.Secrets, notice: deployReleaseNotice(f.IOStreams)}
 				if target.name == "" {
 					target.generation = item.Generation
 				}
@@ -160,7 +160,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 			return cli.New(cli.ExitUnavailable, "deploy was accepted without a verifiable environment generation; inspect its releases before retrying")
 		}
 		if o.wait {
-			item, err = waitForRelease(cmd.Context(), f.IOStreams, api, app, env, releaseTarget{uid: item.UID, generation: item.Generation, revision: deploymentRevision(item), previous: requestedRelease(first), web: expected, secrets: item.Secrets, notice: deployReleaseNotice(f.IOStreams)}, o.waitTimeout)
+			item, err = waitForRelease(cmd.Context(), f.IOStreams, api, app, env, releaseTarget{uid: item.UID, generation: item.Generation, revision: deploymentRevision(item), previous: requestedRelease(first), runtime: expected, secrets: item.Secrets, notice: deployReleaseNotice(f.IOStreams)}, o.waitTimeout)
 			if err != nil {
 				return err
 			}
@@ -169,7 +169,7 @@ By default, wait for this release's outcome; recovery still counts as failure.`,
 	}}
 	cmd.Flags().StringVar(&o.image, "image", "", "Image tag or digest reference (required)")
 	registerLiteralVariables(cmd, o)
-	cmd.Flags().Int32Var(&o.port, "port", 0, "Web port (1-65535)")
+	cmd.Flags().Int32Var(&o.port, "port", 0, "Port the app listens on (1-65535)")
 	registerPodFlags(cmd, o)
 	cmd.Flags().BoolVarP(yes, "yes", "y", false, "Confirm the reviewed deploy")
 	cmd.Flags().BoolVar(&o.wait, "wait", true, "Wait for the requested release")

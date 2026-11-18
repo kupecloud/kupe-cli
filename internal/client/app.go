@@ -23,11 +23,12 @@ type AppRelease struct {
 	Status             AppReleaseStatus  `json:"status" yaml:"status"`
 }
 
-// Runtime is flat on the wire: image is runtime.image, with no web wrapper.
+// Runtime is flat on the wire: the environment runtime fields are inlined, so
+// image is runtime.image with no nested runtime object.
 type AppReleaseRuntime struct {
-	AppWeb    `yaml:",inline"`
-	Secrets   []AppReleaseSecret `json:"secrets" yaml:"secrets"`
-	Databases []AppDatabase      `json:"databases" yaml:"databases"`
+	AppRuntime `yaml:",inline"`
+	Secrets    []AppReleaseSecret `json:"secrets" yaml:"secrets"`
+	Databases  []AppDatabase      `json:"databases" yaml:"databases"`
 }
 type AppReleaseSecret struct {
 	Name string   `json:"name" yaml:"name"`
@@ -140,7 +141,7 @@ type AppEnvironment struct {
 	Cluster            string                `json:"cluster" yaml:"cluster"`
 	DeletionProtection bool                  `json:"deletionProtection" yaml:"deletionProtection"`
 	DeploymentRevision int64                 `json:"deploymentRevision" yaml:"deploymentRevision"`
-	Web                *AppWeb               `json:"web" yaml:"web"`
+	Runtime            *AppRuntime           `json:"runtime" yaml:"runtime"`
 	Secrets            []AppSecret           `json:"secrets" yaml:"secrets"`
 	Domains            []string              `json:"domains" yaml:"domains"`
 	Databases          []AppDatabase         `json:"databases" yaml:"databases"`
@@ -154,7 +155,7 @@ type AppResources struct {
 	Requests AppQuantities `json:"requests" yaml:"requests"`
 	Limits   AppQuantities `json:"limits" yaml:"limits"`
 }
-type AppWeb struct {
+type AppRuntime struct {
 	Image        string           `json:"image" yaml:"image"`
 	Port         int32            `json:"port" yaml:"port"`
 	Replicas     *int32           `json:"replicas,omitempty" yaml:"replicas,omitempty"`
@@ -226,15 +227,15 @@ type CreateAppEnvironmentRequest struct {
 	Environment        string        `json:"environment" yaml:"environment"`
 	Cluster            string        `json:"cluster" yaml:"cluster"`
 	DeletionProtection *bool         `json:"deletionProtection,omitempty" yaml:"deletionProtection,omitempty"`
-	Web                *AppWeb       `json:"web" yaml:"web"`
+	Runtime            *AppRuntime   `json:"runtime" yaml:"runtime"`
 	Secrets            []AppSecret   `json:"secrets,omitempty" yaml:"secrets,omitempty"`
 	Domains            []string      `json:"domains,omitempty" yaml:"domains,omitempty"`
 	Databases          []AppDatabase `json:"databases,omitempty" yaml:"databases,omitempty"`
 }
 type PatchAppEnvironmentRequest struct {
-	// Web is the complete effective configuration. Its absent checks and probe
+	// Runtime is the complete effective configuration. Its absent checks and probe
 	// alternatives must be explicit nulls in the recursive merge patch.
-	Web                *AppWeb        `json:"web,omitempty"`
+	Runtime            *AppRuntime    `json:"runtime,omitempty"`
 	Secrets            *[]AppSecret   `json:"secrets,omitempty"`
 	Domains            *[]string      `json:"domains,omitempty"`
 	Databases          *[]AppDatabase `json:"databases,omitempty"`
@@ -250,8 +251,8 @@ func (p PatchAppEnvironmentRequest) MarshalJSON() ([]byte, error) {
 		Readiness *probePatch `json:"readiness"`
 		Liveness  *probePatch `json:"liveness"`
 	}
-	type webPatch struct {
-		*AppWeb
+	type runtimePatch struct {
+		*AppRuntime
 		HealthChecks *checksPatch    `json:"healthChecks"`
 		Autoscaling  *AppAutoscaling `json:"autoscaling"` // explicit null removes autoscaling
 	}
@@ -261,19 +262,19 @@ func (p PatchAppEnvironmentRequest) MarshalJSON() ([]byte, error) {
 		}
 		return &probePatch{TCP: p.TCP, HTTP: p.HTTP}
 	}
-	var web *webPatch
-	if p.Web != nil {
-		web = &webPatch{AppWeb: p.Web, Autoscaling: p.Web.Autoscaling}
-		if checks := p.Web.HealthChecks; checks != nil {
-			web.HealthChecks = &checksPatch{Readiness: probe(checks.Readiness), Liveness: probe(checks.Liveness)}
+	var runtime *runtimePatch
+	if p.Runtime != nil {
+		runtime = &runtimePatch{AppRuntime: p.Runtime, Autoscaling: p.Runtime.Autoscaling}
+		if checks := p.Runtime.HealthChecks; checks != nil {
+			runtime.HealthChecks = &checksPatch{Readiness: probe(checks.Readiness), Liveness: probe(checks.Liveness)}
 		}
 	}
 	// The alias retains the other patch fields without recursively calling us.
 	type patch PatchAppEnvironmentRequest
 	return json.Marshal(struct {
 		patch
-		Web *webPatch `json:"web,omitempty"`
-	}{patch: patch(p), Web: web})
+		Runtime *runtimePatch `json:"runtime,omitempty"`
+	}{patch: patch(p), Runtime: runtime})
 }
 
 type AppEnvironmentStatus struct {

@@ -23,7 +23,7 @@ type releaseTarget struct {
 	uid                  string
 	generation, revision int64
 	name, previous       string
-	web                  *client.AppWeb
+	runtime              *client.AppRuntime
 	secrets              []client.AppSecret
 	notice               func(int64)
 }
@@ -213,10 +213,10 @@ func matchesRelease(release *client.AppRelease, target releaseTarget) bool {
 	if target.revision > 0 && release.DeploymentRevision != target.revision {
 		return false
 	}
-	if target.web == nil {
+	if target.runtime == nil {
 		return true
 	}
-	if !reflect.DeepEqual(effectiveReleaseWeb(release.Runtime.AppWeb), effectiveReleaseWeb(*target.web)) {
+	if !reflect.DeepEqual(effectiveReleaseRuntime(release.Runtime.AppRuntime), effectiveReleaseRuntime(*target.runtime)) {
 		return false
 	}
 	paths := map[string]string{}
@@ -224,7 +224,7 @@ func matchesRelease(release *client.AppRelease, target releaseTarget) bool {
 		paths[secret.Name] = secret.Path
 	}
 	keys := map[string][]string{}
-	for _, v := range target.web.Env {
+	for _, v := range target.runtime.Env {
 		if v.ValueFrom != nil {
 			ref := v.ValueFrom.SecretKeyRef
 			if !slices.Contains(keys[ref.Secret], ref.Key) {
@@ -252,38 +252,38 @@ func matchesRelease(release *client.AppRelease, target releaseTarget) bool {
 
 // Compare the defaulted workload, including semantic quantities. The operator
 // canonicalises quantities and default readiness before recording the runtime.
-func effectiveReleaseWeb(web client.AppWeb) client.AppWeb {
-	if len(web.Command) == 0 {
-		web.Command = nil
+func effectiveReleaseRuntime(runtime client.AppRuntime) client.AppRuntime {
+	if len(runtime.Command) == 0 {
+		runtime.Command = nil
 	}
-	if len(web.Args) == 0 {
-		web.Args = nil
+	if len(runtime.Args) == 0 {
+		runtime.Args = nil
 	}
-	if len(web.Env) == 0 {
-		web.Env = nil
+	if len(runtime.Env) == 0 {
+		runtime.Env = nil
 	}
-	if web.Replicas == nil {
+	if runtime.Replicas == nil {
 		n := int32(1)
-		web.Replicas = &n
+		runtime.Replicas = &n
 	}
 	checks := client.AppHealthChecks{}
-	if web.HealthChecks != nil {
-		checks = *web.HealthChecks
+	if runtime.HealthChecks != nil {
+		checks = *runtime.HealthChecks
 	}
 	if checks.Readiness == nil {
 		checks.Readiness = &client.AppProbe{TCP: &struct{}{}}
 	}
-	web.HealthChecks = &checks
-	if web.Resources != nil {
-		resources := *web.Resources
+	runtime.HealthChecks = &checks
+	if runtime.Resources != nil {
+		resources := *runtime.Resources
 		for _, quantity := range []*string{&resources.Requests.CPU, &resources.Requests.Memory, &resources.Limits.CPU, &resources.Limits.Memory} {
 			if parsed, err := resource.ParseQuantity(*quantity); err == nil {
 				*quantity = parsed.String()
 			}
 		}
-		web.Resources = &resources
+		runtime.Resources = &resources
 	}
-	return web
+	return runtime
 }
 
 // releaseFailedError prints only its sentence, so a failed release is not

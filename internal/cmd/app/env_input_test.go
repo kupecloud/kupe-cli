@@ -68,7 +68,7 @@ func TestEnvironmentStalledStdinCancellationJoinsInputCleanup(t *testing.T) {
 				t.Fatal("command did not start reading stdin")
 			}
 			const sentinel = "environment-input-must-not-appear"
-			if _, err := io.WriteString(writer, `{"web":{"env":[{"name":"PRIVATE","value":"`+sentinel); err != nil {
+			if _, err := io.WriteString(writer, `{"runtime":{"env":[{"name":"PRIVATE","value":"`+sentinel); err != nil {
 				t.Fatal(err)
 			}
 			cancel()
@@ -117,7 +117,7 @@ func TestEnvironmentCancelledInputWinsOverFileAndParseErrors(t *testing.T) {
 }
 
 func TestEnvironmentInputByteLimitAndStrictParsingRemain(t *testing.T) {
-	prefix := `{"web":{"env":[{"name":"PRIVATE","value":"environment-input-must-not-appear"}]}}`
+	prefix := `{"runtime":{"env":[{"name":"PRIVATE","value":"environment-input-must-not-appear"}]}}`
 	for _, tc := range []struct {
 		name, input string
 		code        int
@@ -125,9 +125,9 @@ func TestEnvironmentInputByteLimitAndStrictParsingRemain(t *testing.T) {
 	}{
 		{"exact byte limit", prefix + strings.Repeat(" ", maxEnvironmentFile-len(prefix)), cli.ExitOK, ""},
 		{"one byte over limit", prefix + strings.Repeat(" ", maxEnvironmentFile+1-len(prefix)), cli.ExitMisuse, "1 MiB"},
-		{"duplicate", `{"web":{"port":8080,"port":9090}}`, cli.ExitMisuse, "duplicate"},
-		{"multiple documents", "web: {}\n---\nweb: {}\n", cli.ExitMisuse, "one document"},
-		{"unknown field", `{"web":{"unexpected":"environment-input-must-not-appear"}}`, cli.ExitMisuse, `unknown field "unexpected"`},
+		{"duplicate", `{"runtime":{"port":8080,"port":9090}}`, cli.ExitMisuse, "duplicate"},
+		{"multiple documents", "runtime: {}\n---\nruntime: {}\n", cli.ExitMisuse, "one document"},
+		{"unknown field", `{"runtime":{"unexpected":"environment-input-must-not-appear"}}`, cli.ExitMisuse, `unknown field "unexpected"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := readEnvironmentFile(context.Background(), "-", strings.NewReader(tc.input), true)
@@ -149,7 +149,7 @@ func TestSecretReferencePathGrammarMatchesAPI(t *testing.T) {
 		"/apps/api": false, "apps/api/": false, "-apps": false, "apps-": false, ".hidden": false, "apps/../x": false, "a b": false, "": false,
 	} {
 		replicas := int32(1)
-		req := client.CreateAppEnvironmentRequest{Cluster: "europe", Web: &client.AppWeb{Image: digest, Port: 8080, Replicas: &replicas, Resources: &client.AppResources{
+		req := client.CreateAppEnvironmentRequest{Cluster: "europe", Runtime: &client.AppRuntime{Image: digest, Port: 8080, Replicas: &replicas, Resources: &client.AppResources{
 			Requests: client.AppQuantities{CPU: "250m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "1", Memory: "512Mi"}}}}
 		req.Secrets = []client.AppSecret{{Name: "db", Path: path}}
 		err := validateEnvironment(req)

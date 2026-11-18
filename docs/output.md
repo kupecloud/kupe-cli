@@ -397,7 +397,7 @@ All user-facing strings are English in v1. No `i18n` package, no message catalog
 ## App output
 
 App detail includes its environment summary. Environment detail keeps desired
-web configuration, phase, requested deployment outcome, requested/active/last
+runtime configuration, phase, requested deployment outcome, requested/active/last
 successful releases and recovery in separate rows. Domains include their DNS
 records and secret status includes missing key names. Literal variables are
 configuration; Vault references remain references and no Vault values are fetched.

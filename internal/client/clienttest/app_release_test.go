@@ -9,9 +9,9 @@ import (
 
 func TestAppReleaseFakeRetriesCurrentConfigurationAndClonesHistory(t *testing.T) {
 	fake := New()
-	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": {UID: "uid", Generation: 4, DeploymentRevision: 2, Web: &client.AppWeb{Image: "digest"}}}
+	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": {UID: "uid", Generation: 4, DeploymentRevision: 2, Runtime: &client.AppRuntime{Image: "digest"}}}
 	accepted, _, err := fake.RetryAppEnvironment(context.Background(), "shop", "production", "etag-fake")
-	if err != nil || accepted.Generation != 5 || accepted.DeploymentRevision != 3 || fake.AppEnvironmentsByApp["shop"]["production"].Web.Image != "digest" {
+	if err != nil || accepted.Generation != 5 || accepted.DeploymentRevision != 3 || fake.AppEnvironmentsByApp["shop"]["production"].Runtime.Image != "digest" {
 		t.Fatalf("accepted=%+v err=%v", accepted, err)
 	}
 	_, _, err = fake.RetryAppEnvironment(context.Background(), "shop", "production", "stale")

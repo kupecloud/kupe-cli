@@ -33,13 +33,13 @@ func releaseFake() *clienttest.Fake {
 func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *testing.T) {
 	const reviewedETag = `"opaque-review-token.with-dots"`
 	current := releaseEnvironment()
-	current.Web.Command, current.Web.Args = []string{"/app/server"}, []string{"--serve", "web"}
-	current.Web.HealthChecks = &client.AppHealthChecks{Readiness: &client.AppProbe{HTTP: &client.AppHTTPProbe{Path: "/ready"}}, Liveness: &client.AppProbe{TCP: &struct{}{}}}
-	current.Web.Env = append(current.Web.Env, client.AppEnvVar{Name: "DB_PASSWORD", ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: "database", Key: "PASSWORD"}}})
+	current.Runtime.Command, current.Runtime.Args = []string{"/app/server"}, []string{"--serve", "web"}
+	current.Runtime.HealthChecks = &client.AppHealthChecks{Readiness: &client.AppProbe{HTTP: &client.AppHTTPProbe{Path: "/ready"}}, Liveness: &client.AppProbe{TCP: &struct{}{}}}
+	current.Runtime.Env = append(current.Runtime.Env, client.AppEnvVar{Name: "DB_PASSWORD", ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: "database", Key: "PASSWORD"}}})
 	current.Secrets = []client.AppSecret{{Name: "database", Path: "apps/shop/database"}}
 	current.Domains, current.DeletionProtection = []string{"shop.example.com"}, true
 	const privateValue = "synthetic-private-literal"
-	current.Web.Env[0].Value = str(privateValue)
+	current.Runtime.Env[0].Value = str(privateValue)
 	resolve, gets, patches := 0, 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/tenants/acme/app-images/resolve" {
@@ -69,20 +69,20 @@ func TestDeployTagUsesOneResolutionAndPreservesEffectiveConfigurationOnWire(t *t
 			t.Error(err)
 			return
 		}
-		if len(body) != 1 || body["web"] == nil {
+		if len(body) != 1 || body["runtime"] == nil {
 			t.Errorf("unrelated top-level fields=%v", body)
 		}
-		var web client.AppWeb
-		if err := json.Unmarshal(body["web"], &web); err != nil {
+		var runtime client.AppRuntime
+		if err := json.Unmarshal(body["runtime"], &runtime); err != nil {
 			t.Error(err)
 		}
-		want := *current.Web
+		want := *current.Runtime
 		want.Image = nextDigest
-		if !reflect.DeepEqual(web, want) {
-			t.Errorf("deploy changed effective configuration: got=%+v want=%+v", web, want)
+		if !reflect.DeepEqual(runtime, want) {
+			t.Errorf("deploy changed effective configuration: got=%+v want=%+v", runtime, want)
 		}
 		accepted := *current
-		accepted.Generation, accepted.Web = 2, &web
+		accepted.Generation, accepted.Runtime = 2, &runtime
 		_ = json.NewEncoder(w).Encode(accepted)
 	}))
 	defer server.Close()
@@ -131,14 +131,14 @@ func TestDeployRequiresReviewedETagBeforeWriting(t *testing.T) {
 					t.Errorf("unexpected write method=%s If-Match=%q", r.Method, r.Header.Get("If-Match"))
 				}
 				var patch client.PatchAppEnvironmentRequest
-				if err := json.NewDecoder(r.Body).Decode(&patch); err != nil || patch.Web == nil || patch.Web.Image != nextDigest {
+				if err := json.NewDecoder(r.Body).Decode(&patch); err != nil || patch.Runtime == nil || patch.Runtime.Image != nextDigest {
 					t.Errorf("deploy patch=%+v err=%v", patch, err)
 				}
 				// Like the published API, this fixture accepts an optional
 				// If-Match. Only the command can prevent a blind reviewed PATCH.
 				accepted := *current
 				accepted.Generation = current.Generation + 1
-				accepted.Web = patch.Web
+				accepted.Runtime = patch.Runtime
 				_ = json.NewEncoder(w).Encode(accepted)
 			}))
 			defer server.Close()
@@ -155,14 +155,14 @@ func TestDeployRequiresReviewedETagBeforeWriting(t *testing.T) {
 func TestDeployFlagsMergeVariablesPortAndReplicasWithoutLosingSecretReferences(t *testing.T) {
 	fake := releaseFake()
 	before := fake.AppEnvironmentsByApp["shop"]["production"]
-	before.Web.Env = append(before.Web.Env, client.AppEnvVar{Name: "SECRET", ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: "s", Key: "KEY"}}})
+	before.Runtime.Env = append(before.Runtime.Env, client.AppEnvVar{Name: "SECRET", ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: "s", Key: "KEY"}}})
 	before.Secrets = []client.AppSecret{{Name: "s", Path: "apps/s"}}
 	_, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", nextDigest, "--set-env", "A=updated", "--set-env", "NEW=added", "--port", "9090", "--replicas", "3", "--yes", "--wait=false")
 	if err != nil || len(fake.ResolvedImages) != 0 || len(fake.AppEnvironmentPatches) != 1 {
 		t.Fatalf("err=%v calls=%v", err, fake.Calls)
 	}
 	p := fake.AppEnvironmentPatches[0]
-	if p.Secrets != nil || p.Domains != nil || p.DeletionProtection != nil || p.Web.Port != 9090 || *p.Web.Replicas != 3 || len(p.Web.Env) != 4 || *p.Web.Env[0].Value != "updated" || *p.Web.Env[1].Value != "kept" || p.Web.Env[2].ValueFrom.SecretKeyRef.Secret != "s" || p.Web.Resources.Limits.CPU != "2" {
+	if p.Secrets != nil || p.Domains != nil || p.DeletionProtection != nil || p.Runtime.Port != 9090 || *p.Runtime.Replicas != 3 || len(p.Runtime.Env) != 4 || *p.Runtime.Env[0].Value != "updated" || *p.Runtime.Env[1].Value != "kept" || p.Runtime.Env[2].ValueFrom.SecretKeyRef.Secret != "s" || p.Runtime.Resources.Limits.CPU != "2" {
 		t.Fatalf("patch=%+v", p)
 	}
 }
@@ -187,7 +187,7 @@ func TestReleaseWritesReReview412WithoutResubmissionEvenWithYes(t *testing.T) {
 					current := releaseEnvironment()
 					current.Generation = int64(gets)
 					if gets > 1 {
-						current.Web.Port = 9090
+						current.Runtime.Port = 9090
 					}
 					w.Header().Set("ETag", fmt.Sprintf(`"current-environment-uid.%d"`, gets))
 					_ = json.NewEncoder(w).Encode(current)

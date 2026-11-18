@@ -58,7 +58,7 @@ func TestAppReleaseEndpointsUsePublishedWireShape(t *testing.T) {
 		t.Fatalf("releases=%+v err=%v", items, err)
 	}
 	encoded, err := json.Marshal(items[0].Runtime)
-	if err != nil || strings.Contains(string(encoded), `"web"`) || !strings.Contains(string(encoded), `"image"`) {
+	if err != nil || strings.Contains(string(encoded), `"runtime"`) || !strings.Contains(string(encoded), `"image"`) {
 		t.Fatalf("runtime=%s err=%v", encoded, err)
 	}
 	image, err := c.ResolveAppImage(ctx, "nginx:1.27")

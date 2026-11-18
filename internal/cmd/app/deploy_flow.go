@@ -39,15 +39,15 @@ type deployResult struct {
 
 type deployPresentation struct {
 	dryRun  bool
-	review  func(*client.AppEnvironment, *client.AppWeb, []string)
+	review  func(*client.AppEnvironment, *client.AppRuntime, []string)
 	created deployCreated
 }
 
 func (p *deployPresentation) render(f *cli.Factory, format *printer.Format, app, env string, item *client.AppEnvironment) error {
-	if item == nil || item.Web == nil {
+	if item == nil || item.Runtime == nil {
 		return cli.New(cli.ExitUnavailable, "deployment returned no environment configuration")
 	}
-	result := deployResult{App: app, Environment: env, Cluster: item.Cluster, Image: item.Web.Image, Created: p.created}
+	result := deployResult{App: app, Environment: env, Cluster: item.Cluster, Image: item.Runtime.Image, Created: p.created}
 	if item.Status != nil {
 		result.Address = item.Status.Address
 		result.Release = requestedRelease(item)
@@ -268,9 +268,9 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 		if err := cmd.Flags().Set("image", o.image); err != nil {
 			return err
 		}
-		p.review = func(e *client.AppEnvironment, web *client.AppWeb, changed []string) {
+		p.review = func(e *client.AppEnvironment, runtime *client.AppRuntime, changed []string) {
 			reviewDeployPlan(f.IOStreams, appName, envName, e.Cluster, api.Tenant(), false, false, false, e.Status)
-			reviewRelease(f.IOStreams, "Review deploy", appName, envName, source, e, web, changed)
+			reviewRelease(f.IOStreams, "Review deploy", appName, envName, source, e, runtime, changed)
 		}
 		return update(cmd, []string{appName, envName})
 	}
@@ -315,7 +315,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 		return err
 	}
 	reviewDeployPlan(f.IOStreams, appName, envName, clusterName, api.Tenant(), appNew, true, clusterNew, nil)
-	reviewRelease(f.IOStreams, "Review deploy", appName, envName, source, &client.AppEnvironment{}, req.Web, nil)
+	reviewRelease(f.IOStreams, "Review deploy", appName, envName, source, &client.AppEnvironment{}, req.Runtime, nil)
 	if p.dryRun {
 		return nil
 	}
@@ -330,7 +330,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 	}
 	created := deployCreated{}
 	resume := func(err error) error {
-		return deployPartialFailure(cmd, f.IOStreams, appName, envName, req.Web.Image, clusterName, o, created, err)
+		return deployPartialFailure(cmd, f.IOStreams, appName, envName, req.Runtime.Image, clusterName, o, created, err)
 	}
 	if clusterNew {
 		fmt.Fprintf(f.IOStreams.ErrOut, "creating cluster %s (wait)\n", clusterName)
@@ -360,7 +360,7 @@ func runDeployFlow(cmd *cobra.Command, f *cli.Factory, o *envOptions, yes *bool,
 		return resume(cli.New(cli.ExitUnavailable, "environment was created without a verifiable generation; inspect it before retrying"))
 	}
 	if o.wait {
-		item, err = waitForRelease(cmd.Context(), f.IOStreams, api, appName, envName, releaseTarget{uid: item.UID, generation: item.Generation, revision: deploymentRevision(item), web: req.Web, secrets: req.Secrets, notice: deployReleaseNotice(f.IOStreams)}, o.waitTimeout)
+		item, err = waitForRelease(cmd.Context(), f.IOStreams, api, appName, envName, releaseTarget{uid: item.UID, generation: item.Generation, revision: deploymentRevision(item), runtime: req.Runtime, secrets: req.Secrets, notice: deployReleaseNotice(f.IOStreams)}, o.waitTimeout)
 		if err != nil {
 			return resume(err)
 		}

@@ -99,16 +99,16 @@ func TestAppEnvironmentShowsDatabases(t *testing.T) {
 func TestAppPods(t *testing.T) {
 	two := int32(2)
 	for _, tc := range []struct {
-		web  *client.AppWeb
-		want string
+		runtime *client.AppRuntime
+		want    string
 	}{
 		{nil, ""},
-		{&client.AppWeb{Replicas: &two}, "2"},
-		{&client.AppWeb{Replicas: &two, Autoscaling: &client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 60}}, "2 to 6, aiming for 60% CPU"},
-		{&client.AppWeb{Autoscaling: &client.AppAutoscaling{MinPods: 1, MaxPods: 3}}, "1 to 3, aiming for 70% CPU"},
+		{&client.AppRuntime{Replicas: &two}, "2"},
+		{&client.AppRuntime{Replicas: &two, Autoscaling: &client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 60}}, "2 to 6, aiming for 60% CPU"},
+		{&client.AppRuntime{Autoscaling: &client.AppAutoscaling{MinPods: 1, MaxPods: 3}}, "1 to 3, aiming for 70% CPU"},
 	} {
-		if got := appPods(tc.web); got != tc.want {
-			t.Errorf("%+v: got %q want %q", tc.web, got, tc.want)
+		if got := appPods(tc.runtime); got != tc.want {
+			t.Errorf("%+v: got %q want %q", tc.runtime, got, tc.want)
 		}
 	}
 }

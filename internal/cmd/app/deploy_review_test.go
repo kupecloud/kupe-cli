@@ -115,7 +115,7 @@ func TestDeployResumePreservesOnlyExplicitSafeTargetFlags(t *testing.T) {
 
 func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 	for _, existing := range []bool{false, true} {
-		for _, output := range []string{"yaml", "go-template={{.Web.Image}}", "json", "name"} {
+		for _, output := range []string{"yaml", "go-template={{.Runtime.Image}}", "json", "name"} {
 			t.Run(fmt.Sprintf("existing=%v/%s", existing, output), func(t *testing.T) {
 				fake := flowFake()
 				args := []string{"deploy"}
@@ -131,7 +131,7 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 				switch output {
 				case "yaml":
 					var item client.AppEnvironment
-					if err := yaml.Unmarshal([]byte(out), &item); err != nil || item.Web == nil || item.Web.Image != nextDigest || item.UID == "" || item.Generation == 0 {
+					if err := yaml.Unmarshal([]byte(out), &item); err != nil || item.Runtime == nil || item.Runtime.Image != nextDigest || item.UID == "" || item.Generation == 0 {
 						t.Fatalf("err=%v item=%+v out=%s", err, item, out)
 					}
 					var raw map[string]any
@@ -141,7 +141,7 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 					if _, flat := raw["image"]; flat {
 						t.Fatalf("compact YAML: %s", out)
 					}
-				case "go-template={{.Web.Image}}":
+				case "go-template={{.Runtime.Image}}":
 					if out != nextDigest+"\n" {
 						t.Fatalf("template out=%q", out)
 					}
@@ -154,7 +154,7 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 					if err := json.Unmarshal([]byte(out), &raw); err != nil {
 						t.Fatal(err)
 					}
-					if _, full := raw["web"]; full || raw["image"] == nil || raw["created"] == nil {
+					if _, full := raw["runtime"]; full || raw["image"] == nil || raw["created"] == nil {
 						t.Fatalf("JSON shape: %s", out)
 					}
 					var result deployResult
@@ -173,7 +173,7 @@ func TestDeployOutputKeepsEnvironmentForNonJSONFormats(t *testing.T) {
 // A bad -o is refused on every deploy path (new environment, existing
 // environment, and without --image) before any API call at all.
 func TestDeployRefusesBadOutputBeforeAnyAPICall(t *testing.T) {
-	for _, output := range []string{"jsonpath={.web.image}", "bogus"} {
+	for _, output := range []string{"jsonpath={.runtime.image}", "bogus"} {
 		for _, tc := range []struct {
 			name string
 			args []string

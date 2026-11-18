@@ -907,7 +907,7 @@ kupe app env update shop production --database main=orders
 Create and update accept a YAML or JSON specification with `-f FILE`; `-f -`
 reads stdin. Unknown fields, duplicate fields and multiple documents are refused.
 The file uses the API fields `environment` (create only), `cluster` (create only),
-`deletionProtection`, `web`, `secrets`, `domains` and `databases` (a list of
+`deletionProtection`, `runtime`, `secrets`, `domains` and `databases` (a list of
 `{name, database, logicalDatabase, env}`). Flags override file values.
 Files are bounded to 1 MiB.
 
@@ -915,7 +915,7 @@ Files are bounded to 1 MiB.
 | --- | --- |
 | `--cluster NAME` | Destination cluster; create only. |
 | `--image DIGEST` | Immutable image digest reference. Tags are refused. |
-| `--port N`, `--replicas N` | Web port and pod count (1–10); the pod count is not used while autoscaling is on. |
+| `--port N`, `--replicas N` | Port the app listens on and pod count (1–10); the pod count is not used while autoscaling is on. |
 | `--min-pods N`, `--max-pods N` | Fewest and most pods when autoscaling (1–10). To turn autoscaling on, pass both. When it is on, pass either to change one. |
 | `--cpu-percent N` | Average CPU use, as a percentage of the CPU request, that autoscaling aims for (10–100, default 70). |
 | `--no-autoscaling` | Stop autoscaling on update and run a fixed number of pods (`--replicas`, or the current count). Cannot be combined with the three flags above. |
@@ -937,7 +937,7 @@ Files are bounded to 1 MiB.
 
 The CLI does not create databases. Create one with `kupe database create`, then
 connect it with `--database`. The platform delivers the connection URL to the
-web container in the variable you name:
+app in the variable you name:
 
 ```bash
 kupe database create orders
@@ -960,7 +960,7 @@ kupe app env update shop production --database reports=orders/analytics:REPORTS_
   of at most 55 characters; the database is a valid database name; a logical
   database starts with a lowercase letter and uses lowercase letters, digits and
   underscores (at most 53); a variable is a valid name that does not repeat
-  across connections or collide with a `web.env` name; each database (and
+  across connections or collide with a `runtime.env` name; each database (and
   logical database) is connected once per environment. The API stays
   authoritative and does not check that the database exists, so a missing one
   shows in the `Database status` row of `env get`.
@@ -1051,7 +1051,7 @@ Flags:
       --memory string            Memory request per replica
       --memory-limit string      Memory limit per replica
   -o, --output string            Output format: table | json | yaml | go-template=...
-      --port int32               Web port (1-65535)
+      --port int32               Port the app listens on (1-65535)
       --readiness string         Readiness check: tcp or http:/path
       --replicas int32           Number of pods (1-10). Not used while autoscaling is on (default 1)
       --secret stringArray       Declare a Vault reference: NAME=VAULT_PATH
@@ -1113,7 +1113,7 @@ this compact `-o json` result, including explicit APP ENV invocations:
 ```
 
 YAML and Go templates retain the full environment object on every deploy form,
-including `.Web.Image` in templates. For the full environment as JSON, use
+including `.Runtime.Image` in templates. For the full environment as JSON, use
 `kupe app env get APP ENV -o json`.
 Review and progress go to stderr. Stdout contains only the result. `--dry-run`
 shows the checks and review on stderr with no stdout result or writes.

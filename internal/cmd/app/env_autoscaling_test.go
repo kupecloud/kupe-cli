@@ -16,7 +16,7 @@ import (
 
 func envWithAutoscaling(a *client.AppAutoscaling) *client.AppEnvironment {
 	e := seededEnv()
-	e.Web.Autoscaling = a
+	e.Runtime.Autoscaling = a
 	return e
 }
 
@@ -49,7 +49,7 @@ func TestEnvironmentAutoscalingFlags(t *testing.T) {
 			if err != nil || len(fake.AppEnvironmentPatches) != 1 {
 				t.Fatalf("err=%v patches=%v", err, fake.AppEnvironmentPatches)
 			}
-			got := fake.AppEnvironmentPatches[0].Web.Autoscaling
+			got := fake.AppEnvironmentPatches[0].Runtime.Autoscaling
 			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
 				t.Fatalf("autoscaling=%+v want=%+v", got, tc.want)
 			}
@@ -73,29 +73,29 @@ func TestEnvironmentAutoscalingOnTheWire(t *testing.T) {
 		if err := json.Unmarshal(data, &patch); err != nil {
 			t.Fatal(err)
 		}
-		return patch["web"].(map[string]any)
+		return patch["runtime"].(map[string]any)
 	}
 	on := &client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70}
-	if web := body(envWithAutoscaling(on), "--no-autoscaling"); web["autoscaling"] != nil || !has(web, "autoscaling") {
-		t.Fatalf("turn off must send an explicit null: %v", web)
+	if runtime := body(envWithAutoscaling(on), "--no-autoscaling"); runtime["autoscaling"] != nil || !has(runtime, "autoscaling") {
+		t.Fatalf("turn off must send an explicit null: %v", runtime)
 	}
-	if web := body(envWithAutoscaling(on), "--max-pods", "8"); web["autoscaling"].(map[string]any)["maxPods"] != float64(8) || web["autoscaling"].(map[string]any)["minPods"] != float64(2) {
-		t.Fatalf("partial change must keep the other values: %v", web)
+	if runtime := body(envWithAutoscaling(on), "--max-pods", "8"); runtime["autoscaling"].(map[string]any)["maxPods"] != float64(8) || runtime["autoscaling"].(map[string]any)["minPods"] != float64(2) {
+		t.Fatalf("partial change must keep the other values: %v", runtime)
 	}
 	// An environment with no autoscaling still sends null for it: the merge patch removes nothing.
-	if web := body(envWithAutoscaling(nil), "--port", "9090"); web["autoscaling"] != nil {
-		t.Fatalf("unexpected autoscaling: %v", web)
+	if runtime := body(envWithAutoscaling(nil), "--port", "9090"); runtime["autoscaling"] != nil {
+		t.Fatalf("unexpected autoscaling: %v", runtime)
 	}
 	// A file's null turns autoscaling off.
 	fake := clienttest.New()
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": envWithAutoscaling(on)}
 	f := factoryWith(fake)
-	f.IOStreams.In = strings.NewReader(`{"web":{"autoscaling":null}}`)
+	f.IOStreams.In = strings.NewReader(`{"runtime":{"autoscaling":null}}`)
 	if _, _, err := run(f, "env", "update", "shop", "production", "--wait=false", "-f", "-"); err != nil {
 		t.Fatal(err)
 	}
-	if fake.AppEnvironmentPatches[0].Web.Autoscaling != nil {
-		t.Fatalf("file null kept autoscaling: %+v", fake.AppEnvironmentPatches[0].Web.Autoscaling)
+	if fake.AppEnvironmentPatches[0].Runtime.Autoscaling != nil {
+		t.Fatalf("file null kept autoscaling: %+v", fake.AppEnvironmentPatches[0].Runtime.Autoscaling)
 	}
 }
 
@@ -116,7 +116,7 @@ func TestEnvironmentCreateWithoutAutoscalingHasNoKey(t *testing.T) {
 	if _, _, err := run(factoryWith(fake), "env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080", "--min-pods", "2", "--max-pods", "4", "--wait=false"); err != nil {
 		t.Fatal(err)
 	}
-	data, _ = json.Marshal(fake.AppEnvironmentCreates[0].Web.Autoscaling)
+	data, _ = json.Marshal(fake.AppEnvironmentCreates[0].Runtime.Autoscaling)
 	if string(data) != `{"minPods":2,"maxPods":4}` {
 		t.Fatalf("create autoscaling: %s", data)
 	}
@@ -165,7 +165,7 @@ func TestDeployRefusesReplicasWhileAutoscaling(t *testing.T) {
 	fake := flowFake()
 	fake.AppsByName["shop"] = &client.App{Name: "shop"}
 	e := releaseEnvironment()
-	e.Web.Autoscaling = &client.AppAutoscaling{MinPods: 2, MaxPods: 6}
+	e.Runtime.Autoscaling = &client.AppAutoscaling{MinPods: 2, MaxPods: 6}
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": e}
 	_, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", nextDigest, "--replicas", "3", "--yes")
 	var ce *cli.Error
@@ -176,27 +176,27 @@ func TestDeployRefusesReplicasWhileAutoscaling(t *testing.T) {
 	if _, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"); err != nil {
 		t.Fatal(err)
 	}
-	if got := fake.AppEnvironmentPatches[0].Web.Autoscaling; got == nil || got.MinPods != 2 || got.MaxPods != 6 {
+	if got := fake.AppEnvironmentPatches[0].Runtime.Autoscaling; got == nil || got.MinPods != 2 || got.MaxPods != 6 {
 		t.Fatalf("autoscaling=%+v", got)
 	}
 }
 
-// An unrelated edit sends the whole web snapshot, so it must carry the current
+// An unrelated edit sends the whole runtime snapshot, so it must carry the current
 // autoscaling unchanged; dropping it would make the merge patch keep it only by
-// luck. Flipping deletion protection touches no web field and sends no web key.
+// luck. Flipping deletion protection touches no runtime field and sends no runtime key.
 func TestEnvironmentUnrelatedEditsKeepAutoscalingOnTheWire(t *testing.T) {
 	wantAutoscaling := map[string]any{"minPods": float64(2), "maxPods": float64(6), "cpuPercent": float64(70)}
 	for _, tc := range []struct {
 		name, input string
 		flags       []string
-		noWeb       bool
+		noRuntime   bool
 	}{
 		{name: "port", flags: []string{"--port", "9090"}},
 		{name: "set-env", flags: []string{"--set-env", "NEW=1"}},
 		{name: "image", flags: []string{"--image", nextDigest}},
 		{name: "readiness", flags: []string{"--readiness", "tcp"}},
-		{name: "file without autoscaling", input: `{"web":{"port":9090}}`},
-		{name: "deletion protection", flags: []string{"--deletion-protection=true"}, noWeb: true},
+		{name: "file without autoscaling", input: `{"runtime":{"port":9090}}`},
+		{name: "deletion protection", flags: []string{"--deletion-protection=true"}, noRuntime: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			current := envWithAutoscaling(&client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70})
@@ -233,14 +233,14 @@ func TestEnvironmentUnrelatedEditsKeepAutoscalingOnTheWire(t *testing.T) {
 			if patch == nil {
 				t.Fatal("no PATCH was sent")
 			}
-			web, present := patch["web"]
-			if tc.noWeb {
+			runtime, present := patch["runtime"]
+			if tc.noRuntime {
 				if present {
-					t.Fatalf("web must not be sent: %v", patch)
+					t.Fatalf("runtime must not be sent: %v", patch)
 				}
 				return
 			}
-			got, _ := web.(map[string]any)["autoscaling"].(map[string]any)
+			got, _ := runtime.(map[string]any)["autoscaling"].(map[string]any)
 			if !reflect.DeepEqual(got, wantAutoscaling) {
 				t.Fatalf("autoscaling=%v patch=%v", got, patch)
 			}
@@ -252,7 +252,7 @@ func TestDeployKeepsAutoscalingInTheRequest(t *testing.T) {
 	fake := flowFake()
 	fake.AppsByName["shop"] = &client.App{Name: "shop"}
 	e := releaseEnvironment()
-	e.Web.Autoscaling = &client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70}
+	e.Runtime.Autoscaling = &client.AppAutoscaling{MinPods: 2, MaxPods: 6, CPUPercent: 70}
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": e}
 	if _, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", nextDigest, "--yes", "--wait=false"); err != nil {
 		t.Fatal(err)
@@ -285,17 +285,17 @@ func TestEnvironmentRMWRefusesConcurrentChangeToFlaggedAutoscaling(t *testing.T)
 			next.Generation = 2
 			switch tc.name {
 			case "flagged max-pods changed":
-				next.Web.Autoscaling.MaxPods = 9
+				next.Runtime.Autoscaling.MaxPods = 9
 			case "unflagged max-pods changed":
-				next.Web.Autoscaling.MaxPods = 9
+				next.Runtime.Autoscaling.MaxPods = 9
 			case "flagged min-pods changed":
-				next.Web.Autoscaling.MinPods = 4
+				next.Runtime.Autoscaling.MinPods = 4
 			case "flagged cpu-percent changed", "unflagged cpu-percent changed":
-				next.Web.Autoscaling.CPUPercent = 50
+				next.Runtime.Autoscaling.CPUPercent = 50
 			case "flagged no-autoscaling changed":
-				next.Web.Autoscaling.MaxPods = 9
+				next.Runtime.Autoscaling.MaxPods = 9
 			default:
-				next.Web.Autoscaling.CPUPercent = 50
+				next.Runtime.Autoscaling.CPUPercent = 50
 			}
 			fake := clienttest.New()
 			fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": next}
@@ -321,16 +321,16 @@ func TestEnvironmentCreateAllowsReplicasWithAutoscaling(t *testing.T) {
 	if _, _, err := run(factoryWith(fake), "env", "create", "shop", "production", "--cluster", "europe", "--image", digest, "--port", "8080", "--replicas", "3", "--min-pods", "2", "--max-pods", "4", "--wait=false"); err != nil {
 		t.Fatal(err)
 	}
-	w := fake.AppEnvironmentCreates[0].Web
+	w := fake.AppEnvironmentCreates[0].Runtime
 	if *w.Replicas != 3 || w.Autoscaling == nil || w.Autoscaling.MaxPods != 4 {
-		t.Fatalf("web=%+v", w)
+		t.Fatalf("runtime=%+v", w)
 	}
 }
 
 func TestEnvironmentFileMisuse(t *testing.T) {
 	for _, tc := range []struct{ name, verb, input, want string }{
-		{"replicas checked before autoscaling", "create", `{"web":{"replicas":20,"autoscaling":{"minPods":0,"maxPods":3}}}`, "replicas must be between 1 and 10"},
-		{"explicit zero cpuPercent", "update", `{"web":{"autoscaling":{"minPods":1,"maxPods":3,"cpuPercent":0}}}`, "cpu-percent must be between 10 and 100"},
+		{"replicas checked before autoscaling", "create", `{"runtime":{"replicas":20,"autoscaling":{"minPods":0,"maxPods":3}}}`, "replicas must be between 1 and 10"},
+		{"explicit zero cpuPercent", "update", `{"runtime":{"autoscaling":{"minPods":1,"maxPods":3,"cpuPercent":0}}}`, "cpu-percent must be between 10 and 100"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := flowFake()
@@ -354,11 +354,11 @@ func TestEnvironmentFileZeroCPUPercentOverriddenByFlag(t *testing.T) {
 	fake := clienttest.New()
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
 	f := factoryWith(fake)
-	f.IOStreams.In = strings.NewReader(`{"web":{"autoscaling":{"minPods":1,"maxPods":3,"cpuPercent":0}}}`)
+	f.IOStreams.In = strings.NewReader(`{"runtime":{"autoscaling":{"minPods":1,"maxPods":3,"cpuPercent":0}}}`)
 	if _, _, err := run(f, "env", "update", "shop", "production", "--wait=false", "-f", "-", "--cpu-percent", "50"); err != nil {
 		t.Fatal(err)
 	}
-	if got := fake.AppEnvironmentPatches[0].Web.Autoscaling; got == nil || got.CPUPercent != 50 {
+	if got := fake.AppEnvironmentPatches[0].Runtime.Autoscaling; got == nil || got.CPUPercent != 50 {
 		t.Fatalf("autoscaling=%+v", got)
 	}
 }

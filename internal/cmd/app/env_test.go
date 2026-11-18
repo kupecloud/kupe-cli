@@ -44,7 +44,7 @@ func TestEnvironmentResourceFlags(t *testing.T) {
 				}
 				return
 			}
-			r := fake.AppEnvironmentCreates[0].Web.Resources
+			r := fake.AppEnvironmentCreates[0].Runtime.Resources
 			if r.Requests.CPU != tc.cpu || r.Limits.CPU != tc.limit || r.Requests.Memory != "256Mi" || r.Limits.Memory != "512Mi" {
 				t.Fatalf("resources=%+v", r)
 			}
@@ -53,7 +53,7 @@ func TestEnvironmentResourceFlags(t *testing.T) {
 }
 func seededEnv() *client.AppEnvironment {
 	n := int32(1)
-	return &client.AppEnvironment{Name: "shop-production", App: "shop", Environment: "production", Cluster: "europe", Generation: 1, Web: &client.AppWeb{Image: digest, Port: 8080, Replicas: &n, Resources: &client.AppResources{Requests: client.AppQuantities{CPU: "500m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "2", Memory: "512Mi"}}, Env: []client.AppEnvVar{{Name: "A", Value: str("old")}, {Name: "B", Value: str("kept")}}}, Status: &client.AppEnvironmentStatus{Phase: client.PhaseRunning, ObservedGeneration: 1}}
+	return &client.AppEnvironment{Name: "shop-production", App: "shop", Environment: "production", Cluster: "europe", Generation: 1, Runtime: &client.AppRuntime{Image: digest, Port: 8080, Replicas: &n, Resources: &client.AppResources{Requests: client.AppQuantities{CPU: "500m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "2", Memory: "512Mi"}}, Env: []client.AppEnvVar{{Name: "A", Value: str("old")}, {Name: "B", Value: str("kept")}}}, Status: &client.AppEnvironmentStatus{Phase: client.PhaseRunning, ObservedGeneration: 1}}
 }
 func str(s string) *string { return &s }
 func TestEnvironmentUpdateKeepsListsAndResources(t *testing.T) {
@@ -64,14 +64,14 @@ func TestEnvironmentUpdateKeepsListsAndResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := fake.AppEnvironmentPatches[0]
-	if len(p.Web.Env) != 2 || *p.Web.Env[1].Value != "kept" || p.Web.Resources.Requests.CPU != "500m" || p.Web.Resources.Limits.CPU != "4" {
-		t.Fatalf("patch=%+v", p.Web)
+	if len(p.Runtime.Env) != 2 || *p.Runtime.Env[1].Value != "kept" || p.Runtime.Resources.Requests.CPU != "500m" || p.Runtime.Resources.Limits.CPU != "4" {
+		t.Fatalf("patch=%+v", p.Runtime)
 	}
 	_, _, err = run(factoryWith(fake), "env", "update", "shop", "production", "--unset-env", "B", "--wait=false")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.AppEnvironmentPatches[1].Web.Env) != 1 {
+	if len(fake.AppEnvironmentPatches[1].Runtime.Env) != 1 {
 		t.Fatal("unset env dropped/retained wrong entries")
 	}
 	_, _, err = run(factoryWith(fake), "env", "update", "shop", "production", "--memory", "1Gi", "--wait=false")
@@ -87,15 +87,16 @@ func TestEnvironmentFilesAndLocalRefusals(t *testing.T) {
 		code        int
 		contains    string
 	}{
-		{"yaml", "cluster: europe\nweb:\n  image: " + digest + "\n  port: 8080\n", []string{"--port", "9090"}, 0, ""},
-		{"json", `{"cluster":"europe","web":{"image":"` + digest + `","port":8080}}`, nil, 0, ""},
-		{"unknown", "cluster: europe\nweb:\n  surprise: yes\n", nil, 2, "surprise"},
+		{"yaml", "cluster: europe\nruntime:\n  image: " + digest + "\n  port: 8080\n", []string{"--port", "9090"}, 0, ""},
+		{"json", `{"cluster":"europe","runtime":{"image":"` + digest + `","port":8080}}`, nil, 0, ""},
+		{"unknown", "cluster: europe\nruntime:\n  surprise: yes\n", nil, 2, "surprise"},
+		{"no-legacy-key", "cluster: europe\nweb:\n  image: " + digest + "\n  port: 8080\n", nil, 2, `unknown field "web"`},
 		{"duplicate", "cluster: europe\ncluster: other\n", nil, 2, "duplicate"},
 		{"multi", "cluster: europe\n---\ncluster: other\n", nil, 2, "one document"},
-		{"type", `{"cluster":"europe","web":{"image":"` + digest + `","port":"8080"}}`, nil, 2, "type"},
-		{"alias", "cluster: &cluster europe\nweb: *cluster\n", nil, 2, "aliases"},
-		{"tag", "cluster: europe\nweb:\n  image: nginx:latest\n  port: 8080\n", nil, 2, "digest"},
-		{"override-tag", "cluster: europe\nweb:\n  image: nginx:latest\n  port: 8080\n", []string{"--image", digest}, 0, ""},
+		{"type", `{"cluster":"europe","runtime":{"image":"` + digest + `","port":"8080"}}`, nil, 2, "type"},
+		{"alias", "cluster: &cluster europe\nruntime: *cluster\n", nil, 2, "aliases"},
+		{"tag", "cluster: europe\nruntime:\n  image: nginx:latest\n  port: 8080\n", nil, 2, "digest"},
+		{"override-tag", "cluster: europe\nruntime:\n  image: nginx:latest\n  port: 8080\n", []string{"--image", digest}, 0, ""},
 		{"oversize", strings.Repeat("x", maxEnvironmentFile+1), nil, 2, "1 MiB"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -120,8 +121,8 @@ func TestEnvironmentFilesAndLocalRefusals(t *testing.T) {
 					if len(fake.Calls) > 0 || !strings.Contains(err.Error(), tc.contains) {
 						t.Fatalf("calls=%v err=%v", fake.Calls, err)
 					}
-				} else if tc.name == "yaml" && fake.AppEnvironmentCreates[0].Web.Port != 9090 {
-					t.Fatal("flag did not override file")
+				} else if tc.name == "yaml" && (fake.AppEnvironmentCreates[0].Runtime.Port != 9090 || fake.AppEnvironmentCreates[0].Runtime.Image != digest) {
+					t.Fatalf("runtime file not applied with the flag override: %+v", fake.AppEnvironmentCreates[0].Runtime)
 				}
 			}
 		})
@@ -147,7 +148,7 @@ func TestEnvironmentUpdateRefusesIdentityBeforeRequest(t *testing.T) {
 	}
 	fake = clienttest.New()
 	f := factoryWith(fake)
-	f.IOStreams.In = strings.NewReader(`{"web":{"image":"nginx:latest"}}`)
+	f.IOStreams.In = strings.NewReader(`{"runtime":{"image":"nginx:latest"}}`)
 	_, _, err = run(f, "env", "update", "shop", "production", "-f", "-")
 	if cli.ExitCode(err) != 2 || len(fake.Calls) > 0 {
 		t.Fatalf("file tag err=%v calls=%v", err, fake.Calls)
@@ -161,9 +162,9 @@ func TestEnvironmentRMWRetainsUnrelatedChangesAndRefusesTargetConflict(t *testin
 			first, next := seededEnv(), seededEnv()
 			next.Generation = 2
 			if targetChanged {
-				next.Web.Env[0].Value = str("other writer")
+				next.Runtime.Env[0].Value = str("other writer")
 			} else {
-				next.Web.Env[1].Value = str("concurrent B")
+				next.Runtime.Env[1].Value = str("concurrent B")
 			}
 			fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": next}
 			fake.GetAppEnvironmentSeq["shop"] = map[string][]*client.AppEnvironment{"production": {first, next}}
@@ -178,7 +179,7 @@ func TestEnvironmentRMWRetainsUnrelatedChangesAndRefusesTargetConflict(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(fake.AppEnvironmentPatches) != 1 || *fake.AppEnvironmentPatches[0].Web.Env[1].Value != "concurrent B" {
+			if len(fake.AppEnvironmentPatches) != 1 || *fake.AppEnvironmentPatches[0].Runtime.Env[1].Value != "concurrent B" {
 				t.Fatalf("patches=%+v", fake.AppEnvironmentPatches)
 			}
 		})
@@ -188,7 +189,7 @@ func TestEnvironmentRMWRetainsUnrelatedChangesAndRefusesTargetConflict(t *testin
 func TestEnvironmentClearListsReachesJSON(t *testing.T) {
 	fake := clienttest.New()
 	env := seededEnv()
-	env.Web.Env = env.Web.Env[:1]
+	env.Runtime.Env = env.Runtime.Env[:1]
 	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": env}
 	_, _, err := run(factoryWith(fake), "env", "update", "shop", "production", "--unset-env", "A", "--wait=false")
 	if err != nil {
@@ -260,7 +261,7 @@ func TestEnvironmentEffectiveResourcesOnHTTPWire(t *testing.T) {
 					env := seededEnv()
 					if tc.conflict && gets == 2 {
 						env.Generation = 2
-						env.Web.Resources.Limits.CPU = "500m"
+						env.Runtime.Resources.Limits.CPU = "500m"
 					}
 					w.Header().Set("ETag", fmt.Sprintf(`"uid.%d"`, gets))
 					_ = json.NewEncoder(w).Encode(env)
@@ -268,14 +269,14 @@ func TestEnvironmentEffectiveResourcesOnHTTPWire(t *testing.T) {
 				}
 				writes++
 				var body struct {
-					Web struct {
+					Runtime struct {
 						Resources client.AppResources `json:"resources"`
-					} `json:"web"`
+					} `json:"runtime"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Error(err)
 				}
-				resources := body.Web.Resources
+				resources := body.Runtime.Resources
 				got := [4]string{resources.Requests.CPU, resources.Requests.Memory, resources.Limits.CPU, resources.Limits.Memory}
 				if got != tc.want {
 					t.Errorf("wire effective values=%v want=%v", got, tc.want)
@@ -309,8 +310,8 @@ func TestEnvironmentEffectiveResourcesOnHTTPWire(t *testing.T) {
 
 func TestEnvironmentFileListPresenceSemantics(t *testing.T) {
 	for _, tc := range []struct{ name, input, field, want string }{
-		{"empty-env", `{"web":{"env":[]}}`, "env", "[]"},
-		{"null-env", `{"web":{"env":null}}`, "env", "null"},
+		{"empty-env", `{"runtime":{"env":[]}}`, "env", "[]"},
+		{"null-env", `{"runtime":{"env":null}}`, "env", "null"},
 		{"empty-domains", `{"domains":[]}`, "domains", "[]"},
 		{"null-domains", `{"domains":null}`, "domains", "null"},
 		{"empty-secrets", `{"secrets":[]}`, "secrets", "[]"},
@@ -341,11 +342,11 @@ func TestEnvironmentFileListPresenceSemantics(t *testing.T) {
 			}
 			field := patch[tc.field]
 			if tc.field == "env" {
-				var web map[string]json.RawMessage
-				if err := json.Unmarshal(patch["web"], &web); err != nil {
+				var runtime map[string]json.RawMessage
+				if err := json.Unmarshal(patch["runtime"], &runtime); err != nil {
 					t.Fatal(err)
 				}
-				field = web["env"]
+				field = runtime["env"]
 			}
 			if string(field) != tc.want {
 				t.Fatalf("patch=%s want %s=%s", data, tc.field, tc.want)
@@ -362,7 +363,7 @@ func TestEnvironmentFileListPresenceSemantics(t *testing.T) {
 
 func TestEnvironmentFileLocalPathForms(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "environment.yaml")
-	input := "cluster: europe\nweb:\n  image: " + digest + "\n  port: 8080\n"
+	input := "cluster: europe\nruntime:\n  image: " + digest + "\n  port: 8080\n"
 	if err := os.WriteFile(path, []byte(input), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -416,5 +417,23 @@ func TestEnvironmentApprovedValidationMessages(t *testing.T) {
 				t.Fatalf("err=%v calls=%v", err, fake.Calls)
 			}
 		})
+	}
+}
+
+func TestEnvironmentGetEmitsRuntime(t *testing.T) {
+	fake := clienttest.New()
+	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
+	out, _, err := run(factoryWith(fake), "env", "get", "shop", "production", "-o", "yaml")
+	if err != nil || !strings.Contains(out, "\nruntime:\n    image: "+digest+"\n") || strings.Contains(out, "web:") {
+		t.Fatalf("yaml err=%v out:\n%s", err, out)
+	}
+	out, _, err = run(factoryWith(fake), "env", "get", "shop", "production", "-o", "json")
+	var got map[string]json.RawMessage
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got["runtime"] == nil || got["web"] != nil {
+		t.Fatalf("json err=%v out:\n%s", err, out)
+	}
+	out, _, err = run(factoryWith(fake), "env", "get", "shop", "production", "-o", "go-template={{.Runtime.Image}}")
+	if err != nil || out != digest+"\n" {
+		t.Fatalf("go-template err=%v out=%q", err, out)
 	}
 }

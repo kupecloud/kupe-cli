@@ -105,12 +105,12 @@ func (f *Fake) AppEnvironments(app string) client.AppEnvironmentAPI {
 			name: func(req client.CreateAppEnvironmentRequest) string { return req.Environment },
 			build: func(req client.CreateAppEnvironmentRequest) *client.AppEnvironment {
 				f.AppEnvironmentCreates = append(f.AppEnvironmentCreates, req)
-				return &client.AppEnvironment{Name: app + "-" + req.Environment, App: app, Environment: req.Environment, Cluster: req.Cluster, UID: "env-uid", Generation: 1, DeploymentRevision: 1, DeletionProtection: req.DeletionProtection == nil || *req.DeletionProtection, Web: req.Web, Secrets: req.Secrets, Domains: req.Domains, Databases: req.Databases, Status: &client.AppEnvironmentStatus{Phase: client.PhaseRunning, ObservedGeneration: 1}}
+				return &client.AppEnvironment{Name: app + "-" + req.Environment, App: app, Environment: req.Environment, Cluster: req.Cluster, UID: "env-uid", Generation: 1, DeploymentRevision: 1, DeletionProtection: req.DeletionProtection == nil || *req.DeletionProtection, Runtime: req.Runtime, Secrets: req.Secrets, Domains: req.Domains, Databases: req.Databases, Status: &client.AppEnvironmentStatus{Phase: client.PhaseRunning, ObservedGeneration: 1}}
 			},
 			apply: func(env *client.AppEnvironment, req client.PatchAppEnvironmentRequest) {
 				f.AppEnvironmentPatches = append(f.AppEnvironmentPatches, req)
-				if req.Web != nil {
-					env.Web = mergeAppWeb(env.Web, req)
+				if req.Runtime != nil {
+					env.Runtime = mergeAppRuntime(env.Runtime, req)
 				}
 				if req.Secrets != nil {
 					env.Secrets = *req.Secrets
@@ -137,16 +137,16 @@ func (f *Fake) AppEnvironments(app string) client.AppEnvironmentAPI {
 	}
 }
 
-// mergeAppWeb applies the web member of a patch to the current web the way
+// mergeAppRuntime applies the runtime member of a patch to the current runtime the way
 // the server does: an RFC 7386 JSON merge patch, where objects merge, a null
 // removes a member, and arrays and scalars replace.
-func mergeAppWeb(current *client.AppWeb, req client.PatchAppEnvironmentRequest) *client.AppWeb {
+func mergeAppRuntime(current *client.AppRuntime, req client.PatchAppEnvironmentRequest) *client.AppRuntime {
 	body, err := json.Marshal(req)
 	if err != nil {
 		panic(fmt.Sprintf("clienttest: marshal patch: %v", err))
 	}
 	var envelope struct {
-		Web map[string]any `json:"web"`
+		Runtime map[string]any `json:"runtime"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		panic(fmt.Sprintf("clienttest: decode patch: %v", err))
@@ -156,10 +156,10 @@ func mergeAppWeb(current *client.AppWeb, req client.PatchAppEnvironmentRequest) 
 		data, _ := json.Marshal(current)
 		_ = json.Unmarshal(data, &base)
 	}
-	merged, _ := json.Marshal(mergePatch(base, envelope.Web))
-	var out client.AppWeb
+	merged, _ := json.Marshal(mergePatch(base, envelope.Runtime))
+	var out client.AppRuntime
 	if err := json.Unmarshal(merged, &out); err != nil {
-		panic(fmt.Sprintf("clienttest: decode merged web: %v", err))
+		panic(fmt.Sprintf("clienttest: decode merged runtime: %v", err))
 	}
 	return &out
 }

@@ -27,9 +27,9 @@ func TestReleaseCommandsShowAPIMessageOnce(t *testing.T) {
 	}{
 		{
 			name:  "field refusal on a write",
-			err:   &client.APIError{StatusCode: 400, Code: "validation_failed", Field: "web.port", Message: "web.port must be between 1 and 65535", RequestID: "req-400"},
+			err:   &client.APIError{StatusCode: 400, Code: "validation_failed", Field: "runtime.port", Message: "runtime.port must be between 1 and 65535", RequestID: "req-400"},
 			write: true, code: cli.ExitMisuse,
-			want: "web.port must be between 1 and 65535 (request-id: req-400)",
+			want: "runtime.port must be between 1 and 65535 (request-id: req-400)",
 		},
 		{
 			name: "forbidden",

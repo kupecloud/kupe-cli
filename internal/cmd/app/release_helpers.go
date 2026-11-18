@@ -61,26 +61,26 @@ func deploymentRevision(env *client.AppEnvironment) int64 {
 }
 
 // Reviews describe configuration without echoing literal variable values.
-func reviewRelease(io *cli.IOStreams, action, app, env, source string, current *client.AppEnvironment, web *client.AppWeb, changed []string) {
+func reviewRelease(io *cli.IOStreams, action, app, env, source string, current *client.AppEnvironment, runtime *client.AppRuntime, changed []string) {
 	fmt.Fprintf(io.ErrOut, "%s %s/%s (generation %d, deployment revision %d)\n", action, app, env, current.Generation, deploymentRevision(current))
-	if web == nil {
+	if runtime == nil {
 		return
 	}
-	if source != "" && source != web.Image {
-		fmt.Fprintf(io.ErrOut, "  image: %s → %s\n", source, web.Image)
+	if source != "" && source != runtime.Image {
+		fmt.Fprintf(io.ErrOut, "  image: %s → %s\n", source, runtime.Image)
 	} else {
-		fmt.Fprintf(io.ErrOut, "  image: %s\n", web.Image)
+		fmt.Fprintf(io.ErrOut, "  image: %s\n", runtime.Image)
 	}
 	replicas := int32(1)
-	if web.Replicas != nil {
-		replicas = *web.Replicas
+	if runtime.Replicas != nil {
+		replicas = *runtime.Replicas
 	}
-	fmt.Fprintf(io.ErrOut, "  port: %d; replicas: %d\n", web.Port, replicas)
-	if web.Resources != nil {
-		fmt.Fprintf(io.ErrOut, "  requests: %s CPU, %s memory; limits: %s CPU, %s memory\n", web.Resources.Requests.CPU, web.Resources.Requests.Memory, web.Resources.Limits.CPU, web.Resources.Limits.Memory)
+	fmt.Fprintf(io.ErrOut, "  port: %d; replicas: %d\n", runtime.Port, replicas)
+	if runtime.Resources != nil {
+		fmt.Fprintf(io.ErrOut, "  requests: %s CPU, %s memory; limits: %s CPU, %s memory\n", runtime.Resources.Requests.CPU, runtime.Resources.Requests.Memory, runtime.Resources.Limits.CPU, runtime.Resources.Limits.Memory)
 	}
 	var names []string
-	for _, v := range web.Env {
+	for _, v := range runtime.Env {
 		name := v.Name
 		if v.ValueFrom != nil {
 			name += " (secret reference)"

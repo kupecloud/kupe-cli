@@ -5,7 +5,7 @@ ADDRESS:                  https://shop.example.com
 App:                      shop
 Deletion protection:      off
 Pods:                     -
-Desired web:              null
+Desired runtime:          null
 Vault references:         null
 Desired domains:          shop.example.com
 Databases:                -

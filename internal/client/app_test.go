@@ -173,3 +173,29 @@ func TestAppClientCollectionPathsAndCreateBodies(t *testing.T) {
 		})
 	}
 }
+
+func TestAppEnvironmentWireUsesRuntimeKey(t *testing.T) {
+	const image = "registry.example/app@sha256:abc"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		runtime, _ := body["runtime"].(map[string]any)
+		if _, legacy := body["web"]; legacy || runtime["image"] != image {
+			t.Errorf("%s body=%v", r.Method, body)
+		}
+		w.Header().Set("ETag", `"uid.1"`)
+		_, _ = fmt.Fprintf(w, `{"environment":"production","runtime":{"image":%q,"port":8080}}`, image)
+	}))
+	defer srv.Close()
+	api := New(srv.URL, "acme", "", "test").AppEnvironments("shop")
+	ctx := context.Background()
+	created, _, err := api.Create(ctx, CreateAppEnvironmentRequest{Environment: "production", Cluster: "europe", Runtime: &AppRuntime{Image: image, Port: 8080}})
+	if err != nil || created.Runtime == nil || created.Runtime.Image != image || created.Runtime.Port != 8080 {
+		t.Fatalf("create=%+v err=%v", created, err)
+	}
+	if _, _, err := api.Update(ctx, "production", `"uid.1"`, PatchAppEnvironmentRequest{Runtime: &AppRuntime{Image: image, Port: 8080}}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -12,7 +12,7 @@ import (
 func TestAppReleasePrinterSeparatesFailedOutcomeAndRecovery(t *testing.T) {
 	for _, kind := range []Kind{Table, JSON} {
 		io, out, _ := cli.Test()
-		item := &client.AppRelease{Name: "shop-prod-2", Number: 2, Trigger: "Retry", Runtime: client.AppReleaseRuntime{AppWeb: client.AppWeb{Image: "registry.example/app@sha256:test"}}, Status: client.AppReleaseStatus{Phase: "Failed", Reason: "SyncFailed", Recovery: &client.AppReleaseRecovery{Phase: "Succeeded", Release: &client.AppReleaseReference{Name: "shop-prod-1"}}}}
+		item := &client.AppRelease{Name: "shop-prod-2", Number: 2, Trigger: "Retry", Runtime: client.AppReleaseRuntime{AppRuntime: client.AppRuntime{Image: "registry.example/app@sha256:test"}}, Status: client.AppReleaseStatus{Phase: "Failed", Reason: "SyncFailed", Recovery: &client.AppReleaseRecovery{Phase: "Succeeded", Release: &client.AppReleaseReference{Name: "shop-prod-1"}}}}
 		if err := AppRelease.One(io, &Format{Kind: kind}, item); err != nil {
 			t.Fatal(err)
 		}
@@ -25,7 +25,7 @@ func TestAppReleasePrinterSeparatesFailedOutcomeAndRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			runtime := got["runtime"].(map[string]any)
-			if runtime["image"] == nil || runtime["web"] != nil {
+			if runtime["image"] == nil || runtime["runtime"] != nil {
 				t.Fatalf("runtime=%v", runtime)
 			}
 		}

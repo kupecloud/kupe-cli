@@ -149,10 +149,10 @@ func mergeEnvironmentMap(current, patch map[string]any) {
 func environmentRequest(current *client.AppEnvironment) client.CreateAppEnvironmentRequest {
 	if current != nil {
 		p := current.DeletionProtection
-		return client.CreateAppEnvironmentRequest{Environment: current.Environment, Cluster: current.Cluster, DeletionProtection: &p, Web: current.Web, Secrets: current.Secrets, Domains: current.Domains, Databases: current.Databases}
+		return client.CreateAppEnvironmentRequest{Environment: current.Environment, Cluster: current.Cluster, DeletionProtection: &p, Runtime: current.Runtime, Secrets: current.Secrets, Domains: current.Domains, Databases: current.Databases}
 	}
 	n := int32(1)
-	return client.CreateAppEnvironmentRequest{Web: &client.AppWeb{Replicas: &n, Resources: &client.AppResources{Requests: client.AppQuantities{CPU: "250m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "1", Memory: "512Mi"}}}}
+	return client.CreateAppEnvironmentRequest{Runtime: &client.AppRuntime{Replicas: &n, Resources: &client.AppResources{Requests: client.AppQuantities{CPU: "250m", Memory: "256Mi"}, Limits: client.AppQuantities{CPU: "1", Memory: "512Mi"}}}}
 }
 func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, file map[string]any, name string) (client.CreateAppEnvironmentRequest, error) {
 	base, err := json.Marshal(environmentRequest(current))
@@ -182,10 +182,10 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 		return req, cli.MisuseError("environment in the file must match the command argument")
 	}
 	req.Environment = name
-	if req.Web == nil {
-		req.Web = &client.AppWeb{}
+	if req.Runtime == nil {
+		req.Runtime = &client.AppRuntime{}
 	}
-	w := req.Web
+	w := req.Runtime
 	if w.Replicas == nil {
 		n := int32(1)
 		w.Replicas = &n
@@ -194,7 +194,7 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 		w.Resources = &client.AppResources{}
 	}
 	if current == nil {
-		defaults := environmentRequest(nil).Web.Resources
+		defaults := environmentRequest(nil).Runtime.Resources
 		if w.Resources.Requests.CPU == "" {
 			w.Resources.Requests.CPU = defaults.Requests.CPU
 		}
@@ -262,7 +262,7 @@ func (o *envOptions) build(cmd *cobra.Command, current *client.AppEnvironment, f
 
 // applyAutoscaling applies the autoscaling flags to w. Flags that were not
 // passed leave the current (or file) values alone.
-func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppWeb, file map[string]any) error {
+func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppRuntime, file map[string]any) error {
 	changed := func(name string) bool { return cmd.Flags().Changed(name) }
 	if !changed("cpu-percent") && fileCPUPercentIsZero(file) {
 		// An explicit zero would be dropped by omitempty, so refuse it here.
@@ -307,10 +307,10 @@ func (o *envOptions) applyAutoscaling(cmd *cobra.Command, w *client.AppWeb, file
 	return nil
 }
 
-// fileCPUPercentIsZero reports an explicit web.autoscaling.cpuPercent of 0.
+// fileCPUPercentIsZero reports an explicit runtime.autoscaling.cpuPercent of 0.
 func fileCPUPercentIsZero(file map[string]any) bool {
-	web, _ := file["web"].(map[string]any)
-	a, _ := web["autoscaling"].(map[string]any)
+	runtime, _ := file["runtime"].(map[string]any)
+	a, _ := runtime["autoscaling"].(map[string]any)
 	switch n := a["cpuPercent"].(type) {
 	case int:
 		return n == 0
@@ -339,7 +339,7 @@ func applyEnvironmentLists(req *client.CreateAppEnvironmentRequest, o *envOption
 		if err != nil {
 			return err
 		}
-		replaceEnv(&req.Web.Env, client.AppEnvVar{Name: n, Value: &v})
+		replaceEnv(&req.Runtime.Env, client.AppEnvVar{Name: n, Value: &v})
 	}
 	for _, entry := range o.secretEnv {
 		n, v, err := splitAssignment(entry, "--secret-env")
@@ -350,16 +350,16 @@ func applyEnvironmentLists(req *client.CreateAppEnvironmentRequest, o *envOption
 		if !ok || secret == "" || key == "" {
 			return cli.MisuseError("--secret-env must use VAR=SECRET:KEY")
 		}
-		replaceEnv(&req.Web.Env, client.AppEnvVar{Name: n, ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: secret, Key: key}}})
+		replaceEnv(&req.Runtime.Env, client.AppEnvVar{Name: n, ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: secret, Key: key}}})
 	}
 	for _, name := range o.unsetEnv {
-		kept := make([]client.AppEnvVar, 0, len(req.Web.Env))
-		for _, e := range req.Web.Env {
+		kept := make([]client.AppEnvVar, 0, len(req.Runtime.Env))
+		for _, e := range req.Runtime.Env {
 			if e.Name != name {
 				kept = append(kept, e)
 			}
 		}
-		req.Web.Env = kept
+		req.Runtime.Env = kept
 	}
 	for _, entry := range o.secrets {
 		n, v, err := splitAssignment(entry, "--secret")
@@ -482,7 +482,7 @@ func sameDatabases(a, b []client.AppDatabase) bool {
 // validateDatabases mirrors the API's checks and sentences (ERR-12), in its
 // order. The derived binding-name length and the database's existence are left
 // to the API.
-func validateDatabases(databases []client.AppDatabase, web []client.AppEnvVar) error {
+func validateDatabases(databases []client.AppDatabase, runtimeEnv []client.AppEnvVar) error {
 	if len(databases) > 5 {
 		return cli.MisuseError("databases must contain at most 5 connections")
 	}
@@ -514,8 +514,8 @@ func validateDatabases(databases []client.AppDatabase, web []client.AppEnvVar) e
 	}
 	for i, conn := range databases {
 		env := envOf(conn)
-		if slices.ContainsFunc(web, func(v client.AppEnvVar) bool { return v.Name == env }) {
-			return cli.MisuseError(fmt.Sprintf("variable %q is already set in web.env; choose another name with env", env)).WithHint(envConflictHint)
+		if slices.ContainsFunc(runtimeEnv, func(v client.AppEnvVar) bool { return v.Name == env }) {
+			return cli.MisuseError(fmt.Sprintf("variable %q is already set in runtime.env; choose another name with env", env)).WithHint(envConflictHint)
 		}
 		for _, earlier := range databases[:i] {
 			if envOf(earlier) == env {
@@ -568,7 +568,7 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 	if len(validation.IsDNS1123Label(req.Cluster)) > 0 || strings.Contains(req.Cluster, "--") {
 		return cli.MisuseError("cluster must be lowercase letters or digits, with single hyphens between them")
 	}
-	w := req.Web
+	w := req.Runtime
 	if len(w.Image) > 512 || !digestImage.MatchString(w.Image) {
 		return cli.MisuseError("image must be a digest reference").WithHint(imageHint)
 	}
@@ -613,7 +613,7 @@ func validateEnvironment(req client.CreateAppEnvironmentRequest) error {
 		}
 	}
 	if len(w.Env) > 100 {
-		return cli.MisuseError("web.env accepts at most 100 entries")
+		return cli.MisuseError("runtime.env accepts at most 100 entries")
 	}
 	if len(req.Secrets) > 20 {
 		return cli.MisuseError("secrets accepts at most 20 entries")
@@ -709,7 +709,7 @@ func changedTargets(before, after *client.AppEnvironment, o *envOptions, file ma
 		}
 	}
 	walk(file, nil)
-	for flag, path := range map[string][]string{"image": {"web", "image"}, "port": {"web", "port"}, "replicas": {"web", "replicas"}, "min-pods": {"web", "autoscaling", "minPods"}, "max-pods": {"web", "autoscaling", "maxPods"}, "cpu-percent": {"web", "autoscaling", "cpuPercent"}, "no-autoscaling": {"web", "autoscaling"}, "cpu": {"web", "resources", "requests", "cpu"}, "memory": {"web", "resources", "requests", "memory"}, "cpu-limit": {"web", "resources", "limits", "cpu"}, "memory-limit": {"web", "resources", "limits", "memory"}, "readiness": {"web", "healthChecks", "readiness"}, "no-deletion-protection": {"deletionProtection"}, "deletion-protection": {"deletionProtection"}} {
+	for flag, path := range map[string][]string{"image": {"runtime", "image"}, "port": {"runtime", "port"}, "replicas": {"runtime", "replicas"}, "min-pods": {"runtime", "autoscaling", "minPods"}, "max-pods": {"runtime", "autoscaling", "maxPods"}, "cpu-percent": {"runtime", "autoscaling", "cpuPercent"}, "no-autoscaling": {"runtime", "autoscaling"}, "cpu": {"runtime", "resources", "requests", "cpu"}, "memory": {"runtime", "resources", "requests", "memory"}, "cpu-limit": {"runtime", "resources", "limits", "cpu"}, "memory-limit": {"runtime", "resources", "limits", "memory"}, "readiness": {"runtime", "healthChecks", "readiness"}, "no-deletion-protection": {"deletionProtection"}, "deletion-protection": {"deletionProtection"}} {
 		if cmd.Flags().Changed(flag) {
 			paths = append(paths, path)
 		}
@@ -722,7 +722,7 @@ func changedTargets(before, after *client.AppEnvironment, o *envOptions, file ma
 	for _, values := range [][]string{o.env, o.secretEnv, o.unsetEnv} {
 		for _, v := range values {
 			name, _, _ := strings.Cut(v, "=")
-			if !reflect.DeepEqual(envNamed(before.Web.Env, name), envNamed(after.Web.Env, name)) {
+			if !reflect.DeepEqual(envNamed(before.Runtime.Env, name), envNamed(after.Runtime.Env, name)) {
 				return true
 			}
 		}

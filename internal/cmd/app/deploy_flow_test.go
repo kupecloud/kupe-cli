@@ -47,7 +47,7 @@ func TestDeployFlowCreatesAndReusesAppEnvironment(t *testing.T) {
 	if result.App != "api" || result.Environment != "production" || result.Cluster != "europe" || result.Image != nextDigest || result.Created != (deployCreated{App: true, Environment: true}) {
 		t.Fatalf("result=%+v", result)
 	}
-	if len(fake.AppCreates) != 1 || len(fake.AppEnvironmentCreates) != 1 || fake.AppEnvironmentCreates[0].Web.Port != 8080 || !strings.Contains(review, "app: api (new)") {
+	if len(fake.AppCreates) != 1 || len(fake.AppEnvironmentCreates) != 1 || fake.AppEnvironmentCreates[0].Runtime.Port != 8080 || !strings.Contains(review, "app: api (new)") {
 		t.Fatalf("review=%s creates=%v", review, fake.AppEnvironmentCreates)
 	}
 	fake.ImageResolution.Reference = digest
@@ -182,7 +182,7 @@ func TestDeployFlowPortChoices(t *testing.T) {
 		fake = flowFake()
 		fake.ImageResolution.ExposedPorts = ports
 		_, _, err = run(factoryWith(fake), "deploy", "--image", nextDigest, "--port", "9090", "--yes", "--wait=false")
-		if err != nil || fake.AppEnvironmentCreates[0].Web.Port != 9090 {
+		if err != nil || fake.AppEnvironmentCreates[0].Runtime.Port != 9090 {
 			t.Fatalf("err=%v", err)
 		}
 	}
@@ -255,7 +255,7 @@ func TestDeployFlowCompactResult(t *testing.T) {
 	if err := p.render(f, format, "shop", "production", item); err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"app\": \"shop\",\n  \"environment\": \"production\",\n  \"cluster\": \"europe\",\n  \"release\": \"shop-production-1\",\n  \"image\": \"" + item.Web.Image + "\",\n  \"address\": \"https://shop.example.test\",\n  \"created\": {\n    \"app\": true,\n    \"environment\": true,\n    \"cluster\": false\n  }\n}\n"
+	want := "{\n  \"app\": \"shop\",\n  \"environment\": \"production\",\n  \"cluster\": \"europe\",\n  \"release\": \"shop-production-1\",\n  \"image\": \"" + item.Runtime.Image + "\",\n  \"address\": \"https://shop.example.test\",\n  \"created\": {\n    \"app\": true,\n    \"environment\": true,\n    \"cluster\": false\n  }\n}\n"
 	if out.String() != want {
 		t.Fatalf("got=%s want=%s", out.String(), want)
 	}
@@ -328,7 +328,7 @@ func TestDeployFlowUnchangedWaitUsesRequestedReleaseWithoutWriting(t *testing.T)
 				release.Status.Recovery = &client.AppReleaseRecovery{Phase: tc.recovery}
 			}
 			fake.AppReleases = []client.AppRelease{release}
-			_, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", env.Web.Image, "--yes", "--wait-timeout", "10ms")
+			_, _, err := run(factoryWith(fake), "deploy", "shop", "production", "--image", env.Runtime.Image, "--yes", "--wait-timeout", "10ms")
 			if cli.ExitCode(err) != tc.code || len(fake.AppEnvironmentPatches) != 0 || len(fake.AppEnvironmentCreates) != 0 {
 				t.Fatalf("err=%v code=%d writes=%v", err, cli.ExitCode(err), writes(fake))
 			}
@@ -420,7 +420,7 @@ func TestDeployFlowInteractiveClusterAndPortChoices(t *testing.T) {
 		f := factoryWith(fake)
 		f.IOStreams = streams
 		_, _, err := run(f, "deploy", "api", "production", "--image", nextDigest, "--wait=false")
-		if err != nil || len(fake.AppEnvironmentCreates) != 1 || fake.AppEnvironmentCreates[0].Cluster != tc.want || fake.AppEnvironmentCreates[0].Web.Port != 9090 {
+		if err != nil || len(fake.AppEnvironmentCreates) != 1 || fake.AppEnvironmentCreates[0].Cluster != tc.want || fake.AppEnvironmentCreates[0].Runtime.Port != 9090 {
 			t.Fatalf("err=%v calls=%v", err, fake.Calls)
 		}
 	}

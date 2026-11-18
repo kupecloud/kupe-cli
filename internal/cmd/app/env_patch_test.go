@@ -20,79 +20,79 @@ func TestEnvironmentHealthChangesSurviveHTTPMergePatch(t *testing.T) {
 	for _, tc := range []struct {
 		name, input string
 		flags       []string
-		before      func(*client.AppWeb)
-		after       func(*client.AppWeb)
+		before      func(*client.AppRuntime)
+		after       func(*client.AppRuntime)
 		nulls       [][]string
 	}{
 		{
 			name: "readiness flag tcp to http", flags: []string{"--readiness", "http:/ready"},
-			after: func(w *client.AppWeb) { w.HealthChecks.Readiness = httpProbe("/ready") },
+			after: func(w *client.AppRuntime) { w.HealthChecks.Readiness = httpProbe("/ready") },
 			nulls: [][]string{{"healthChecks", "readiness", "tcp"}},
 		},
 		{
 			name: "readiness flag http to tcp", flags: []string{"--readiness", "tcp"},
-			before: func(w *client.AppWeb) { w.HealthChecks.Readiness = httpProbe("/old") },
-			after:  func(w *client.AppWeb) { w.HealthChecks.Readiness = tcpProbe() },
+			before: func(w *client.AppRuntime) { w.HealthChecks.Readiness = httpProbe("/old") },
+			after:  func(w *client.AppRuntime) { w.HealthChecks.Readiness = tcpProbe() },
 			nulls:  [][]string{{"healthChecks", "readiness", "http"}},
 		},
 		{
-			name: "file readiness tcp to http", input: `{"web":{"healthChecks":{"readiness":{"tcp":null,"http":{"path":"/ready"}}}}}`,
-			after: func(w *client.AppWeb) { w.HealthChecks.Readiness = httpProbe("/ready") },
+			name: "file readiness tcp to http", input: `{"runtime":{"healthChecks":{"readiness":{"tcp":null,"http":{"path":"/ready"}}}}}`,
+			after: func(w *client.AppRuntime) { w.HealthChecks.Readiness = httpProbe("/ready") },
 			nulls: [][]string{{"healthChecks", "readiness", "tcp"}},
 		},
 		{
-			name: "file readiness http to tcp", input: `{"web":{"healthChecks":{"readiness":{"http":null,"tcp":{}}}}}`,
-			before: func(w *client.AppWeb) { w.HealthChecks.Readiness = httpProbe("/old") },
-			after:  func(w *client.AppWeb) { w.HealthChecks.Readiness = tcpProbe() },
+			name: "file readiness http to tcp", input: `{"runtime":{"healthChecks":{"readiness":{"http":null,"tcp":{}}}}}`,
+			before: func(w *client.AppRuntime) { w.HealthChecks.Readiness = httpProbe("/old") },
+			after:  func(w *client.AppRuntime) { w.HealthChecks.Readiness = tcpProbe() },
 			nulls:  [][]string{{"healthChecks", "readiness", "http"}},
 		},
 		{
-			name: "file liveness tcp to http", input: `{"web":{"healthChecks":{"liveness":{"tcp":null,"http":{"path":"/live"}}}}}`,
-			before: func(w *client.AppWeb) { w.HealthChecks.Liveness = tcpProbe() },
-			after:  func(w *client.AppWeb) { w.HealthChecks.Liveness = httpProbe("/live") },
+			name: "file liveness tcp to http", input: `{"runtime":{"healthChecks":{"liveness":{"tcp":null,"http":{"path":"/live"}}}}}`,
+			before: func(w *client.AppRuntime) { w.HealthChecks.Liveness = tcpProbe() },
+			after:  func(w *client.AppRuntime) { w.HealthChecks.Liveness = httpProbe("/live") },
 			nulls:  [][]string{{"healthChecks", "liveness", "tcp"}},
 		},
 		{
-			name: "file liveness http to tcp", input: `{"web":{"healthChecks":{"liveness":{"http":null,"tcp":{}}}}}`,
-			after: func(w *client.AppWeb) { w.HealthChecks.Liveness = tcpProbe() },
+			name: "file liveness http to tcp", input: `{"runtime":{"healthChecks":{"liveness":{"http":null,"tcp":{}}}}}`,
+			after: func(w *client.AppRuntime) { w.HealthChecks.Liveness = tcpProbe() },
 			nulls: [][]string{{"healthChecks", "liveness", "http"}},
 		},
 		{
-			name: "remove liveness", input: `{"web":{"healthChecks":{"liveness":null}}}`,
-			after: func(w *client.AppWeb) { w.HealthChecks.Liveness = nil },
+			name: "remove liveness", input: `{"runtime":{"healthChecks":{"liveness":null}}}`,
+			after: func(w *client.AppRuntime) { w.HealthChecks.Liveness = nil },
 			nulls: [][]string{{"healthChecks", "liveness"}},
 		},
 		{
-			name: "reset readiness to default", input: `{"web":{"healthChecks":{"readiness":null}}}`,
-			before: func(w *client.AppWeb) { w.HealthChecks.Readiness = httpProbe("/old") },
-			after:  func(w *client.AppWeb) { w.HealthChecks.Readiness = tcpProbe() },
+			name: "reset readiness to default", input: `{"runtime":{"healthChecks":{"readiness":null}}}`,
+			before: func(w *client.AppRuntime) { w.HealthChecks.Readiness = httpProbe("/old") },
+			after:  func(w *client.AppRuntime) { w.HealthChecks.Readiness = tcpProbe() },
 			nulls:  [][]string{{"healthChecks", "readiness"}},
 		},
 		{
-			name: "reset all checks", input: `{"web":{"healthChecks":null}}`,
-			after: func(w *client.AppWeb) { w.HealthChecks = &client.AppHealthChecks{Readiness: tcpProbe()} },
+			name: "reset all checks", input: `{"runtime":{"healthChecks":null}}`,
+			after: func(w *client.AppRuntime) { w.HealthChecks = &client.AppHealthChecks{Readiness: tcpProbe()} },
 			nulls: [][]string{{"healthChecks"}},
 		},
 		{
 			name: "omitted checks survive unrelated edit", flags: []string{"--port", "9090"},
-			after: func(w *client.AppWeb) { w.Port = 9090 },
+			after: func(w *client.AppRuntime) { w.Port = 9090 },
 		},
 		{
-			name: "nullable lists clear", input: `{"web":{"command":null,"args":null,"env":null}}`,
-			after: func(w *client.AppWeb) { w.Command, w.Args, w.Env = nil, nil, nil },
+			name: "nullable lists clear", input: `{"runtime":{"command":null,"args":null,"env":null}}`,
+			after: func(w *client.AppRuntime) { w.Command, w.Args, w.Env = nil, nil, nil },
 			nulls: [][]string{{"command"}, {"args"}, {"env"}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			current, expected := seededEnv(), seededEnv()
 			for _, env := range []*client.AppEnvironment{current, expected} {
-				env.Web.HealthChecks = &client.AppHealthChecks{Readiness: tcpProbe(), Liveness: httpProbe("/live")}
-				env.Web.Command, env.Web.Args = []string{"server"}, []string{"--serve"}
+				env.Runtime.HealthChecks = &client.AppHealthChecks{Readiness: tcpProbe(), Liveness: httpProbe("/live")}
+				env.Runtime.Command, env.Runtime.Args = []string{"server"}, []string{"--serve"}
 				if tc.before != nil {
-					tc.before(env.Web)
+					tc.before(env.Runtime)
 				}
 			}
-			tc.after(expected.Web)
+			tc.after(expected.Runtime)
 			initial, err := json.Marshal(current)
 			if err != nil {
 				t.Fatal(err)
@@ -138,11 +138,11 @@ func TestEnvironmentHealthChangesSurviveHTTPMergePatch(t *testing.T) {
 			if err := json.Unmarshal([]byte(out), &got); err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(got.Web, expected.Web) {
-				t.Fatalf("effective web=%+v want=%+v; patch=%v", got.Web, expected.Web, patch)
+			if !reflect.DeepEqual(got.Runtime, expected.Runtime) {
+				t.Fatalf("effective runtime=%+v want=%+v; patch=%v", got.Runtime, expected.Runtime, patch)
 			}
 			for _, path := range tc.nulls {
-				object := patch["web"]
+				object := patch["runtime"]
 				for _, key := range path {
 					fields, ok := object.(map[string]any)
 					if !ok {
@@ -183,11 +183,11 @@ func applyEnvironmentWirePatch(current, patch map[string]any) {
 // The environment CRD defaults healthChecks to {} and readiness to {tcp:{}}.
 // Null removal therefore clears optional liveness but resets readiness.
 func defaultEnvironmentWireChecks(environment map[string]any) {
-	web := environment["web"].(map[string]any)
-	checks, ok := web["healthChecks"].(map[string]any)
+	runtime := environment["runtime"].(map[string]any)
+	checks, ok := runtime["healthChecks"].(map[string]any)
 	if !ok {
 		checks = map[string]any{}
-		web["healthChecks"] = checks
+		runtime["healthChecks"] = checks
 	}
 	if _, present := checks["readiness"]; !present {
 		checks["readiness"] = map[string]any{"tcp": map[string]any{}}
@@ -196,7 +196,7 @@ func defaultEnvironmentWireChecks(environment map[string]any) {
 
 func TestEnvironmentPatchNullsDoNotChangeCreateOrResponseJSON(t *testing.T) {
 	env := seededEnv()
-	env.Web.HealthChecks = &client.AppHealthChecks{Readiness: &client.AppProbe{TCP: &struct{}{}}}
+	env.Runtime.HealthChecks = &client.AppHealthChecks{Readiness: &client.AppProbe{TCP: &struct{}{}}}
 	for _, value := range []any{env, environmentRequest(env)} {
 		data, err := json.Marshal(value)
 		if err != nil {

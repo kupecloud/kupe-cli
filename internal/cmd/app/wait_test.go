@@ -20,7 +20,7 @@ import (
 )
 
 func recordedRelease(name, phase string, number, revision int64, env *client.AppEnvironment) client.AppRelease {
-	return client.AppRelease{Name: name, Number: number, DeploymentRevision: revision, Trigger: "Deploy", Runtime: client.AppReleaseRuntime{AppWeb: *env.Web}, Status: client.AppReleaseStatus{Phase: phase}}
+	return client.AppRelease{Name: name, Number: number, DeploymentRevision: revision, Trigger: "Deploy", Runtime: client.AppReleaseRuntime{AppRuntime: *env.Runtime}, Status: client.AppReleaseStatus{Phase: phase}}
 }
 
 // guardedEnvironments fails the wait on any environment GET past max with a
@@ -147,7 +147,7 @@ func TestWriteWaitDoesNotAcceptOldObservedGenerationOrWrongRetryRevision(t *test
 			e.Status.RequestedRelease = &client.AppReleaseReference{Name: "shop-production-2"}
 			fake.AppReleases = []client.AppRelease{recordedRelease("shop-production-2", "Succeeded", 2, tc.revision, e)}
 			f := factoryWith(fake)
-			_, err := waitForRelease(context.Background(), f.IOStreams, fake, "shop", "production", releaseTarget{uid: e.UID, generation: 2, revision: 2, previous: "shop-production-1", web: e.Web}, 5*time.Millisecond)
+			_, err := waitForRelease(context.Background(), f.IOStreams, fake, "shop", "production", releaseTarget{uid: e.UID, generation: 2, revision: 2, previous: "shop-production-1", runtime: e.Runtime}, 5*time.Millisecond)
 			var ce *cli.Error
 			if cli.ExitCode(err) != 8 || !errors.As(err, &ce) || !strings.Contains(ce.Hint, "kupe app wait shop production") {
 				t.Fatalf("err=%v", err)
@@ -165,7 +165,7 @@ func TestWaitPinsMatchingRevisionThenKeepsFailedRequestedOutcome(t *testing.T) {
 	e.Status.Recovery = &client.AppRecovery{Phase: "Succeeded", Release: e.Status.ActiveRelease}
 	fake.AppReleases = []client.AppRelease{recordedRelease("shop-production-2", "Failed", 2, 2, e), recordedRelease("shop-production-1", "Succeeded", 1, 1, e)}
 	f := factoryWith(fake)
-	_, err := waitForRelease(context.Background(), f.IOStreams, fake, "shop", "production", releaseTarget{uid: e.UID, generation: 2, revision: 2, previous: "shop-production-1", web: e.Web}, 20*time.Millisecond)
+	_, err := waitForRelease(context.Background(), f.IOStreams, fake, "shop", "production", releaseTarget{uid: e.UID, generation: 2, revision: 2, previous: "shop-production-1", runtime: e.Runtime}, 20*time.Millisecond)
 	if cli.ExitCode(err) != 1 || !strings.Contains(err.Error(), "previous release is serving again") {
 		t.Fatalf("err=%v", err)
 	}
@@ -248,7 +248,7 @@ func TestPrePinGenerationRaceNeverFollowsLaterIdenticalRuntime(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				current.Web = patch.Web
+				current.Runtime = patch.Runtime
 				current.Generation = 2
 				// Return accepted A(g). Advance other writers before the first
 				// observation, while retaining the accepted response's snapshot.
@@ -259,12 +259,12 @@ func TestPrePinGenerationRaceNeverFollowsLaterIdenticalRuntime(t *testing.T) {
 				if control == "A-B-A" {
 					history[0].Status.Phase = "Superseded"
 					current.Generation = 3
-					b := *current.Web
+					b := *current.Runtime
 					b.Image = digest
-					current.Web = &b
+					current.Runtime = &b
 					middle := recordedRelease("shop-production-3", "Superseded", 3, 1, current)
 					current.Generation = 4
-					current.Web = patch.Web
+					current.Runtime = patch.Runtime
 					current.Status.RequestedRelease = &client.AppReleaseReference{Name: "shop-production-4"}
 					history = append(history, middle, recordedRelease("shop-production-4", "Succeeded", 4, 1, current))
 				} else {
@@ -290,16 +290,16 @@ func TestPrePinGenerationRaceNeverFollowsLaterIdenticalRuntime(t *testing.T) {
 
 func TestReleaseRuntimeMatchUsesDefaultsQuantitiesAndReferencedSecrets(t *testing.T) {
 	e := releaseEnvironment()
-	e.Web.Resources.Requests.CPU = "1000m"
-	e.Web.HealthChecks = nil
-	e.Web.Env = append(e.Web.Env, client.AppEnvVar{Name: "SECRET", ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: "database", Key: "KEY"}}})
+	e.Runtime.Resources.Requests.CPU = "1000m"
+	e.Runtime.HealthChecks = nil
+	e.Runtime.Env = append(e.Runtime.Env, client.AppEnvVar{Name: "SECRET", ValueFrom: &client.AppValueFrom{SecretKeyRef: client.AppSecretKeyRef{Secret: "database", Key: "KEY"}}})
 	r := recordedRelease("shop-production-2", "Succeeded", 2, 1, e)
-	resources := *e.Web.Resources
+	resources := *e.Runtime.Resources
 	resources.Requests.CPU = "1"
 	r.Runtime.Resources = &resources
 	r.Runtime.HealthChecks = &client.AppHealthChecks{Readiness: &client.AppProbe{TCP: &struct{}{}}}
 	r.Runtime.Secrets = []client.AppReleaseSecret{{Name: "database", Path: "apps/database", Keys: []string{"KEY"}}}
-	target := releaseTarget{revision: 1, web: e.Web, secrets: []client.AppSecret{{Name: "database", Path: "apps/database"}, {Name: "unused", Path: "apps/unused"}}}
+	target := releaseTarget{revision: 1, runtime: e.Runtime, secrets: []client.AppSecret{{Name: "database", Path: "apps/database"}, {Name: "unused", Path: "apps/unused"}}}
 	if !matchesRelease(&r, target) {
 		t.Fatal("equivalent defaulted workload was not matched")
 	}
@@ -319,7 +319,7 @@ func TestDeployAndRetryUseSharedReleaseWait(t *testing.T) {
 			final.Status.RequestedRelease = &client.AppReleaseReference{Name: "shop-production-2"}
 			args := []string{verb, "shop", "production", "--yes", "--wait-timeout", "20ms", "-o", "json"}
 			if verb == "deploy" {
-				final.Web.Image = nextDigest
+				final.Runtime.Image = nextDigest
 				args = append(args, "--image", nextDigest)
 			} else {
 				final.DeploymentRevision = 2
@@ -353,7 +353,7 @@ func TestWaitObservesReturnedGenerationBeforeAcceptingNewRelease(t *testing.T) {
 	fake.GetAppEnvironmentSeq["shop"]["production"] = []*client.AppEnvironment{old, final}
 	fake.AppReleases = []client.AppRelease{recordedRelease("shop-production-2", "Succeeded", 2, 1, final)}
 	f := factoryWith(fake)
-	item, err := waitForRelease(context.Background(), f.IOStreams, fake, "shop", "production", releaseTarget{uid: old.UID, generation: 2, revision: 1, previous: "shop-production-1", web: old.Web}, 3*time.Second)
+	item, err := waitForRelease(context.Background(), f.IOStreams, fake, "shop", "production", releaseTarget{uid: old.UID, generation: 2, revision: 1, previous: "shop-production-1", runtime: old.Runtime}, 3*time.Second)
 	if err != nil || item.Status.ObservedGeneration != 2 {
 		t.Fatalf("item=%+v err=%v", item, err)
 	}

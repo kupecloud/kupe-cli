@@ -151,8 +151,8 @@ func TestEnvironmentDatabaseMisuse(t *testing.T) {
 		{"bad logical database", nil, []string{"--database", "main=orders/Shop"},
 			"logicalDatabase must start with a lowercase letter and use only lowercase letters, digits and underscores, at most 53 characters", ""},
 		{"bad variable", nil, []string{"--database", "main=orders:9BAD"}, "env must be a valid environment variable name", ""},
-		{"web env collision", nil, []string{"--database", "main=orders:A"},
-			`variable "A" is already set in web.env; choose another name with env`, "set the variable with --database CONNECTION=DATABASE[/POSTGRES_DATABASE]:VARIABLE"},
+		{"runtime env collision", nil, []string{"--database", "main=orders:A"},
+			`variable "A" is already set in runtime.env; choose another name with env`, "set the variable with --database CONNECTION=DATABASE[/POSTGRES_DATABASE]:VARIABLE"},
 		{"default variable collides with another connection", nil, []string{"--database", "main=orders", "--database", "reports=billing"},
 			`variable "DATABASE_URL" is already used by connection "main"; choose another name with env`, "set the variable with --database CONNECTION=DATABASE[/POSTGRES_DATABASE]:VARIABLE"},
 		{"first conflict wins entry by entry", nil, []string{"--database", "main=orders:X", "--database", "reports=billing:X", "--database", "extra=d3:A"},
@@ -268,7 +268,7 @@ func TestEnvironmentDatabaseErrorMapping(t *testing.T) {
 		hint, msg string
 	}{
 		{"APP_DATABASE_DUPLICATE", 2, "connect each database once per environment; remove the extra connection with --remove-database NAME", "connections main and reports both use database orders"},
-		{"APP_DATABASE_ENV_CONFLICT", 2, "", `variable "DATABASE_URL" is already set in web.env`},
+		{"APP_DATABASE_ENV_CONFLICT", 2, "", `variable "DATABASE_URL" is already set in runtime.env`},
 		{"APP_DATABASE_SECRET_IN_USE", 2, "", `secret "main-app" is reserved`},
 		{"databases_unavailable", 4, "-", "managed databases are not enabled on this platform"},
 	} {

@@ -45,8 +45,8 @@ func appEnvironmentDetailColumns(color bool) Columns {
 	}
 	add("App", func(e *client.AppEnvironment) string { return e.App })
 	add("Deletion protection", func(e *client.AppEnvironment) string { return onOff(e.DeletionProtection) })
-	add("Pods", func(e *client.AppEnvironment) string { return appPods(e.Web) })
-	add("Desired web", func(e *client.AppEnvironment) string { return appJSON(e.Web) })
+	add("Pods", func(e *client.AppEnvironment) string { return appPods(e.Runtime) })
+	add("Desired runtime", func(e *client.AppEnvironment) string { return appJSON(e.Runtime) })
 	add("Vault references", func(e *client.AppEnvironment) string { return appJSON(e.Secrets) })
 	add("Desired domains", func(e *client.AppEnvironment) string { return strings.Join(e.Domains, ", ") })
 	add("Databases", func(e *client.AppEnvironment) string {
@@ -137,7 +137,7 @@ func appJSON(value any) string {
 
 // appPods reads "2" for a fixed count, or "2 to 6, aiming for 70% CPU" when
 // autoscaling is on. An unset percentage shows the platform default of 70.
-func appPods(w *client.AppWeb) string {
+func appPods(w *client.AppRuntime) string {
 	if w == nil {
 		return ""
 	}

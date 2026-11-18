@@ -137,8 +137,8 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 		if err != nil {
 			return err
 		}
-		if web, ok := file["web"].(map[string]any); ok && !cmd.Flags().Changed("image") {
-			if image, ok := web["image"].(string); ok && (len(image) > 512 || !digestImage.MatchString(image)) {
+		if runtime, ok := file["runtime"].(map[string]any); ok && !cmd.Flags().Changed("image") {
+			if image, ok := runtime["image"].(string); ok && (len(image) > 512 || !digestImage.MatchString(image)) {
 				return cli.MisuseError("image must be a digest reference").WithHint(imageHint)
 			}
 		}
@@ -193,8 +193,8 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 				return nil
 			}
 			patch := client.PatchAppEnvironmentRequest{}
-			if !reflect.DeepEqual(req.Web, current.Web) {
-				patch.Web = req.Web
+			if !reflect.DeepEqual(req.Runtime, current.Runtime) {
+				patch.Runtime = req.Runtime
 			}
 			if !reflect.DeepEqual(req.Secrets, current.Secrets) {
 				patch.Secrets = &req.Secrets
@@ -210,7 +210,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 			if req.DeletionProtection != nil && *req.DeletionProtection != current.DeletionProtection {
 				patch.DeletionProtection = req.DeletionProtection
 			}
-			if patch.Web == nil && patch.Secrets == nil && patch.Domains == nil && patch.Databases == nil && patch.DeletionProtection == nil {
+			if patch.Runtime == nil && patch.Secrets == nil && patch.Domains == nil && patch.Databases == nil && patch.DeletionProtection == nil {
 				return nil
 			}
 			return &patch
@@ -230,7 +230,7 @@ the environment settles. --wait=false returns as soon as the change is accepted.
 	cmd.Flags().StringVarP(&o.file, "file", "f", "", "Read a YAML or JSON environment specification (- for stdin)")
 	cmd.Flags().StringVar(&o.cluster, "cluster", "", "Cluster for this environment (create only)")
 	cmd.Flags().StringVar(&o.image, "image", "", "Image digest reference")
-	cmd.Flags().Int32Var(&o.port, "port", 0, "Web port (1-65535)")
+	cmd.Flags().Int32Var(&o.port, "port", 0, "Port the app listens on (1-65535)")
 	registerPodFlags(cmd, o)
 	cmd.Flags().Int32Var(&o.minPods, "min-pods", 0, "Fewest pods when autoscaling (1-10)")
 	cmd.Flags().Int32Var(&o.maxPods, "max-pods", 0, "Most pods when autoscaling (1-10)")

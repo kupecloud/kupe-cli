@@ -42,7 +42,7 @@ last release to running pods.`, Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cob
 		if etag == "" || current.UID == "" || current.Generation <= 0 {
 			return cli.New(cli.ExitUnavailable, "environment has no review precondition; retry was not sent")
 		}
-		reviewRelease(f.IOStreams, "Review retry", app, env, "", current, current.Web, nil)
+		reviewRelease(f.IOStreams, "Review retry", app, env, "", current, current.Runtime, nil)
 		if err := cli.ConfirmAction(f.IOStreams, yes, "retry", "Deploy this configuration again?"); err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ last release to running pods.`, Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cob
 			if getErr != nil {
 				return releaseRequestError(getErr, app, env, false)
 			}
-			reviewRelease(f.IOStreams, "Review retry", app, env, "", fresh, fresh.Web, nil)
+			reviewRelease(f.IOStreams, "Review retry", app, env, "", fresh, fresh.Runtime, nil)
 			return staleReviewError()
 		}
 		if err != nil {
@@ -67,7 +67,7 @@ last release to running pods.`, Args: cobra.RangeArgs(1, 2), RunE: func(cmd *cob
 		if !wait {
 			return printer.AppRetry.One(f.IOStreams, format, accepted)
 		}
-		item, err := waitForRelease(cmd.Context(), f.IOStreams, api, app, env, releaseTarget{uid: current.UID, generation: accepted.Generation, revision: accepted.DeploymentRevision, previous: requestedRelease(current), web: current.Web, secrets: current.Secrets}, timeout)
+		item, err := waitForRelease(cmd.Context(), f.IOStreams, api, app, env, releaseTarget{uid: current.UID, generation: accepted.Generation, revision: accepted.DeploymentRevision, previous: requestedRelease(current), runtime: current.Runtime, secrets: current.Secrets}, timeout)
 		if err != nil {
 			return err
 		}

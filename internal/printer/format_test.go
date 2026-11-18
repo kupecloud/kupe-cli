@@ -47,7 +47,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestParseRefusesJSONPathWithGuidance(t *testing.T) {
-	for _, in := range []string{"jsonpath", "jsonpath={.web.image}", "jsonpath-file=x"} {
+	for _, in := range []string{"jsonpath", "jsonpath={.runtime.image}", "jsonpath-file=x"} {
 		_, err := Parse(in)
 		if err == nil || !strings.Contains(err.Error(), "-o jsonpath is not supported") || !strings.Contains(err.Error(), "go-template") {
 			t.Errorf("%q: %v", in, err)

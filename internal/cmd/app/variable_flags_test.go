@@ -73,9 +73,9 @@ func TestSetEnvSetsVariableAndReportsTypedFlag(t *testing.T) {
 			}
 			var value string
 			if verb == "create" {
-				value = *fake.AppEnvironmentCreates[0].Web.Env[0].Value
+				value = *fake.AppEnvironmentCreates[0].Runtime.Env[0].Value
 			} else {
-				for _, v := range fake.AppEnvironmentPatches[0].Web.Env {
+				for _, v := range fake.AppEnvironmentPatches[0].Runtime.Env {
 					if v.Name == "LOG_LEVEL" {
 						value = *v.Value
 					}

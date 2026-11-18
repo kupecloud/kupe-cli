@@ -292,18 +292,47 @@ func TestEnvironmentDatabaseErrorMapping(t *testing.T) {
 	}
 }
 
-func TestEnvironmentDeleteCopyKeepsDatabases(t *testing.T) {
-	fake := clienttest.New()
-	fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
-	// Without --yes the warning prints before the confirmation, which a
-	// non-interactive run then refuses.
-	_, stderr, _ := run(factoryWith(fake), "env", "delete", "shop", "production")
-	if !strings.Contains(stderr, "The cluster, Vault entries and connected databases and their backups are kept.") {
-		t.Fatalf("warning missing: %q", stderr)
+// TestDeleteCopyStatesWhatIsKept pins what the delete warning and help say
+// happens to the environment's own Vault entry, the cluster and databases.
+func TestDeleteCopyStatesWhatIsKept(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		command []string
+		warning string
+		help    string
+	}{
+		{
+			name:    "environment",
+			args:    []string{"env", "delete", "shop", "production"},
+			command: []string{"env", "delete"},
+			warning: "Its own Vault entry, where secrets added in the console are stored, is permanently deleted unless another secret still uses it. The cluster, other Vault entries and connected databases and their backups are kept.",
+			help:    "Its own Vault entry (apps/APP/ENV), where secrets added in the console are stored, is permanently deleted unless another secret still uses it. The cluster, other Vault entries and connected databases are kept; only this environment's database connections are removed.",
+		},
+		{
+			name:    "app",
+			args:    []string{"delete", "shop"},
+			command: []string{"delete"},
+			warning: "Each environment's own Vault entry, where secrets added in the console are stored, is permanently deleted unless another secret still uses it. Clusters and other Vault entries are kept.",
+			help:    "Each environment's own Vault entry (apps/APP/ENV), where secrets added in the console are stored, is permanently deleted unless another secret still uses it. Clusters and other Vault entries are kept.",
+		},
 	}
-	help, _, err := run(factoryWith(fake), "env", "delete", "--help")
-	if err != nil || !strings.Contains(strings.Join(strings.Fields(help), " "), "The cluster, Vault entries and connected databases are kept; only this environment's database connections are removed.") {
-		t.Fatalf("err=%v help=%q", err, help)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := clienttest.New()
+			fake.AppsByName["shop"] = &client.App{Name: "shop"}
+			fake.AppEnvironmentsByApp["shop"] = map[string]*client.AppEnvironment{"production": seededEnv()}
+			// Without --yes the warning prints before the confirmation, which a
+			// non-interactive run then refuses.
+			_, stderr, _ := run(factoryWith(fake), tt.args...)
+			if !strings.Contains(stderr, tt.warning) {
+				t.Fatalf("warning missing: %q", stderr)
+			}
+			help, _, err := run(factoryWith(fake), append(tt.command, "--help")...)
+			if err != nil || !strings.Contains(strings.Join(strings.Fields(help), " "), tt.help) {
+				t.Fatalf("err=%v help=%q", err, help)
+			}
+		})
 	}
 }
 

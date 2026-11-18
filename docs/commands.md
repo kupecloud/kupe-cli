@@ -877,7 +877,9 @@ app never deletes a cluster. `apps` is an alias for `app`.
   `--no-deletion-protection` to create it unprotected.
 - `kupe app update NAME --deletion-protection=false` turns protection off.
 - `kupe app delete NAME` deletes every environment first, with its namespace and
-  everything in it. Clusters and Vault entries are kept. Turn protection off on
+  everything in it. Each environment's own Vault entry (`apps/APP/ENV`), where
+  secrets added in the console are stored, is permanently deleted unless another
+  secret still uses it. Clusters and other Vault entries are kept. Turn protection off on
   the app and every environment first. Type the app name to confirm, or pass
   `--yes` (required without a TTY). The command waits until the app is gone;
   `--wait=false` returns when deletion is accepted.
@@ -991,9 +993,11 @@ release outcome, active release and recovery are shown separately by `env get`.
 Domain status includes the DNS record to create. Secret status shows names and
 missing keys; the CLI never fetches Vault values.
 
-`kupe app env delete APP ENV` deletes the namespace and everything in it, keeping
-the cluster, Vault entries and connected databases and their backups; only the
-environment's own database connections are removed. Turn protection off first,
+`kupe app env delete APP ENV` deletes the namespace and everything in it, and
+permanently deletes the environment's own Vault entry (`apps/APP/ENV`), where
+secrets added in the console are stored, unless another secret still uses it.
+The cluster, other Vault entries and connected databases and their backups are
+kept; only the environment's own database connections are removed. Turn protection off first,
 remove secrets and database bindings you created yourself in the namespace (the
 environment's own connections don't block it), then type the environment
 name or pass `--yes`. It waits until the environment is gone; `--wait=false` returns

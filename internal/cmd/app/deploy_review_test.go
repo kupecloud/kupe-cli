@@ -197,3 +197,26 @@ func TestDeployRefusesBadOutputBeforeAnyAPICall(t *testing.T) {
 		}
 	}
 }
+
+// The review names every runtime field the deploy changes, by its API path.
+func TestDeployReviewListsChangedRuntimeFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"image", []string{"--image", nextDigest}, "changed fields: runtime.image\n"},
+		{"port", []string{"--image", digest, "--port", "9090"}, "changed fields: runtime.port\n"},
+		{"replicas", []string{"--image", digest, "--replicas", "2"}, "changed fields: runtime.replicas\n"},
+		{"env", []string{"--image", digest, "--set-env", "A=new"}, "changed fields: runtime.env\n"},
+		{"several", []string{"--image", nextDigest, "--port", "9090", "--replicas", "2", "--set-env", "A=new"}, "changed fields: runtime.image, runtime.port, runtime.replicas, runtime.env\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"deploy", "shop", "production", "--yes", "--wait=false"}, tc.args...)
+			_, review, err := run(factoryWith(releaseFake()), args...)
+			if err != nil || !strings.Contains(review, tc.want) {
+				t.Fatalf("err=%v review:\n%s", err, review)
+			}
+		})
+	}
+}

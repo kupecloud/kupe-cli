@@ -437,3 +437,17 @@ func TestEnvironmentGetEmitsRuntime(t *testing.T) {
 		t.Fatalf("go-template err=%v out=%q", err, out)
 	}
 }
+
+func TestEnvironmentFileRefusesMoreThan100RuntimeEnvEntries(t *testing.T) {
+	entries := make([]string, 101)
+	for i := range entries {
+		entries[i] = fmt.Sprintf(`{"name":"V%d","value":"x"}`, i)
+	}
+	fake := clienttest.New()
+	f := factoryWith(fake)
+	f.IOStreams.In = strings.NewReader(`{"cluster":"europe","runtime":{"image":"` + digest + `","port":8080,"env":[` + strings.Join(entries, ",") + `]}}`)
+	_, _, err := run(f, "env", "create", "shop", "production", "-f", "-", "--wait=false")
+	if cli.ExitCode(err) != cli.ExitMisuse || err == nil || !strings.Contains(err.Error(), "runtime.env accepts at most 100 entries") || len(fake.Calls) > 0 {
+		t.Fatalf("calls=%v err=%v", fake.Calls, err)
+	}
+}

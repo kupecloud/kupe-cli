@@ -35,10 +35,12 @@ Deleting an app never deletes a cluster.`}
 	list := appService.ListCmd(f, cmdutil.Help{Short: "List apps"})
 	list.Args = cobra.NoArgs
 	deleteCmd := appService.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: "Delete an app and all its environments", Long: `Every environment is deleted first, with its namespace and everything in it.
-Clusters and Vault entries are kept. Turn off deletion protection on the app
-and every environment before deleting. Type the app name to confirm, or use
+Each environment's own Vault entry (apps/APP/ENV), where secrets added in the
+console are stored, is permanently deleted unless another secret still uses it.
+Clusters and other Vault entries are kept. Turn off deletion protection on the
+app and every environment before deleting. Type the app name to confirm, or use
 --yes. By default, wait until the app is gone.`}, ConfirmByName: true, Warning: func(io *cli.IOStreams, _ string) {
-		fmt.Fprintln(io.ErrOut, "Every environment is deleted first, with its namespace and everything in it. Clusters and Vault entries are kept.")
+		fmt.Fprintln(io.ErrOut, "Every environment is deleted first, with its namespace and everything in it. Each environment's own Vault entry, where secrets added in the console are stored, is permanently deleted unless another secret still uses it. Clusters and other Vault entries are kept.")
 	}, WaitTimeout: 30 * time.Minute})
 	deleteRun := deleteCmd.RunE
 	deleteCmd.RunE = func(cmd *cobra.Command, args []string) error {

@@ -52,12 +52,14 @@ func newEnvCmd(f *cli.Factory) *cobra.Command {
 			case "get":
 				return service.GetCmd(f, cmdutil.Help{Short: child.Short})
 			default:
-				return service.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: child.Short, Long: `Delete the environment, its namespace and everything in it. The cluster,
+				return service.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: child.Short, Long: `Delete the environment, its namespace and everything in it. Its own Vault
+entry (apps/APP/ENV), where secrets added in the console are stored, is
+permanently deleted unless another secret still uses it. The cluster, other
 Vault entries and connected databases are kept; only this environment's
 database connections are removed. Turn off deletion protection first, then
 type the environment name to confirm, or use --yes. By default, wait until it
 is gone.`}, ConfirmByName: true, WaitTimeout: 30 * time.Minute, Warning: func(io *cli.IOStreams, _ string) {
-					fmt.Fprintln(io.ErrOut, "The environment namespace and everything in it will be deleted. The cluster, Vault entries and connected databases and their backups are kept.")
+					fmt.Fprintln(io.ErrOut, "The environment namespace and everything in it will be deleted. Its own Vault entry, where secrets added in the console are stored, is permanently deleted unless another secret still uses it. The cluster, other Vault entries and connected databases and their backups are kept.")
 				}})
 			}
 		}

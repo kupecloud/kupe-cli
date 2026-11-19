@@ -306,15 +306,15 @@ func TestDeleteCopyStatesWhatIsKept(t *testing.T) {
 			name:    "environment",
 			args:    []string{"env", "delete", "shop", "production"},
 			command: []string{"env", "delete"},
-			warning: "Its own Vault entry, where secrets added in the console are stored, is permanently deleted unless a secret or another environment outside this one still uses it. The cluster, other Vault entries and connected databases and their backups are kept.",
-			help:    "Its own Vault entry (apps/APP/ENV), where secrets added in the console are stored, is permanently deleted unless a secret or another environment outside this one still uses it. If Vault refuses the delete, or keeps failing for about five minutes, the environment is still deleted and the entry is left; remove it with kupe secret purge --path apps/APP/ENV. The cluster, other Vault entries and connected databases are kept; only this environment's database connections are removed.",
+			warning: "Its own Vault entry, where its secrets are stored by default, is permanently deleted unless a secret or another environment outside this one still uses it. The cluster, other Vault entries and connected databases and their backups are kept.",
+			help:    "Its own Vault entry (apps/APP/ENV), where its secrets are stored by default, is permanently deleted unless a secret or another environment outside this one still uses it. If Vault refuses the delete, or keeps failing for about five minutes, the environment is still deleted and the entry is left; remove it with kupe secret purge --path apps/APP/ENV. The cluster, other Vault entries and connected databases are kept; only this environment's database connections are removed.",
 		},
 		{
 			name:    "app",
 			args:    []string{"delete", "shop"},
 			command: []string{"delete"},
-			warning: "Each environment's own Vault entry, where secrets added in the console are stored, is permanently deleted unless a secret or another environment outside that environment still uses it. Clusters and other Vault entries are kept.",
-			help:    "Each environment's own Vault entry (apps/APP/ENV), where secrets added in the console are stored, is permanently deleted unless a secret or another environment outside that environment still uses it. If Vault refuses the delete, or keeps failing for about five minutes, the environment is still deleted and the entry is left; remove it with kupe secret purge --path apps/APP/ENV. Clusters and other Vault entries are kept.",
+			warning: "Each environment's own Vault entry, where its secrets are stored by default, is permanently deleted unless a secret or another environment outside that environment still uses it. Clusters and other Vault entries are kept.",
+			help:    "Each environment's own Vault entry (apps/APP/ENV), where its secrets are stored by default, is permanently deleted unless a secret or another environment outside that environment still uses it. If Vault refuses the delete, or keeps failing for about five minutes, the environment is still deleted and the entry is left; remove it with kupe secret purge --path apps/APP/ENV. Clusters and other Vault entries are kept.",
 		},
 	}
 	for _, tt := range tests {

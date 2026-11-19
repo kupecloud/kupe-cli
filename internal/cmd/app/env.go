@@ -53,7 +53,7 @@ func newEnvCmd(f *cli.Factory) *cobra.Command {
 				return service.GetCmd(f, cmdutil.Help{Short: child.Short})
 			default:
 				return service.DeleteCmd(f, cmdutil.Delete{Help: cmdutil.Help{Short: child.Short, Long: `Delete the environment, its namespace and everything in it. Its own Vault
-entry (apps/APP/ENV), where secrets added in the console are stored, is
+entry (apps/APP/ENV), where its secrets are stored by default, is
 permanently deleted unless a secret or another environment outside this one
 still uses it. If Vault refuses the delete, or keeps failing for about five
 minutes, the environment is still deleted and the entry is left; remove it with
@@ -61,7 +61,7 @@ kupe secret purge --path apps/APP/ENV. The cluster, other Vault entries and
 connected databases are kept; only this environment's database connections are
 removed. Turn off deletion protection first, then type the environment name to
 confirm, or use --yes. By default, wait until it is gone.`}, ConfirmByName: true, WaitTimeout: 30 * time.Minute, Warning: func(io *cli.IOStreams, _ string) {
-					fmt.Fprintln(io.ErrOut, "The environment namespace and everything in it will be deleted. Its own Vault entry, where secrets added in the console are stored, is permanently deleted unless a secret or another environment outside this one still uses it. The cluster, other Vault entries and connected databases and their backups are kept.")
+					fmt.Fprintln(io.ErrOut, "The environment namespace and everything in it will be deleted. Its own Vault entry, where its secrets are stored by default, is permanently deleted unless a secret or another environment outside this one still uses it. The cluster, other Vault entries and connected databases and their backups are kept.")
 				}})
 			}
 		}

@@ -878,7 +878,7 @@ app never deletes a cluster. `apps` is an alias for `app`.
 - `kupe app update NAME --deletion-protection=false` turns protection off.
 - `kupe app delete NAME` deletes every environment first, with its namespace and
   everything in it. Each environment's own Vault entry (`apps/APP/ENV`), where
-  secrets added in the console are stored, is permanently deleted unless a secret
+  its secrets are stored by default, is permanently deleted unless a secret
   or another environment outside that environment still uses it. If Vault
   refuses the delete, or keeps failing for about five minutes, the environment is
   still deleted and the entry is left; remove it with
@@ -998,7 +998,7 @@ missing keys; the CLI never fetches Vault values.
 
 `kupe app env delete APP ENV` deletes the namespace and everything in it, and
 permanently deletes the environment's own Vault entry (`apps/APP/ENV`), where
-secrets added in the console are stored, unless a secret or another environment
+its secrets are stored by default, unless a secret or another environment
 outside this one still uses it. If Vault refuses the delete, or keeps failing for
 about five minutes, the environment is still deleted and the entry is left;
 remove it with `kupe secret purge --path apps/APP/ENV`. The cluster, other Vault

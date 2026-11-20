@@ -23,8 +23,8 @@ func newDeleteCmd(f *cli.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete --confirm EMAIL",
 		Short: "Permanently delete your own Kupe user account",
-		Long: `Erase the user you are logged in as: the Authentik account, its sessions
-and tokens, and the Grafana user row. This cannot be undone.
+		Long: `Erase the user you are logged in as: your sign-in account, its sessions
+and tokens, and your Grafana user. This cannot be undone.
 
 --confirm must equal the logged-in email ("kupe auth whoami"). The account
 must not belong to any tenant: delete the tenants you own ("kupe tenant

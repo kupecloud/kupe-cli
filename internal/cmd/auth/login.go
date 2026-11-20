@@ -62,7 +62,7 @@ func newLoginCmd(f *cli.Factory) *cobra.Command {
 Two methods are supported:
 
   --method oidc (default)
-    Runs an OAuth 2.0 Device Authorization (RFC 8628) flow against Authentik.
+    Runs an OAuth 2.0 Device Authorization (RFC 8628) flow against Kupe's sign-in service.
     The CLI prints a short user code and a verification URL; you open the
     URL on any device with a browser (your laptop tries to open it for you
     automatically) and approve. The CLI stores the resulting access and
@@ -108,7 +108,7 @@ current context and only store the new credentials.`,
 	cmd.Flags().StringVar(&opts.method, "method", methodOIDC, "Auth method: oidc (device flow, default) or token (long-lived API key)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "API token (format kupe_...). Required with --method=token in non-interactive mode.")
 	cmd.Flags().StringVar(&opts.apiURL, "api-url", "", "API base URL for this context, with or without scheme (default "+strings.TrimPrefix(config.DefaultAPIURL, "https://")+")")
-	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Authentik base URL, with or without scheme (env: KUPE_OIDC_BASE_URL, default "+strings.TrimPrefix(build.OIDCBaseURL, "https://")+"). Issuer is built as {base}/application/o/{client-id}/.")
+	cmd.Flags().StringVar(&opts.oidcBaseURL, "oidc-base-url", "", "Sign-in (OIDC) provider base URL, with or without scheme (env: KUPE_OIDC_BASE_URL, default "+strings.TrimPrefix(build.OIDCBaseURL, "https://")+"). Issuer is built as {base}/application/o/{client-id}/.")
 	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC public client_id (env: KUPE_OIDC_CLIENT_ID, default "+build.OIDCClientID+")")
 	cmd.Flags().StringVar(&opts.context, "context", "", "Context name (default: tenant name)")
 	cmd.Flags().BoolVar(&opts.noSwitch, "no-switch", false, "Keep the current context instead of switching to this one")

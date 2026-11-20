@@ -15,7 +15,10 @@ func newRemoveCmd(f *cli.Factory) *cobra.Command {
 		Use:   "remove EMAIL",
 		Short: "Remove a member from the tenant",
 		Long: `Remove a user from the tenant. Prompts on TTY; --yes required in CI.
-The user loses console and kubeconfig access shortly after.`,
+Console and API access ends within a minute. Kubeconfigs issued before the
+removal keep working until their token expires: up to 8 hours for a
+signed-in kubeconfig, and the lifetime chosen at download for a token
+kubeconfig.`,
 		Args:    cobra.ExactArgs(1),
 		Example: `  kupe member remove ex-employee@acme.com --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {

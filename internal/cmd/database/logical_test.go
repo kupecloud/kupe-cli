@@ -389,3 +389,27 @@ func TestLogicalPublishedPolicyMirror(t *testing.T) {
 		}
 	}
 }
+
+// A refused added name names only the prefix it matched, never the full
+// list, which holds internal names (PDOC-5, same as the API).
+func TestValidateAddedLogicalName_NamesOnlyTheMatchedPrefix(t *testing.T) {
+	for _, prefix := range reservedLogicalPrefixes {
+		for _, name := range []string{prefix + "x", strings.TrimSuffix(prefix, "_")} {
+			err := validateAddedLogicalName(name)
+			if err == nil {
+				t.Fatalf("%q accepted", name)
+			}
+			if !strings.Contains(err.Error(), "starting with "+prefix) {
+				t.Errorf("%q: message does not name %s: %v", name, prefix, err)
+			}
+			for _, other := range reservedLogicalPrefixes {
+				if other != prefix && strings.Contains(err.Error(), " "+other) {
+					t.Errorf("%q: message names another prefix %s: %v", name, other, err)
+				}
+			}
+		}
+	}
+	if err := validateAddedLogicalName("app"); err == nil || strings.Contains(err.Error(), "_") {
+		t.Errorf("app: want a refusal naming no prefix, got %v", err)
+	}
+}

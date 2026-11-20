@@ -302,6 +302,32 @@ func TestDeployIsOnlyAnAppCommand(t *testing.T) {
 	}
 }
 
+// No command text names an internal component (PDOC-5). Allowed product
+// names (Vault, Argo CD, Grafana, Prometheus) are not on the list; haEtcd*
+// field names never appear in help. Same walk as TestNoPricingInHelpText.
+func TestNoInternalNamesInHelpText(t *testing.T) {
+	denied := regexp.MustCompile(`(?i)\b(authentik|operators?|controllers?|etcd|quorum|vclusters?|openbao|harbor|mimir|loki|alloy|cnpg|cloudnative-?pg|pgbouncer|barman|external-dns|hetzner|cilium|tetragon|kyverno|syncerror|reconciles?)\b`)
+	io, _, _ := cli.Test()
+	root := newRootCmd(io, &cli.GlobalFlags{})
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		check := func(field, text string) {
+			if m := denied.FindString(text); m != "" {
+				t.Errorf("command %q %s names %q: %s", c.CommandPath(), field, m, text)
+			}
+		}
+		check("Short", c.Short)
+		check("Long", c.Long)
+		check("Example", c.Example)
+		c.LocalFlags().VisitAll(func(f *pflag.Flag) { check("flag --"+f.Name+" usage", f.Usage) })
+		c.PersistentFlags().VisitAll(func(f *pflag.Flag) { check("flag --"+f.Name+" usage", f.Usage) })
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(root)
+}
+
 // No command text points tenants at prices (PRICE-33): the CLI shows no
 // amount and links to no pricing page. Walks Short, Long, Example and every
 // flag's usage across the whole tree, hidden commands and flags included.

@@ -238,6 +238,10 @@ const (
 	// CodePlanLimitReached: 400 for creating a cluster or database the
 	// tenant's plan has no room for.
 	CodePlanLimitReached = "plan_limit_reached"
+	// CodeHANotInPlan: 400 for creating a cluster with high availability on
+	// a plan that does not include it. The platform sends HA_NOT_IN_PLAN
+	// (field spec.highAvailability); ErrorCode lower-cases it.
+	CodeHANotInPlan = "ha_not_in_plan"
 )
 
 // creationPausedText identifies the same refusal from servers that predate

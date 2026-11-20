@@ -7,6 +7,7 @@ import (
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/client/clienttest"
 )
 
 func TestTranslateClusterErr(t *testing.T) {
@@ -52,6 +53,17 @@ func TestTranslateClusterErr(t *testing.T) {
 			Message: "maximum cluster limit reached: starter plan allows 3 cluster(s), currently have 3"},
 			cli.ExitConflict, "maximum cluster limit reached: starter plan allows 3 cluster(s), currently have 3",
 			`delete a cluster ("kupe cluster delete <name>") or upgrade your plan`, "--cpu-limit"},
+		{"HA on a plan without it by code", &client.APIError{StatusCode: 400, Code: "HA_NOT_IN_PLAN", RequestID: "req-1",
+			Message: "high availability is not included in the Starter plan. Create the cluster without high availability, or move to a plan that includes it."},
+			cli.ExitConflict, "high availability is not included in the Starter plan. Create the cluster without high availability, or move to a plan that includes it. (request-id: req-1)",
+			"create the cluster without --high-availability, or upgrade your plan on the Billing page of the Kupe console", "--cpu-limit"},
+		{"HA on a plan without it, no message, falls back to the CLI sentence", &client.APIError{StatusCode: 400, Code: "HA_NOT_IN_PLAN", RequestID: "req-1"},
+			cli.ExitConflict, "your plan does not include high availability: Bad Request (request-id: req-1)",
+			"create the cluster without --high-availability, or upgrade your plan on the Billing page of the Kupe console", ""},
+		{"older server: HA sentence without a code", &client.APIError{StatusCode: 400,
+			Message: "HA_NOT_IN_PLAN: high availability is not included in the Starter plan. Create the cluster without high availability, or move to a plan that includes it."},
+			cli.ExitConflict, "HA_NOT_IN_PLAN: high availability is not included in the Starter plan. Create the cluster without high availability, or move to a plan that includes it.",
+			"create the cluster without --high-availability, or upgrade your plan on the Billing page of the Kupe console", "--cpu-limit"},
 		{"tenant being deleted by code", &client.APIError{StatusCode: 409, Code: client.CodeTenantTerminating,
 			Message: "tenant acme is being deleted; cannot grow clusters"},
 			cli.ExitConflict, "tenant acme is being deleted; cannot grow clusters", "", ""},
@@ -87,5 +99,25 @@ func TestTranslateClusterErr(t *testing.T) {
 				t.Fatalf("hint %q should not mention %q", hint, tt.notHint)
 			}
 		})
+	}
+}
+
+// TestCreateMapsHANotInPlan pins the wiring: kupe cluster create sends
+// kupe-api's HA_NOT_IN_PLAN refusal through the translation, so it exits 5
+// with the API's sentence and the hint.
+func TestCreateMapsHANotInPlan(t *testing.T) {
+	fake := clienttest.New()
+	fake.CreateClusterErr = &client.APIError{StatusCode: 400, Code: "HA_NOT_IN_PLAN",
+		Message: "high availability is not included in the Starter plan. Create the cluster without high availability, or move to a plan that includes it."}
+	f := factoryWith(t, fake)
+
+	err := runCmd(newCreateCmd(f), "prod", "--high-availability", "--cpu-limit", "2", "--memory-limit", "8Gi",
+		"--storage-limit", "50Gi", "--wait=false")
+	if code := cli.ExitCode(err); code != cli.ExitConflict {
+		t.Fatalf("exit = %d; want %d (%v)", code, cli.ExitConflict, err)
+	}
+	var ce *cli.Error
+	if !errors.As(err, &ce) || ce.Hint != "create the cluster without --high-availability, or upgrade your plan on the Billing page of the Kupe console" {
+		t.Fatalf("hint = %+v", err)
 	}
 }

@@ -138,6 +138,13 @@ var refusals = []refusal{
 			return fmt.Sprintf("delete a %s (\"kupe %s delete <name>\") or upgrade your plan", noun, noun)
 		},
 	},
+	{
+		code: client.CodeHANotInPlan, phrase: "high availability is not included in the ", exit: cli.ExitConflict,
+		fallback: func(string, string) string { return "your plan does not include high availability" },
+		hint: func(string, string) string {
+			return "create the cluster without --high-availability, or upgrade your plan on the Billing page of the Kupe console"
+		},
+	},
 }
 
 // TranslateCommon maps the refusals every managed service shares onto CLI

@@ -21,7 +21,7 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Long: `List, add, update, and remove users from the current tenant. Members
 are identified by email and carry a role (admin or readonly).
 
-Changes propagate to Authentik groups via the kupe-control-operator.`,
+Changes apply to the member's console and kubeconfig access shortly after.`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newAddCmd(f))

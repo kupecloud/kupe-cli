@@ -118,9 +118,9 @@ func haDetailDisplay(c *client.Cluster) string {
 	case "ha-degraded":
 		return "degraded " + haReadyCount(st) + ", API still serving, enabled at " + st.HAEnabledAt
 	case "ha-unavailable":
-		return "degraded " + haReadyCount(st) + ", quorum lost, API not serving, enabled at " + st.HAEnabledAt
+		return "degraded " + haReadyCount(st) + ", API not serving, enabled at " + st.HAEnabledAt
 	case "pending":
-		return "pending (waiting for 3/3 CP and etcd replicas to be ready)"
+		return "pending (waiting for 3/3 control plane and datastore replicas to be ready)"
 	}
 	// Fallback for older operators that don't populate haPhase.
 	switch {
@@ -153,7 +153,7 @@ func haReadyCount(st client.ClusterStatus) string {
 	if st.HAReplicasReady == st.HAEtcdReplicasReady && st.HAReplicasDesired == st.HAEtcdReplicasDesired {
 		return "(" + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ")")
 	}
-	return "(cp " + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ", etcd ") +
+	return "(cp " + itoaSuffix(int(st.HAReplicasReady), "/") + itoaSuffix(int(st.HAReplicasDesired), ", datastore ") +
 		itoaSuffix(int(st.HAEtcdReplicasReady), "/") + itoaSuffix(int(st.HAEtcdReplicasDesired), ")")
 }
 

@@ -159,7 +159,7 @@ Authenticate and store credentials for the current or a new context.
 | `--token TOKEN` | API key to store when `--method token` is used. Required in non-interactive token mode. |
 | `--tenant NAME` | Tenant to associate with this context. Prompts if not set. |
 | `--api-url URL` | Override API base URL for this context. |
-| `--oidc-base-url URL` | Override Authentik base URL for OIDC login. |
+| `--oidc-base-url URL` | Override the sign-in (OIDC) provider base URL. |
 | `--oidc-client-id ID` | Override the OIDC public client ID. |
 | `--context NAME` | Name for the context in the config file. Default: the tenant name. |
 | `--no-switch` | Keep the current context and only store the new credentials. The new context still becomes current when no context is set or the current one no longer exists. |
@@ -1526,8 +1526,9 @@ with the API's message.
 Logical names start with a lowercase letter, contain only lowercase letters,
 numbers and underscores, and have at most 53 characters. PostgreSQL reserves
 `all`, `sameuser`, `samerole`, `samegroup`, `replication`, `postgres`, `template0`
-and `template1`. Added names also reserve `app`, the prefixes `pg_`, `cnpg_`,
-`mdba_`, `mdbb_`, `mdbl_`, and those prefix words on their own. The first database
+and `template1`. Added names also reserve `app` and names starting with prefixes kept for
+the platform and PostgreSQL, such as `pg_`; a refused name's message names
+the prefix it matched. The first database
 keeps its existing identity and does not use those added-name restrictions.
 Schema names follow the same character pattern with at most 63 characters;
 `public`, `information_schema` and names beginning `pg_` are reserved.
@@ -2195,7 +2196,10 @@ A context with no signed-in user (an API key) revokes none and says so.
 ## `kupe member` — Tenant member management
 
 Tenant members are email-identified users with a role (`admin` or `readonly`).
-Changes apply to the member's console and kubeconfig access shortly after.
+Console and API access changes within a minute. Kubeconfigs issued before
+the change keep working until their token expires: up to 8 hours for a
+signed-in kubeconfig, and the lifetime chosen at download for a token
+kubeconfig.
 
 ### `kupe member list`
 
@@ -2222,7 +2226,10 @@ Change a member's role. `--role` is required.
 ### `kupe member remove EMAIL`
 
 Remove a user from the tenant. Prompts on TTY; requires `--yes` on non-TTY.
-The user loses console and kubeconfig access shortly after.
+Console and API access ends within a minute. Kubeconfigs issued before the
+removal keep working until their token expires: up to 8 hours for a
+signed-in kubeconfig, and the lifetime chosen at download for a token
+kubeconfig.
 
 ---
 
@@ -2350,8 +2357,8 @@ identifies a tenant, not a person.
 
 ### `kupe user delete --confirm EMAIL`
 
-Permanently erase your Kupe user: the Authentik account (sessions and tokens
-with it) and the Grafana user row. Idempotent server-side; cannot be undone.
+Permanently erase your Kupe user: your sign-in account (sessions and tokens
+with it) and your Grafana user. Idempotent server-side; cannot be undone.
 
 Preconditions the CLI checks before calling out:
 

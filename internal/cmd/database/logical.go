@@ -35,12 +35,15 @@ func validateAddedLogicalName(name string) error {
 	if err := validateLogicalName(name); err != nil {
 		return err
 	}
-	reserved := name == "app"
-	for _, prefix := range reservedLogicalPrefixes {
-		reserved = reserved || strings.HasPrefix(name+"_", prefix)
+	if name == "app" {
+		return cli.MisuseError(fmt.Sprintf("%q cannot be used as an added database name: app is reserved for the first database.", name))
 	}
-	if reserved {
-		return cli.MisuseError(fmt.Sprintf("%q cannot be used as an added database name: names starting with pg_, cnpg_, mdba_, mdbb_ or mdbl_, those words on their own, and app are reserved.", name))
+	// Name only the prefix this name matched: the full list holds internal
+	// names and is never shown to a tenant (PDOC-5, same as the API).
+	for _, prefix := range reservedLogicalPrefixes {
+		if strings.HasPrefix(name+"_", prefix) {
+			return cli.MisuseError(fmt.Sprintf("%q cannot be used as an added database name: names starting with %s, and %s on its own, are kept for the platform and PostgreSQL.", name, prefix, strings.TrimSuffix(prefix, "_")))
+		}
 	}
 	return nil
 }

@@ -21,10 +21,10 @@ func NewCmd(f *cli.Factory) *cobra.Command {
 		Long: `List, add, update, and remove users from the current tenant. Members
 are identified by email and carry a role (admin or readonly).
 
-Console and API access changes within a minute. Kubeconfigs issued before
-the change keep working until their token expires: up to 8 hours for a
-signed-in kubeconfig, and the lifetime chosen at download for a token
-kubeconfig.`,
+API access and the console's tenant pages change within a minute. Access to
+a cluster keeps working until the token in use expires: up to 8 hours for a
+console session or a signed-in kubeconfig, and the lifetime chosen at
+download for a token kubeconfig.`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newAddCmd(f))

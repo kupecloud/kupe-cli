@@ -2196,10 +2196,10 @@ A context with no signed-in user (an API key) revokes none and says so.
 ## `kupe member` — Tenant member management
 
 Tenant members are email-identified users with a role (`admin` or `readonly`).
-Console and API access changes within a minute. Kubeconfigs issued before
-the change keep working until their token expires: up to 8 hours for a
-signed-in kubeconfig, and the lifetime chosen at download for a token
-kubeconfig.
+API access and the console's tenant pages change within a minute. Access to
+a cluster keeps working until the token in use expires: up to 8 hours for a
+console session or a signed-in kubeconfig, and the lifetime chosen at
+download for a token kubeconfig.
 
 ### `kupe member list`
 
@@ -2226,10 +2226,10 @@ Change a member's role. `--role` is required.
 ### `kupe member remove EMAIL`
 
 Remove a user from the tenant. Prompts on TTY; requires `--yes` on non-TTY.
-Console and API access ends within a minute. Kubeconfigs issued before the
-removal keep working until their token expires: up to 8 hours for a
-signed-in kubeconfig, and the lifetime chosen at download for a token
-kubeconfig.
+API access and the console's tenant pages end within a minute. Access to a
+cluster keeps working until the token in use expires: up to 8 hours for a
+console session or a signed-in kubeconfig, and the lifetime chosen at
+download for a token kubeconfig.
 
 ---
 

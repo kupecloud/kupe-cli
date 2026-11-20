@@ -186,3 +186,53 @@ func TestTenantGet_NoAmountInAnyFormat(t *testing.T) {
 		})
 	}
 }
+
+// TestTenantGet_OverageSwitches pins the tenant's overage switches in the
+// JSON and YAML output (CREDIT-17): the four switches are shown, the spend
+// cap (an amount) is not, and the removed enforceMetricsLimit /
+// enforceLogLimit are not carried over from a server that still sends them.
+func TestTenantGet_OverageSwitches(t *testing.T) {
+	const tenantJSON = `{"name":"acme","plan":"pro",` +
+		`"overage":{"spendCap":"50.00","clusters":true,"databases":false,"logs":true,"metrics":false,"choiceMadeAt":"2026-11-19T09:30:00Z"},` +
+		`"enforceMetricsLimit":true,"enforceLogLimit":false,"status":{"phase":"Active"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/tenants/acme" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, tenantJSON)
+	}))
+	t.Cleanup(srv.Close)
+
+	banned := []string{"50.00", "spendCap", "enforce", "Enforce"}
+	tests := []struct {
+		format string
+		want   []string
+	}{
+		{"json", []string{`"overage": {`, `"clusters": true`, `"databases": false`, `"logs": true`, `"metrics": false`}},
+		{"yaml", []string{"overage:\n", "clusters: true", "databases: false", "logs: true", "metrics: false"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			f := factoryWith(t, clienttest.New())
+			f.Client = func() (client.Interface, error) {
+				return client.New(srv.URL, "acme", "kupe_test", "kupe-cli-test/0.0.0"), nil
+			}
+			if err := run(NewCmd(f), "get", "-o", tt.format); err != nil {
+				t.Fatal(err)
+			}
+			out := f.IOStreams.Out.(interface{ String() string }).String()
+			for _, w := range tt.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("output lacks %q:\n%s", w, out)
+				}
+			}
+			for _, b := range banned {
+				if strings.Contains(out, b) {
+					t.Errorf("output carries %q:\n%s", b, out)
+				}
+			}
+		})
+	}
+}

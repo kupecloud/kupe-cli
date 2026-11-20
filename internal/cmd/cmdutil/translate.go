@@ -114,6 +114,23 @@ var refusals = []refusal{
 			return "add a payment method on the Billing page of the Kupe console, then retry"
 		},
 	},
+	// The credit refusals name no amount and offer no wait of their own: the
+	// operator's sentence ends "or wait until <date>" only when waiting can
+	// admit the request, and the CLI prints that sentence as it is.
+	{
+		code: client.CodeCreditExhausted, phrase: "credit for this billing period can't cover", exit: cli.ExitConflict,
+		fallback: func(noun, _ string) string {
+			return "your plan's credit for this period can't cover more " + plural(noun)
+		},
+		hint: func(string, string) string { return "turn on overage on the Billing page of the Kupe console" },
+	},
+	{
+		code: client.CodeSpendCapReached, phrase: "spend cap for this billing period can't cover", exit: cli.ExitConflict,
+		fallback: func(noun, _ string) string {
+			return "your spend cap for this period can't cover more " + plural(noun)
+		},
+		hint: func(string, string) string { return "raise your spend cap on the Billing page of the Kupe console" },
+	},
 	{
 		code: client.CodePlanLimitReached, phrase: " limit reached: ", exit: cli.ExitConflict,
 		fallback: func(noun, _ string) string { return "your plan's " + noun + " limit is reached" },

@@ -10,16 +10,25 @@ import (
 // CLI's detail view can extract them without any type-asserting through an
 // `any` tree — tradeoff is the shapes must stay in sync with the server.
 type Tenant struct {
-	Name                string        `json:"name" yaml:"name"`
-	DisplayName         string        `json:"displayName" yaml:"displayName"`
-	ContactEmail        string        `json:"contactEmail" yaml:"contactEmail"`
-	Plan                string        `json:"plan" yaml:"plan"`
-	EnforceMetricsLimit bool          `json:"enforceMetricsLimit" yaml:"enforceMetricsLimit"`
-	EnforceLogLimit     bool          `json:"enforceLogLimit" yaml:"enforceLogLimit"`
-	ResourceVersion     string        `json:"resourceVersion" yaml:"resourceVersion"`
-	CreatedAt           string        `json:"createdAt" yaml:"createdAt"`
-	Status              *TenantStatus `json:"status,omitempty" yaml:"status,omitempty"`
-	Members             []Member      `json:"members,omitempty" yaml:"members,omitempty"`
+	Name            string        `json:"name" yaml:"name"`
+	DisplayName     string        `json:"displayName" yaml:"displayName"`
+	ContactEmail    string        `json:"contactEmail" yaml:"contactEmail"`
+	Plan            string        `json:"plan" yaml:"plan"`
+	Overage         TenantOverage `json:"overage" yaml:"overage"`
+	ResourceVersion string        `json:"resourceVersion" yaml:"resourceVersion"`
+	CreatedAt       string        `json:"createdAt" yaml:"createdAt"`
+	Status          *TenantStatus `json:"status,omitempty" yaml:"status,omitempty"`
+	Members         []Member      `json:"members,omitempty" yaml:"members,omitempty"`
+}
+
+// TenantOverage is which services may run past the plan's credit, up to the
+// tenant's spend cap. The spend cap itself is a money amount and is not
+// modelled: the CLI shows no amount. Overage is changed in the console.
+type TenantOverage struct {
+	Clusters  bool `json:"clusters" yaml:"clusters"`
+	Databases bool `json:"databases" yaml:"databases"`
+	Logs      bool `json:"logs" yaml:"logs"`
+	Metrics   bool `json:"metrics" yaml:"metrics"`
 }
 
 // TenantStatus is the operator-populated status block. All nested pointers

@@ -228,6 +228,13 @@ const (
 	// CodePaymentSetupRequired: 409 for creating or growing a service
 	// before the tenant has added a payment method.
 	CodePaymentSetupRequired = "payment_setup_required"
+	// CodeCreditExhausted: 409 for creating or growing a cluster or database
+	// that this billing period's credit can't cover while overage for it is
+	// off.
+	CodeCreditExhausted = "credit_exhausted"
+	// CodeSpendCapReached: 409 for creating or growing a cluster or
+	// database that the tenant's spend cap can't cover.
+	CodeSpendCapReached = "spend_cap_reached"
 	// CodePlanLimitReached: 400 for creating a cluster or database the
 	// tenant's plan has no room for.
 	CodePlanLimitReached = "plan_limit_reached"

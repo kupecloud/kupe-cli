@@ -72,6 +72,24 @@ func TestTranslateCommon(t *testing.T) {
 			cli.ExitConflict, "", "contact support"},
 		{"payment setup", 409, client.CodePaymentSetupRequired, "tenant acme is awaiting payment setup; add a payment method before creating databases",
 			cli.ExitConflict, "", "Billing page of the Kupe console"},
+		{"credit exhausted", 409, "credit_exhausted",
+			"tenant acme's credit for this billing period can't cover a new database; turn on overage for databases or wait until 2026-12-01",
+			cli.ExitConflict, "", "turn on overage on the Billing page of the Kupe console"},
+		{"credit exhausted without a message", 409, "credit_exhausted", "",
+			cli.ExitConflict, "your plan's credit for this period can't cover more databases: Conflict",
+			"turn on overage on the Billing page of the Kupe console"},
+		{"older server: credit sentence without a code", 409, "",
+			"tenant acme's credit for this billing period can't cover a new database; turn on overage for databases",
+			cli.ExitConflict, "", "turn on overage on the Billing page of the Kupe console"},
+		{"spend cap reached", 409, "spend_cap_reached",
+			"tenant acme's spend cap for this billing period can't cover a new database; raise the spend cap",
+			cli.ExitConflict, "", "raise your spend cap on the Billing page of the Kupe console"},
+		{"spend cap reached without a message", 409, "spend_cap_reached", "",
+			cli.ExitConflict, "your spend cap for this period can't cover more databases: Conflict",
+			"raise your spend cap on the Billing page of the Kupe console"},
+		{"older server: spend cap sentence without a code", 409, "",
+			"tenant acme's spend cap for this billing period can't cover a new database; raise the spend cap or wait until 2026-12-01",
+			cli.ExitConflict, "", "raise your spend cap on the Billing page of the Kupe console"},
 		{"plan limit", 400, client.CodePlanLimitReached, "maximum database limit reached: your plan allows 1 database(s)",
 			cli.ExitConflict, "", `kupe database delete <name>`},
 		{"a coded refusal without a message gets the CLI sentence", 409, client.CodePaymentSetupRequired, "",
@@ -191,5 +209,33 @@ func TestAppsUnavailableFallbackPreservesAPIError(t *testing.T) {
 		if original.Message != beforeMessage || string(original.Body()) != beforeBody {
 			t.Fatal("original API error mutated")
 		}
+	}
+}
+
+// TestTranslateCommon_CreditRefusalsNameNoAmountOrWait pins the credit
+// refusals' own wording (CREDIT-17), sent with kupe-api's wire codes: no price, amount or currency, and no wait
+// of the CLI's own, since the operator's sentence offers one only when waiting
+// can admit the request. The noun is the command's.
+func TestTranslateCommon_CreditRefusalsNameNoAmountOrWait(t *testing.T) {
+	for _, code := range []string{"credit_exhausted", "spend_cap_reached"} {
+		t.Run(code, func(t *testing.T) {
+			err := TranslateCommon("cluster", "prod", apiRefusal(t, 409, code, ""))
+			var ce *cli.Error
+			if !errors.As(err, &ce) {
+				t.Fatalf("not a CLI error: %v", err)
+			}
+			text := err.Error() + " " + ce.Hint
+			if !strings.Contains(text, "more clusters") {
+				t.Errorf("fallback should name the command's noun: %q", text)
+			}
+			for _, banned := range []string{"wait", "renew", "£", "$", "€", "GBP"} {
+				if strings.Contains(text, banned) {
+					t.Errorf("credit refusal carries %q: %q", banned, text)
+				}
+			}
+			if strings.ContainsAny(text, "0123456789") {
+				t.Errorf("credit refusal carries a number: %q", text)
+			}
+		})
 	}
 }

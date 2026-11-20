@@ -388,11 +388,16 @@ only the platform's sentence is matched on that sentence instead.
 | The tenant is being deleted (`tenant_terminating`, 409) | `5` | — |
 | The tenant is suspended (`tenant_suspended`, 409) | `5` | contact support |
 | No payment method yet (`payment_setup_required`, 409) | `5` | add one on the console's Billing page |
+| This billing period's credit can't cover it while overage is off (`credit_exhausted`, 409) | `5` | turn on overage on the console's Billing page |
+| The spend cap can't cover it (`spend_cap_reached`, 409) | `5` | raise the spend cap on the console's Billing page |
 | The plan's count limit (`plan_limit_reached`, 400) | `5` | delete one or upgrade the plan |
 | kupe-api temporarily unavailable (503, including "the tenant's database limit is still being set up") | `7` | retry in a few seconds |
 
-The tenant refusals cover growing an existing cluster or database (a larger
-size, high availability on) as well as creating one. Creates and updates are
+The tenant and credit refusals cover growing an existing cluster or database
+(a larger size, high availability on) as well as creating one. The credit
+refusals name no amount; the platform's sentence ends "or wait until <date>"
+only when waiting for the next period would admit the request, and the CLI
+adds no wait of its own. Creates and updates are
 never retried automatically: a 503 on one is reported with the hint, so a
 script can decide to retry.
 
@@ -2252,7 +2257,10 @@ Created:          2026-03-01T10:00:00Z (50d ago)
 
 With `-o json` or `-o yaml`, the tenant object is emitted including the nested
 `status.currentUsage.compute` and `status.currentUsage.observability` usage
-quantities — use `jq .status.currentUsage` to extract just the usage. No output
+quantities — use `jq .status.currentUsage` to extract just the usage — and the
+`overage` switches (`clusters`, `databases`, `logs`, `metrics`): which services
+may run past the plan's credit, up to the spend cap. The spend cap is an amount
+and is not shown; overage is changed on the console's Billing page. No output
 format shows an amount.
 
 Backed by `GET /api/v1/tenants/{tenant}`. Exits `4` if the tenant (i.e. the

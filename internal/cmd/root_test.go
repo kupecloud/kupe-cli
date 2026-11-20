@@ -306,7 +306,7 @@ func TestDeployIsOnlyAnAppCommand(t *testing.T) {
 // names (Vault, Argo CD, Grafana, Prometheus) are not on the list; haEtcd*
 // field names never appear in help. Same walk as TestNoPricingInHelpText.
 func TestNoInternalNamesInHelpText(t *testing.T) {
-	denied := regexp.MustCompile(`(?i)\b(authentik|operators?|controllers?|etcd|quorum|vclusters?|openbao|harbor|mimir|loki|alloy|cnpg|cloudnative-?pg|pgbouncer|barman|external-dns|hetzner|cilium|tetragon|kyverno|syncerror|reconciles?)\b`)
+	denied := regexp.MustCompile(`(?i)\b(authentik|operators?|controllers?|etcd|quorum|vclusters?|openbao|harbou?r|mimir|loki|alloy|cnpg|cloudnative-?pg|pgbouncer|barman|external-dns|hetzner|cilium|tetragon|kyverno|syncerror|reconciles?)\b`)
 	io, _, _ := cli.Test()
 	root := newRootCmd(io, &cli.GlobalFlags{})
 	var walk func(c *cobra.Command)

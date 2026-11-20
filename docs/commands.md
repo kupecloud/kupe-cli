@@ -465,9 +465,16 @@ Create a new cluster. Waits for `status.phase=Running` by default (see [output.m
 | `--cpu-limit QUANTITY` | required | CPU limit (e.g., `2`, `500m`, `1.5`). |
 | `--memory-limit QUANTITY` | required | Memory limit (e.g., `8Gi`, `512Mi`). |
 | `--storage-limit QUANTITY` | required | Storage limit (e.g., `50Gi`). |
+| `--high-availability` (alias `--ha`) | `false` | Provision a 3-replica HA control plane, on plans that include it. Adds an hourly charge. |
 | `--wait` | `true` | Wait for `status.phase=Running`. |
 | `--wait-timeout DURATION` | `30m` | Give up after this long. Exits `8`. |
 | `-o, --output FORMAT` | table | Output format: `table`, `json`, `yaml`, `go-template=...`. `-o jsonpath` is not supported and is refused. |
+
+**Errors** (besides the [shared refusals](#refusals-shared-by-clusters-and-databases)):
+
+| Refusal (`code`, HTTP status) | Exit | Hint |
+| --- | --- | --- |
+| HA on a plan without it (`HA_NOT_IN_PLAN`, 400) | `5` | create without `--high-availability`, or upgrade the plan |
 
 Quantity formats match Kubernetes conventions and the regex constraints in [kupe-control-operator/api/v1alpha1/managedcluster_types.go](https://github.com/kupecloud/kupe-control-operator/blob/main/api/v1alpha1/managedcluster_types.go) (`ClusterResources`).
 
@@ -506,8 +513,9 @@ In CI/non-TTY, progress is written to stderr and the final resource render remai
 ```
 
 **Exit codes:** `0` success, `2` invalid flags or a spec the API rejected (the
-hint names the flags to check), `5` on 409 (name exists) or a tenant or plan
-refusal ([shared refusals](#refusals-shared-by-clusters-and-databases)), `7`
+hint names the flags to check), `5` on 409 (name exists), a tenant or plan
+refusal ([shared refusals](#refusals-shared-by-clusters-and-databases)), or
+high availability on a plan without it (`HA_NOT_IN_PLAN`), `7`
 while the platform pauses cluster creation (`400 creation_paused`; the API's
 message and a hint to retry later), on a 503, or when kupe-api stays
 unreachable for 90 seconds while waiting ("lost contact with kupe-api while

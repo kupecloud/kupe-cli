@@ -118,7 +118,7 @@ your tenant's pool. Run "kupe plan list" to see the pool your plan grants.`,
 	cmd.Flags().StringVar(&opts.cpu, "cpu-limit", "", "CPU limit for the cluster (e.g. 2, 500m)")
 	cmd.Flags().StringVar(&opts.memory, "memory-limit", "", "Memory limit for the cluster (e.g. 8Gi, 512Mi)")
 	cmd.Flags().StringVar(&opts.storage, "storage-limit", "", "Storage limit for the cluster (e.g. 50Gi)")
-	cmd.Flags().BoolVar(&opts.highAvailability, "high-availability", false, "Provision a 3-replica HA control plane. Adds an hourly charge.")
+	cmd.Flags().BoolVar(&opts.highAvailability, "high-availability", false, "Provision a 3-replica HA control plane, on plans that include it. Adds an hourly charge.")
 	// --ha is a short alias people will reach for in shell prompts. Hidden so
 	// it doesn't crowd --help; documented in the --high-availability flag help.
 	cmd.Flags().BoolVar(&opts.highAvailability, "ha", false, "Alias for --high-availability")

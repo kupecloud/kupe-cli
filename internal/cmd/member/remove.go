@@ -15,8 +15,7 @@ func newRemoveCmd(f *cli.Factory) *cobra.Command {
 		Use:   "remove EMAIL",
 		Short: "Remove a member from the tenant",
 		Long: `Remove a user from the tenant. Prompts on TTY; --yes required in CI.
-The user loses Authentik group membership on the next operator reconcile,
-which revokes console and kubeconfig access.`,
+The user loses console and kubeconfig access shortly after.`,
 		Args:    cobra.ExactArgs(1),
 		Example: `  kupe member remove ex-employee@acme.com --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -2195,7 +2195,7 @@ A context with no signed-in user (an API key) revokes none and says so.
 ## `kupe member` — Tenant member management
 
 Tenant members are email-identified users with a role (`admin` or `readonly`).
-Changes propagate to Authentik groups via the kupe-control-operator.
+Changes apply to the member's console and kubeconfig access shortly after.
 
 ### `kupe member list`
 
@@ -2222,8 +2222,7 @@ Change a member's role. `--role` is required.
 ### `kupe member remove EMAIL`
 
 Remove a user from the tenant. Prompts on TTY; requires `--yes` on non-TTY.
-The user loses Authentik group membership on the next operator reconcile,
-which revokes console and kubeconfig access.
+The user loses console and kubeconfig access shortly after.
 
 ---
 

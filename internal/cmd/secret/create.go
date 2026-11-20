@@ -35,7 +35,7 @@ Pass --wait=false to return once the definition is created.
 
 Seed the values with kupe secret values set --path PATH --expected-version 0
 --file values.json before adding sync targets. Values must exist before
-the operator can mirror them.`,
+they can be delivered to the sync targets.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Path only, no sync targets
   kupe secret create mydb-password --path apps/shop/api

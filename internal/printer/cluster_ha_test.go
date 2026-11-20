@@ -112,8 +112,8 @@ func TestHaReadyCount_DualTier(t *testing.T) {
 	}{
 		{name: "older operator (no etcd counts)", cpReady: 3, cpDesired: 3, want: "(3/3)"},
 		{name: "both healthy", cpReady: 3, cpDesired: 3, etcdReady: 3, etcdDesired: 3, want: "(3/3)"},
-		{name: "cp degraded, etcd healthy", cpReady: 2, cpDesired: 3, etcdReady: 3, etcdDesired: 3, want: "(cp 2/3, etcd 3/3)"},
-		{name: "cp healthy, etcd quorum lost", cpReady: 3, cpDesired: 3, etcdReady: 1, etcdDesired: 3, want: "(cp 3/3, etcd 1/3)"},
+		{name: "cp degraded, etcd healthy", cpReady: 2, cpDesired: 3, etcdReady: 3, etcdDesired: 3, want: "(cp 2/3, datastore 3/3)"},
+		{name: "cp healthy, etcd quorum lost", cpReady: 3, cpDesired: 3, etcdReady: 1, etcdDesired: 3, want: "(cp 3/3, datastore 1/3)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -132,8 +132,9 @@ func TestHaReadyCount_DualTier(t *testing.T) {
 
 // TestHaDetailDisplay_HAPhaseDriven covers the expanded `cluster get`
 // detail line driven by the haPhase rollup, including the new
-// ha-unavailable copy that distinguishes "quorum lost" from "redundancy
-// reduced" so tenants see the right severity.
+// ha-unavailable copy that distinguishes "API not serving" from "API still
+// serving" so tenants see the right severity. Tenant-facing: it names no
+// internal component ("datastore", never etcd or quorum).
 func TestHaDetailDisplay_HAPhaseDriven(t *testing.T) {
 	enabledAt := "2026-05-25T14:32:11Z"
 	tests := []struct {
@@ -153,7 +154,11 @@ func TestHaDetailDisplay_HAPhaseDriven(t *testing.T) {
 		},
 		{
 			name: "ha-unavailable", phase: "ha-unavailable", ready: 0, desired: 3,
-			want: "degraded (0/3), quorum lost, API not serving, enabled at " + enabledAt,
+			want: "degraded (0/3), API not serving, enabled at " + enabledAt,
+		},
+		{
+			name: "pending", phase: "pending", ready: 1, desired: 3,
+			want: "pending (waiting for 3/3 control plane and datastore replicas to be ready)",
 		},
 	}
 	for _, tt := range tests {

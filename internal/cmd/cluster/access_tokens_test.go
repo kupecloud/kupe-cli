@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -103,6 +106,8 @@ func TestAccessTokenCreate_FlagMisuse(t *testing.T) {
 		{"dev", "--name", "ci", "-o", "json", "--merge"},
 		{"dev", "--name", "ci", "-o", "yaml"},
 		{"dev", "--name", "ci", "--context-name", "x"},
+		{"dev", "--name", "ci", "--wait-timeout", "0s"},
+		{"dev", "--name", "ci", "--wait-timeout", "-1s"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			fake := clienttest.New()
@@ -235,6 +240,10 @@ func TestAccessTokenCreate_FailuresRevoke(t *testing.T) {
 			msg: "the cluster did not issue the access token in time; it was revoked"},
 		{name: "already collected", collect: []error{gone}, exit: cli.ExitConflict,
 			msg: "the access token was already collected elsewhere; it was revoked. Create another."},
+		{name: "collect response lost, then 410", collect: []error{errors.New("executing request: connection reset by peer"), gone}, exit: cli.ExitConflict,
+			msg: "the access token could not be delivered and was revoked"},
+		{name: "collect 500 after the claim, then 410", collect: []error{&client.APIError{StatusCode: 500, Message: "internal server error"}, gone}, exit: cli.ExitConflict,
+			msg: "the access token could not be delivered and was revoked"},
 		{name: "creator only", collect: []error{&client.APIError{StatusCode: 403, Code: "ACCESS_TOKEN_COLLECT_CREATOR_ONLY", Message: "only the member or API key that created an access token can collect it"}},
 			exit: cli.ExitAuth, msg: "it was revoked"},
 	} {
@@ -567,5 +576,103 @@ func TestAccessTokenCreate_VerboseNeverLeaksTheToken(t *testing.T) {
 	}
 	if strings.Contains(string(data), secret) {
 		t.Fatal("the token reached the config file")
+	}
+}
+
+// failingWriter is a stdout that takes nothing: a full disk.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
+
+// F1: a collected token whose output stdout cannot take is revoked.
+func TestAccessTokenCreate_StdoutWriteFailureRevokes(t *testing.T) {
+	for _, args := range [][]string{{}, {"-o", "json"}} {
+		t.Run(strings.Join(append([]string{"text"}, args...), " "), func(t *testing.T) {
+			fake := clienttest.New()
+			f := factoryWith(t, fake)
+			f.IOStreams.Out = failingWriter{}
+			cmd := NewCmd(f)
+			cmd.SetContext(context.Background())
+			cmd.SetArgs(append([]string{"access-tokens", "create", "dev", "--name", "ci"}, args...))
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			err := cmd.Execute()
+			assertExitCode(t, err, cli.ExitGeneral)
+			if !strings.Contains(err.Error(), "the kubeconfig could not be written to stdout, so the access token was lost; it was revoked") {
+				t.Fatalf("err = %v", err)
+			}
+			if strings.Contains(err.Error(), testToken) {
+				t.Fatal("the token reached the error")
+			}
+			if calls(fake, "DeleteClusterAccessToken") != 1 {
+				t.Fatalf("calls = %v; want a revoke", fake.Calls)
+			}
+			if _, ok := fake.ClusterAccessTokens[testTokenID]; ok {
+				t.Fatal("the lost token is still live")
+			}
+		})
+	}
+}
+
+// F1: stdout is a pipe whose reader has gone (`| head -c0`). Go kills a
+// process that writes to such an fd 1 with SIGPIPE unless it is ignored, so
+// this runs the command in a child process whose real stdout is that pipe
+// and checks the child lived to revoke the token.
+func TestAccessTokenCreate_ClosedStdoutPipeRevokes(t *testing.T) {
+	if os.Getenv("KUPE_TEST_CAT_CLOSED_STDOUT") == "1" {
+		fake := clienttest.New()
+		f := factoryWith(t, fake)
+		f.IOStreams.Out = os.Stdout
+		cmd := NewCmd(f)
+		cmd.SetContext(context.Background())
+		cmd.SetArgs([]string{"access-tokens", "create", "dev", "--name", "ci"})
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		err := cmd.Execute()
+		_, live := fake.ClusterAccessTokens[testTokenID]
+		fmt.Fprintf(os.Stderr, "child: exit=%d revoked=%v deletes=%d\n", cli.ExitCode(err), !live, calls(fake, "DeleteClusterAccessToken"))
+		os.Exit(0)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGPIPE on Windows")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(os.Args[0], "-test.run=^TestAccessTokenCreate_ClosedStdoutPipeRevokes$") //#nosec G204 -- this test binary
+	child.Env = append(os.Environ(), "KUPE_TEST_CAT_CLOSED_STDOUT=1")
+	child.Stdout = w
+	var stderr bytes.Buffer
+	child.Stderr = &stderr
+	runErr := child.Run()
+	_ = w.Close()
+	if runErr != nil {
+		t.Fatalf("child did not exit cleanly (killed by SIGPIPE before revoking?): %v\nstderr:\n%s", runErr, stderr.String())
+	}
+	if want := "child: exit=1 revoked=true deletes=1"; !strings.Contains(stderr.String(), want) {
+		t.Fatalf("child stderr = %q; want %q", stderr.String(), want)
+	}
+}
+
+// F3: the help names no platform number kupe-api owns: the per-cluster cap
+// and the default lifetime are the platform's.
+func TestAccessTokenHelp_NoPlatformNumbers(t *testing.T) {
+	root := NewCmd(factoryWith(t, clienttest.New()))
+	at, _, err := root.Find([]string{"access-tokens"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	create, _, err := at.Find([]string{"create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{at.Long, create.Long, create.Flag("expires-in-days").Usage, create.Flag("expires-in-days").DefValue} {
+		for _, banned := range []string{"at most 20", "default 90", "90"} {
+			if strings.Contains(text, banned) {
+				t.Errorf("help names %q: %s", banned, text)
+			}
+		}
 	}
 }

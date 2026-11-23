@@ -655,9 +655,10 @@ kupe-api unreachable for 90 seconds exits `7`.
 Cluster access tokens are kubeconfig credentials for Terraform, CI and other
 automation that runs kubectl or a Kubernetes client against one cluster
 without a person signed in. A token acts as the `admin` role inside the
-cluster until it expires (1 to 365 days, default 90) or is revoked. Tokens
+cluster until it expires (1 to 365 days; without `--expires-in-days` the
+platform's default lifetime applies) or is revoked. Tokens
 belong to the tenant: removing or demoting the member who created one does
-not revoke it. A cluster holds at most 20. `access-token` and
+not revoke it. `access-token` and
 `access-tokens` are the same command.
 
 | Command | What it does |
@@ -675,7 +676,8 @@ work; `Revoking` while a revoke takes effect.
 
 1. Checks the flags (exit `2`): `--name` is 1 to 128 printable characters;
    `--role` is `admin` (hint: `v1 tokens are admin only`); `--expires-in-days`
-   is 1 to 365 and sent only when given; `-o` is `text` or `json`, and `-o
+   is 1 to 365 and sent only when given; `--wait-timeout` is more than 0;
+   `-o` is `text` or `json`, and `-o
    json` with `--merge` is refused; the `--merge` naming and force flags need
    `--merge`. With `--merge`, a kubeconfig that already has an entry of an
    overridden name (without `--force`) or cannot be parsed (without
@@ -685,7 +687,7 @@ work; `Revoking` while a revoke takes effect.
    reached kupe-api are retried.
 3. Collects it once. A collect answered `ACCESS_TOKEN_NOT_READY` goes back to
    waiting within the same deadline.
-4. Prints the kubeconfig alone on stdout, so
+4. Prints the kubeconfig alone on stdout, in one write, so
    `kupe cluster access-tokens create dev --name ci > ci.kubeconfig` works. On a
    TTY, stderr adds `Store this kubeconfig now: it is shown only once.`, the
    ID, the expiry and `Revoke with: kupe cluster access-tokens revoke CLUSTER ID`.
@@ -705,6 +707,8 @@ that survives Ctrl+C):
 | The token is `Failed` | `1` | `the cluster could not issue the access token; it was revoked` |
 | Ctrl+C | `130` | `stopped waiting for the access token; it was revoked` |
 | The collect answered `410` | `5` | `the access token was already collected elsewhere; it was revoked. Create another.` |
+| A collect response was lost in transit (a network failure or 5xx), then `410` | `5` | `the access token could not be delivered and was revoked` |
+| Stdout could not take the kubeconfig or `-o json` (full disk, closed pipe) | `1` | `the kubeconfig could not be written to stdout, so the access token was lost; it was revoked` |
 | `--merge` could not write the file | the write's | `the kubeconfig could not be written, so the access token was lost; it was revoked` |
 | Any other refusal of the wait or collect | the refusal's | `the access token was not handed over; it was revoked: …` |
 
@@ -719,7 +723,7 @@ kubeconfig.
 
 | Refusal (`code`, HTTP status) | Exit | Hint |
 | --- | --- | --- |
-| The cluster already has 20 tokens (`ACCESS_TOKEN_LIMIT_REACHED`, 409) | `5` | `kupe cluster access-tokens list CLUSTER` |
+| The cluster already has as many tokens as the platform allows (`ACCESS_TOKEN_LIMIT_REACHED`, 409; the message gives the number) | `5` | `kupe cluster access-tokens list CLUSTER` |
 | Expiry out of range (`ACCESS_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |
 | Already collected (`ACCESS_TOKEN_ALREADY_COLLECTED`, 410) | `5` | revoke it and create another |
 | Could not be issued (`ACCESS_TOKEN_FAILED`, 409) | `1` | revoke it and create another |

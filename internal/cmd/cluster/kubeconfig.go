@@ -106,26 +106,7 @@ func runKubeconfig(cmd *cobra.Command, f *cli.Factory, name string, opts *kubeco
 	}
 
 	if opts.merge {
-		target, err := kubeconfig.TargetPath("")
-		if err != nil {
-			return cli.Wrap(cli.ExitGeneral, "resolving kubeconfig path", err)
-		}
-		mergeOpts := kubeconfig.MergeOptions{Force: opts.force, ForceOverwrite: opts.forceOverwrite, Warn: f.IOStreams.ErrOut}
-		if err := kubeconfig.Merge(target, built, mergeOpts); err != nil {
-			if isCollision(err) {
-				return cli.ConflictError(err.Error()).WithHint("re-run with --force to overwrite")
-			}
-			if errors.Is(err, kubeconfig.ErrCorrupt) {
-				return cli.ConflictError(err.Error()).
-					WithHint("inspect " + target + " manually, back it up, then re-run with --force-overwrite")
-			}
-			return err
-		}
-		fmt.Fprintf(f.IOStreams.ErrOut,
-			"Merged %q into %s.\n  use \"kubectl --context %s\" to target it.\n",
-			names.Context, target, names.Context,
-		)
-		return nil
+		return mergeKubeconfig(f, names, built, opts.force, opts.forceOverwrite)
 	}
 
 	data, err := kubeconfig.Marshal(built)
@@ -133,6 +114,40 @@ func runKubeconfig(cmd *cobra.Command, f *cli.Factory, name string, opts *kubeco
 		return cli.Wrap(cli.ExitGeneral, "rendering kubeconfig", err)
 	}
 	_, err = f.IOStreams.Out.Write(data)
+	return err
+}
+
+// mergeKubeconfig merges built into $KUBECONFIG (or ~/.kube/config) and
+// says which context to use. A collision or a corrupt file is exit 5 with
+// the flag that overrides it.
+func mergeKubeconfig(f *cli.Factory, names kubeconfig.Names, built *clientcmdapi.Config, force, forceOverwrite bool) error {
+	target, err := kubeconfig.TargetPath("")
+	if err != nil {
+		return cli.Wrap(cli.ExitGeneral, "resolving kubeconfig path", err)
+	}
+	mergeOpts := kubeconfig.MergeOptions{Force: force, ForceOverwrite: forceOverwrite, Warn: f.IOStreams.ErrOut}
+	if err := mergeErr(kubeconfig.Merge(target, built, mergeOpts), target); err != nil {
+		return err
+	}
+	fmt.Fprintf(f.IOStreams.ErrOut,
+		"Merged %q into %s.\n  use \"kubectl --context %s\" to target it.\n",
+		names.Context, target, names.Context,
+	)
+	return nil
+}
+
+// mergeErr maps a kubeconfig merge (or pre-merge check) failure onto exit
+// 5 with the flag that overrides it; nil stays nil.
+func mergeErr(err error, target string) error {
+	switch {
+	case err == nil:
+		return nil
+	case isCollision(err):
+		return cli.ConflictError(err.Error()).WithHint("re-run with --force to overwrite")
+	case errors.Is(err, kubeconfig.ErrCorrupt):
+		return cli.ConflictError(err.Error()).
+			WithHint("inspect " + target + " manually, back it up, then re-run with --force-overwrite")
+	}
 	return err
 }
 

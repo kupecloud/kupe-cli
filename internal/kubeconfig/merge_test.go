@@ -175,3 +175,40 @@ func TestMergeAtomicFileMode(t *testing.T) {
 		t.Fatalf("kubeconfig mode = %o; want 0600", mode)
 	}
 }
+
+func TestCheckMergeable(t *testing.T) {
+	names := DefaultNames("acme", "dev-cat-0123456789abcdef")
+	dir := t.TempDir()
+
+	if err := CheckMergeable(filepath.Join(dir, "absent.yaml"), names, MergeOptions{}); err != nil {
+		t.Fatalf("absent file: %v", err)
+	}
+
+	existing := filepath.Join(dir, "kc.yaml")
+	seed := clientcmdapi.NewConfig()
+	seed.Clusters["other"] = &clientcmdapi.Cluster{Server: "https://other:6443"}
+	seed.Contexts[names.Context] = &clientcmdapi.Context{Cluster: "other", AuthInfo: "other"}
+	if err := clientcmd.WriteToFile(*seed, existing); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckMergeable(existing, names, MergeOptions{}); !errors.Is(err, ErrCollision) {
+		t.Fatalf("same context name: err = %v; want ErrCollision", err)
+	}
+	if err := CheckMergeable(existing, names, MergeOptions{Force: true}); err != nil {
+		t.Fatalf("--force: %v", err)
+	}
+	if err := CheckMergeable(existing, DefaultNames("acme", "other-name"), MergeOptions{}); err != nil {
+		t.Fatalf("no shared name: %v", err)
+	}
+
+	corrupt := filepath.Join(dir, "corrupt.yaml")
+	if err := os.WriteFile(corrupt, []byte("this is not :valid: yaml at all:::"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckMergeable(corrupt, names, MergeOptions{Force: true}); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("corrupt: err = %v; want ErrCorrupt", err)
+	}
+	if err := CheckMergeable(corrupt, names, MergeOptions{ForceOverwrite: true}); err != nil {
+		t.Fatalf("--force-overwrite: %v", err)
+	}
+}

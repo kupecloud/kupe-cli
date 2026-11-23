@@ -23,8 +23,9 @@ are identified by email and carry a role (admin or readonly).
 
 API access and the console's tenant pages change within a minute. Access to
 a cluster keeps working until the token in use expires: up to 8 hours for a
-console session or a signed-in kubeconfig, and the lifetime chosen at
-download for a token kubeconfig.`,
+console session or a signed-in kubeconfig. Cluster access tokens belong to
+the tenant and keep working after a member leaves; list and revoke them
+with "kupe cluster access-tokens".`,
 	}
 	cmd.AddCommand(newListCmd(f))
 	cmd.AddCommand(newAddCmd(f))

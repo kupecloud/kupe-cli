@@ -28,6 +28,11 @@ Commands in this document map one-to-one to endpoints in [kupe-api/api/swagger.j
 | `PATCH /api/v1/tenants/{tenant}/clusters/{name}` | `kupe cluster update` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/clusters/{name}` | `kupe cluster delete` | v1 |
 | `GET /api/v1/tenants/{tenant}/clusters/{name}/kubeconfig` | `kupe cluster kubeconfig` | v1 |
+| `GET /api/v1/tenants/{tenant}/clusters/{name}/access-tokens` | `kupe cluster access-tokens list` | v1 |
+| `POST /api/v1/tenants/{tenant}/clusters/{name}/access-tokens` | `kupe cluster access-tokens create` | v1 |
+| `GET /api/v1/tenants/{tenant}/clusters/{name}/access-tokens/{id}` | `kupe cluster access-tokens get` (also `create`, until it is issued) | v1 |
+| `DELETE /api/v1/tenants/{tenant}/clusters/{name}/access-tokens/{id}` | `kupe cluster access-tokens revoke` (also `create`, for a token it could not hand over) | v1 |
+| `POST /api/v1/tenants/{tenant}/clusters/{name}/access-tokens/{id}/token` | `kupe cluster access-tokens create` (collects once) | v1 |
 | `GET /api/v1/tenants/{tenant}/apikeys` | `kupe apikey list` | v1 |
 | `POST /api/v1/tenants/{tenant}/apikeys` | `kupe apikey create` | v1 |
 | `DELETE /api/v1/tenants/{tenant}/apikeys/{id}` | `kupe apikey delete` | v1 |
@@ -644,6 +649,88 @@ cluster/prod running
 Ctrl+C exits `130` cleanly with a hint. A cluster that enters `Degraded`
 while waiting for another phase exits `1` (`--for degraded` succeeds instead);
 kupe-api unreachable for 90 seconds exits `7`.
+
+### `kupe cluster access-tokens`
+
+Cluster access tokens are kubeconfig credentials for Terraform, CI and other
+automation that runs kubectl or a Kubernetes client against one cluster
+without a person signed in. A token acts as the `admin` role inside the
+cluster until it expires (1 to 365 days, default 90) or is revoked. Tokens
+belong to the tenant: removing or demoting the member who created one does
+not revoke it. A cluster holds at most 20. `access-token` and
+`access-tokens` are the same command.
+
+| Command | What it does |
+| --- | --- |
+| `kupe cluster access-tokens create CLUSTER --name NAME [--role admin] [--expires-in-days D] [--wait-timeout 2m] [--merge [--context-name N] [--user-name N] [--cluster-name N] [--force] [--force-overwrite]] [-o json]` | Creates a token (admins only), waits until the cluster has issued it, collects it once and prints its kubeconfig. |
+| `kupe cluster access-tokens list CLUSTER [-o wide\|json\|yaml]` | `ID`, `NAME`, `ROLE`, `CREATED-BY`, `EXPIRES` (date), `STATUS`; wide adds `CREATED` (date). Every member can list. Never a token. |
+| `kupe cluster access-tokens get CLUSTER ID [-o …]` | One token, never the token itself. An ID of another cluster exits `4`. |
+| `kupe cluster access-tokens revoke CLUSTER ID [--yes]` | Admins only. Asks for `yes` (`--yes` skips; required off a TTY). Stdout: `access-token/ID revoked`. |
+
+`STATUS` is `Pending` until the cluster issues the token, then `Ready`;
+`Collected` once its kubeconfig was handed over; `Failed` when it can never
+work; `Revoking` while a revoke takes effect.
+
+**`create`:**
+
+1. Checks the flags (exit `2`): `--name` is 1 to 128 printable characters;
+   `--role` is `admin` (hint: `v1 tokens are admin only`); `--expires-in-days`
+   is 1 to 365 and sent only when given; `-o` is `text` or `json`, and `-o
+   json` with `--merge` is refused; the `--merge` naming and force flags need
+   `--merge`. With `--merge`, a kubeconfig that already has an entry of an
+   overridden name (without `--force`) or cannot be parsed (without
+   `--force-overwrite`) exits `5` before the token is created.
+2. Creates the token, then polls it every 2 seconds until it is `Ready`, for at
+   most `--wait-timeout` (default `2m`). 5xx, 429 and failures that never
+   reached kupe-api are retried.
+3. Collects it once. A collect answered `ACCESS_TOKEN_NOT_READY` goes back to
+   waiting within the same deadline.
+4. Prints the kubeconfig alone on stdout, so
+   `kupe cluster access-tokens create dev --name ci > ci.kubeconfig` works. On a
+   TTY, stderr adds `Store this kubeconfig now: it is shown only once.`, the
+   ID, the expiry and `Revoke with: kupe cluster access-tokens revoke CLUSTER ID`.
+   `-o json` prints `id`, `cluster`, `name`, `role`, `createdBy`, `createdAt`,
+   `expiresAt`, `token` and `kubeconfig`. `--merge` writes it into
+   `$KUBECONFIG` (or `~/.kube/config`) as `kupe-<tenant>-<cluster>-<id>` (never
+   the `kupe-<tenant>-<cluster>` context `kupe cluster kubeconfig --merge`
+   writes), makes it current and prints `Merged "…" into …` on stderr; the
+   token is printed nowhere.
+
+A token `create` made and could not hand over is revoked (a 10-second revoke
+that survives Ctrl+C):
+
+| What happened | Exit | Message |
+| --- | --- | --- |
+| Not `Ready` within `--wait-timeout` | `8` | `the cluster did not issue the access token in time; it was revoked` |
+| The token is `Failed` | `1` | `the cluster could not issue the access token; it was revoked` |
+| Ctrl+C | `130` | `stopped waiting for the access token; it was revoked` |
+| The collect answered `410` | `5` | `the access token was already collected elsewhere; it was revoked. Create another.` |
+| `--merge` could not write the file | the write's | `the kubeconfig could not be written, so the access token was lost; it was revoked` |
+| Any other refusal of the wait or collect | the refusal's | `the access token was not handed over; it was revoked: …` |
+
+When the revoke itself fails, `it was revoked` becomes `revoking it failed
+(…); revoke it with:  kupe cluster access-tokens revoke CLUSTER ID --yes`.
+
+The token and the kubeconfig are never written to a log line, a `-v` trace,
+an error or the CLI's config file; `--merge` writes them only into the
+kubeconfig.
+
+**Refusals:**
+
+| Refusal (`code`, HTTP status) | Exit | Hint |
+| --- | --- | --- |
+| The cluster already has 20 tokens (`ACCESS_TOKEN_LIMIT_REACHED`, 409) | `5` | `kupe cluster access-tokens list CLUSTER` |
+| Expiry out of range (`ACCESS_TOKEN_EXPIRY_INVALID`, 400) | `2` | — |
+| Already collected (`ACCESS_TOKEN_ALREADY_COLLECTED`, 410) | `5` | revoke it and create another |
+| Could not be issued (`ACCESS_TOKEN_FAILED`, 409) | `1` | revoke it and create another |
+| Collect by anyone but its creator (`ACCESS_TOKEN_COLLECT_CREATOR_ONLY`, 403) | `3` | — |
+| Create or revoke by a member who is not an admin (403, `admin access required`) | `3` | only tenant admins can create and revoke cluster access tokens |
+| The cluster is being deleted, or the token is being revoked (`terminating`, 409) | `5` | — (the message says which) |
+| A cluster or token that does not exist (404) | `4` | — |
+
+`ACCESS_TOKEN_NOT_READY` (409) never reaches the user: `create`'s wait
+absorbs it. The tenant refusals and a 503 are the
+[shared refusals](#refusals-shared-by-clusters-and-databases).
 
 ---
 
@@ -2198,8 +2285,9 @@ A context with no signed-in user (an API key) revokes none and says so.
 Tenant members are email-identified users with a role (`admin` or `readonly`).
 API access and the console's tenant pages change within a minute. Access to
 a cluster keeps working until the token in use expires: up to 8 hours for a
-console session or a signed-in kubeconfig, and the lifetime chosen at
-download for a token kubeconfig.
+console session or a signed-in kubeconfig. Cluster access tokens belong to
+the tenant and keep working after a member leaves; list and revoke them
+with "kupe cluster access-tokens".
 
 ### `kupe member list`
 
@@ -2228,8 +2316,9 @@ Change a member's role. `--role` is required.
 Remove a user from the tenant. Prompts on TTY; requires `--yes` on non-TTY.
 API access and the console's tenant pages end within a minute. Access to a
 cluster keeps working until the token in use expires: up to 8 hours for a
-console session or a signed-in kubeconfig, and the lifetime chosen at
-download for a token kubeconfig.
+console session or a signed-in kubeconfig. Cluster access tokens belong to
+the tenant and keep working after a member leaves; list and revoke them
+with "kupe cluster access-tokens".
 
 ---
 

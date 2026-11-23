@@ -232,6 +232,23 @@ type Fake struct {
 	// SessionCreator is the createdBy of a session; empty → tester@acme.com.
 	SessionCreator string
 
+	// ClusterAccessTokens keyed by ID. GetClusterAccessTokenSeq scripts
+	// successive GetClusterAccessToken results per ID, with the same
+	// semantics as GetClusterSeq. A created token is stored Ready unless
+	// CreatedClusterAccessTokenPhase says otherwise. CollectErrs are
+	// returned by successive collects before the stored token is served.
+	// ClusterAccessTokenCreates records every create body sent.
+	ClusterAccessTokens            map[string]*client.ClusterAccessToken
+	GetClusterAccessTokenSeq       map[string][]*client.ClusterAccessToken
+	ListClusterAccessTokensErr     error
+	GetClusterAccessTokenErr       error
+	CreateClusterAccessTokenErr    error
+	DeleteClusterAccessTokenErr    error
+	CollectClusterAccessTokenErrs  []error
+	ClusterAccessTokenCreates      []client.CreateClusterAccessTokenRequest
+	NextClusterAccessTokenID       string
+	CreatedClusterAccessTokenPhase string
+
 	// Members keyed by email.
 	Members         map[string]*client.Member
 	ListMembersErr  error
@@ -279,6 +296,9 @@ func New() *Fake {
 		GetDatabaseSeq:       map[string][]*client.Database{},
 		DatabaseBindings:     map[string]*client.DatabaseBinding{},
 		Members:              map[string]*client.Member{},
+
+		ClusterAccessTokens:      map[string]*client.ClusterAccessToken{},
+		GetClusterAccessTokenSeq: map[string][]*client.ClusterAccessToken{},
 
 		RegistriesByName:       map[string]*client.Registry{},
 		GetRegistrySeq:         map[string][]*client.Registry{},

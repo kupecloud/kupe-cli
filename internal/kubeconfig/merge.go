@@ -162,6 +162,40 @@ func Merge(path string, incoming *clientcmdapi.Config, opts MergeOptions) error 
 	return nil
 }
 
+// CheckMergeable reports, without writing anything, whether a merge of
+// entries called names into path would be refused: ErrCorrupt for a file
+// that cannot be parsed (unless opts.ForceOverwrite), ErrCollision for any
+// existing cluster, user or context of the same name (unless opts.Force).
+// For a credential that can be fetched only once, so a merge that would
+// fail is refused before the credential exists. Stricter than Merge,
+// which accepts an identical entry: a new credential never is one.
+func CheckMergeable(path string, names Names, opts MergeOptions) error {
+	if path == "" {
+		return errors.New("merge target path is empty")
+	}
+	base, err := loadExisting(path)
+	if err != nil {
+		if opts.ForceOverwrite {
+			return nil
+		}
+		return fmt.Errorf("%w: %w", ErrCorrupt, err)
+	}
+	if base == nil || opts.Force {
+		return nil
+	}
+	// An empty name is one the caller cannot know yet: it never collides.
+	if _, ok := base.Clusters[names.Cluster]; ok && names.Cluster != "" {
+		return fmt.Errorf("cluster %q: %w", names.Cluster, ErrCollision)
+	}
+	if _, ok := base.AuthInfos[names.User]; ok && names.User != "" {
+		return fmt.Errorf("user %q: %w", names.User, ErrCollision)
+	}
+	if _, ok := base.Contexts[names.Context]; ok && names.Context != "" {
+		return fmt.Errorf("context %q: %w", names.Context, ErrCollision)
+	}
+	return nil
+}
+
 // writeFileAtomic writes data to path via a temp file in the same directory
 // followed by an atomic rename, so a partial/crashed write never leaves the
 // target truncated. The temp file is chmod'd to perm before the rename.

@@ -164,3 +164,25 @@ func TestListJSON(t *testing.T) {
 		t.Fatalf("unexpected: %+v", got)
 	}
 }
+
+// The member and member remove help says cluster access tokens outlive a
+// member and where to revoke them, and no longer speaks of a token
+// kubeconfig chosen at download.
+func TestHelpNamesClusterAccessTokens(t *testing.T) {
+	f := factoryWith(t, clienttest.New())
+	root := NewCmd(f)
+	remove, _, err := root.Find([]string{"remove"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `Cluster access tokens belong to the tenant and keep working after a member leaves; list and revoke them with "kupe cluster access-tokens".`
+	for _, c := range []*cobra.Command{root, remove} {
+		long := strings.Join(strings.Fields(c.Long), " ")
+		if !strings.Contains(long, want) {
+			t.Errorf("%s help lacks %q:\n%s", c.Name(), want, c.Long)
+		}
+		if strings.Contains(long, "token kubeconfig") {
+			t.Errorf("%s help still mentions a token kubeconfig:\n%s", c.Name(), c.Long)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -237,13 +238,16 @@ func runAccessTokenCreate(cmd *cobra.Command, f *cli.Factory, cluster string, op
 	return nil
 }
 
-// writeOnce writes data to w in one call. SIGPIPE is ignored meanwhile, so
+// writeOnce writes data to w in one call. SIGPIPE is handled meanwhile, so
 // a closed stdout pipe surfaces as EPIPE (and the token can be revoked)
 // instead of killing the process: Go exits on SIGPIPE for a write to fd 1
 // or 2 unless the signal is ignored or handled (os/signal, "SIGPIPE").
+// signal.Stop on return restores the default; signal.Ignore would not be
+// undone by signal.Reset.
 func writeOnce(w io.Writer, data []byte) error {
-	signal.Ignore(syscall.SIGPIPE)
-	defer signal.Reset(syscall.SIGPIPE)
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGPIPE)
+	defer signal.Stop(ch)
 	n, err := w.Write(data)
 	if err == nil && n < len(data) {
 		err = io.ErrShortWrite

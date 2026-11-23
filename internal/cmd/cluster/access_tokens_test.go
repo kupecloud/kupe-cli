@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -653,6 +654,48 @@ func TestAccessTokenCreate_ClosedStdoutPipeRevokes(t *testing.T) {
 	}
 	if want := "child: exit=1 revoked=true deletes=1"; !strings.Contains(stderr.String(), want) {
 		t.Fatalf("child stderr = %q; want %q", stderr.String(), want)
+	}
+}
+
+// writeOnce must leave SIGPIPE at its default disposition: after it returns,
+// a write to the closed stdout pipe kills the child with SIGPIPE.
+func TestWriteOnce_RestoresSIGPIPEDefault(t *testing.T) {
+	if os.Getenv("KUPE_TEST_WRITEONCE_SIGPIPE") == "1" {
+		if err := writeOnce(os.Stdout, []byte("x")); err == nil {
+			fmt.Fprintln(os.Stderr, "child: first write unexpectedly succeeded")
+			os.Exit(3)
+		}
+		fmt.Fprintln(os.Stderr, "child: survived first write")
+		_, _ = os.Stdout.Write([]byte("y")) // default disposition: dies here
+		os.Exit(0)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGPIPE on Windows")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(os.Args[0], "-test.run=^TestWriteOnce_RestoresSIGPIPEDefault$") //#nosec G204 -- this test binary
+	child.Env = append(os.Environ(), "KUPE_TEST_WRITEONCE_SIGPIPE=1")
+	child.Stdout = w
+	var stderr bytes.Buffer
+	child.Stderr = &stderr
+	runErr := child.Run()
+	_ = w.Close()
+	var ee *exec.ExitError
+	if !errors.As(runErr, &ee) {
+		t.Fatalf("child err = %v; want killed by SIGPIPE\nstderr:\n%s", runErr, stderr.String())
+	}
+	ws, ok := ee.Sys().(syscall.WaitStatus)
+	if !ok || ws.Signal() != syscall.SIGPIPE {
+		t.Fatalf("child status = %v; want SIGPIPE (default restored)\nstderr:\n%s", ee, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "survived first write") {
+		t.Fatalf("child stderr = %q; first write must fail with EPIPE, not kill", stderr.String())
 	}
 }
 

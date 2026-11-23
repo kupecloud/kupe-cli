@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -36,6 +39,10 @@ var (
 var (
 	errAccessTokenNotIssued = errors.New("not issued in time")
 	errAccessTokenNotUsable = errors.New("could not be issued")
+	// errAccessTokenLost is a collect whose response was lost (a transport
+	// failure or a 5xx) followed by 410: kupe-api served the token, but it
+	// never arrived.
+	errAccessTokenLost = errors.New("collected but not delivered")
 )
 
 func newAccessTokenCmd(f *cli.Factory) *cobra.Command {
@@ -51,7 +58,7 @@ is revoked.
 
 Tokens belong to the tenant: removing or demoting the member who created one
 does not revoke it. Every member can list them; only tenant admins can
-create and revoke them. A cluster holds at most 20.`,
+create and revoke them.`,
 	}
 	cmd.AddCommand(newAccessTokenCreateCmd(f))
 	cmd.AddCommand(newAccessTokenListCmd(f))
@@ -104,8 +111,9 @@ otherwise stdout holds only the kubeconfig, so
 kupe-<tenant>-<cluster>-<id> instead of printing it. -o json prints the
 token's details, the token and the kubeconfig.
 
---expires-in-days is 1 to 365 (default 90). A token that is not issued in
-time, or cannot be handed over, is revoked.`,
+--expires-in-days is 1 to 365; without it the platform's default lifetime
+applies. A token that is not issued in time, or cannot be handed over, is
+revoked.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  # Kubeconfig for a CI pipeline
   kupe cluster access-tokens create prod --name github-actions > ci.kubeconfig
@@ -118,7 +126,7 @@ time, or cannot be handed over, is revoked.`,
 	}
 	cmd.Flags().StringVar(&opts.name, "name", "", "A name to recognise the token by, 1 to 128 characters (required)")
 	cmd.Flags().StringVar(&opts.role, "role", client.ClusterAccessTokenRoleAdmin, "The role the token acts as inside the cluster: admin")
-	cmd.Flags().IntVar(&opts.days, "expires-in-days", 90, "Days until the token stops working, 1 to 365")
+	cmd.Flags().IntVar(&opts.days, "expires-in-days", 0, "Days until the token stops working, 1 to 365 (when not set, the platform's default)")
 	cmd.Flags().DurationVar(&opts.waitTimeout, "wait-timeout", accessTokenWaitTimeout, "Give up and revoke the token if the cluster has not issued it after this long")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "", printer.OutputHelpToggle)
 	cmd.Flags().BoolVar(&opts.merge, "merge", false, "Merge into $KUBECONFIG or ~/.kube/config instead of printing")
@@ -146,6 +154,9 @@ func (o *accessTokenCreateOpts) request(cmd *cobra.Command) (client.CreateCluste
 		}
 		days := o.days
 		req.ExpiresInDays = &days
+	}
+	if o.waitTimeout <= 0 {
+		return req, cli.MisuseError("--wait-timeout must be more than 0").WithHint("e.g. --wait-timeout 2m")
 	}
 	switch o.output {
 	case "", "text":
@@ -203,16 +214,47 @@ func runAccessTokenCreate(cmd *cobra.Command, f *cli.Factory, cluster string, op
 	if expiresAt == "" {
 		expiresAt = created.ExpiresAt
 	}
+	data := []byte(collected.Kubeconfig)
 	if opts.output == "json" {
-		enc := json.NewEncoder(f.IOStreams.Out)
-		enc.SetIndent("", "  ")
-		return enc.Encode(accessTokenCreateOutput{ // #nosec G117 -- -o json prints the token on stdout: the user asked for it
+		data, err = json.MarshalIndent(accessTokenCreateOutput{ // #nosec G117 -- -o json prints the token on stdout: the user asked for it
 			ID: created.ID, Cluster: cluster, Name: created.DisplayName, Role: created.Access.Role,
 			CreatedBy: created.CreatedBy, CreatedAt: created.CreatedAt, ExpiresAt: expiresAt,
 			Token: collected.Token, Kubeconfig: collected.Kubeconfig,
-		})
+		}, "", "  ")
+		if err != nil {
+			return stdoutFailedErr(err, cluster, created.ID, revokeAccessTokenQuietly(ctx, api, cluster, created.ID))
+		}
+		data = append(data, '\n')
 	}
-	return renderAccessTokenCreated(f.IOStreams, cluster, created.ID, expiresAt, collected.Kubeconfig)
+	// The whole output in one write: if stdout takes it, the token was
+	// handed over; if not, it is lost and revoked.
+	if err := writeOnce(f.IOStreams.Out, data); err != nil {
+		return stdoutFailedErr(err, cluster, created.ID, revokeAccessTokenQuietly(ctx, api, cluster, created.ID))
+	}
+	if opts.output != "json" {
+		renderAccessTokenDetails(f.IOStreams, cluster, created.ID, expiresAt)
+	}
+	return nil
+}
+
+// writeOnce writes data to w in one call. SIGPIPE is ignored meanwhile, so
+// a closed stdout pipe surfaces as EPIPE (and the token can be revoked)
+// instead of killing the process: Go exits on SIGPIPE for a write to fd 1
+// or 2 unless the signal is ignored or handled (os/signal, "SIGPIPE").
+func writeOnce(w io.Writer, data []byte) error {
+	signal.Ignore(syscall.SIGPIPE)
+	defer signal.Reset(syscall.SIGPIPE)
+	n, err := w.Write(data)
+	if err == nil && n < len(data) {
+		err = io.ErrShortWrite
+	}
+	return err
+}
+
+// stdoutFailedErr is a collected token whose output could not be written
+// to stdout: lost, so revoked.
+func stdoutFailedErr(err error, cluster, id string, revokeErr error) error {
+	return cli.Wrap(cli.ExitGeneral, "the kubeconfig could not be written to stdout, so the access token was lost; "+revokedClause(cluster, id, revokeErr), err)
 }
 
 // checkMergeable refuses a --merge target that already has an entry of
@@ -247,23 +289,19 @@ func mergeAccessToken(f *cli.Factory, tenant, cluster string, opts *accessTokenC
 	return mergeKubeconfig(f, names, built, opts.force, opts.forceOverwrite)
 }
 
-// renderAccessTokenCreated writes the kubeconfig alone to stdout and, on a
-// TTY, the token's ID, expiry and how to revoke it to stderr.
-func renderAccessTokenCreated(io *cli.IOStreams, cluster, id, expiresAt, kubeconfigYAML string) error {
-	if _, err := fmt.Fprint(io.Out, kubeconfigYAML); err != nil {
-		return err
+// renderAccessTokenDetails writes, on a TTY only, the token's ID, expiry
+// and how to revoke it to stderr; stdout holds only the kubeconfig.
+func renderAccessTokenDetails(streams *cli.IOStreams, cluster, id, expiresAt string) {
+	if !streams.IsStderrTTY() {
+		return
 	}
-	if !io.IsStderrTTY() {
-		return nil
-	}
-	w := io.ErrOut
+	w := streams.ErrOut
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  Store this kubeconfig now: it is shown only once.\n\n")
 	fmt.Fprintf(w, "  ID:       %s\n", id)
 	fmt.Fprintf(w, "  Expires:  %s\n", expiresAt)
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  Revoke with: %s\n", revokeCommand(cluster, id, false))
-	return nil
 }
 
 // waitAndCollect polls the token until the cluster has issued it (phase
@@ -277,6 +315,9 @@ func waitAndCollect(ctx context.Context, api client.Interface, cluster, id strin
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	var last *client.ClusterAccessToken
+	// uncertain is set once a collect failed in a way that may have come
+	// after kupe-api served the token.
+	uncertain := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -298,9 +339,14 @@ func waitAndCollect(ctx context.Context, api client.Interface, cluster, id strin
 		case t.Phase() == client.PhaseReady:
 			last = t
 			collected, cerr := api.CollectClusterAccessToken(ctx, cluster, id)
+			if cerr != nil && (!client.IsAPIError(cerr) || client.IsServerError(cerr)) {
+				uncertain = true
+			}
 			switch {
 			case cerr == nil:
 				return collected, t, nil
+			case uncertain && client.ErrorCode(cerr) == client.ClusterAccessTokenCodeAlreadyCollected:
+				return nil, t, errAccessTokenLost
 			case ctx.Err() != nil, client.ErrorCode(cerr) == client.ClusterAccessTokenCodeNotReady, isTransient(cerr):
 				// Not yet, or cut short: wait again.
 			case client.ErrorCode(cerr) == client.ClusterAccessTokenCodeFailed:
@@ -372,6 +418,11 @@ func notCollectedErr(err error, cluster, id string, last *client.ClusterAccessTo
 			msg += ": " + last.Status.Message
 		}
 		return cli.New(cli.ExitGeneral, msg+"; "+revoked).WithHint(createAgainHint(cluster))
+	case errors.Is(err, errAccessTokenLost):
+		if revokeErr == nil {
+			return cli.New(cli.ExitConflict, "the access token could not be delivered and was revoked").WithHint(createAgainHint(cluster))
+		}
+		return cli.New(cli.ExitConflict, "the access token could not be delivered; "+revoked).WithHint(createAgainHint(cluster))
 	case client.ErrorCode(err) == client.ClusterAccessTokenCodeAlreadyCollected:
 		if revokeErr == nil {
 			return cli.New(cli.ExitConflict, "the access token was already collected elsewhere; it was revoked. Create another.")

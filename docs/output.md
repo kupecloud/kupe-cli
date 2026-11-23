@@ -29,8 +29,9 @@ to the `-o` flag. Pass the template inline for now.
 them with exit code 2 before the command changes anything (for `kupe apikey create`, before the key is
 created); use `-o go-template=...` or pipe `-o json` to `jq`.
 
-Toggle commands such as `kupe version`, `kupe auth whoami`, `kupe apikey create`
-and `kupe registry token create` accept only `text` (default) and `json`.
+Toggle commands such as `kupe version`, `kupe auth whoami`, `kupe apikey create`,
+`kupe registry token create` and `kupe cluster access-tokens create` accept only
+`text` (default) and `json`.
 `kupe registry login` accepts only `json`, and only with `--no-store`.
 
 ### Format stability guarantee
@@ -202,6 +203,18 @@ confirmation also go to stderr, leaving the success line on stdout.
 | USERNAME | `.username` | ✓ |
 | AGE | `.createdAt` → relative | ✓ |
 
+**Cluster access token** (`kupe cluster access-tokens list`; never a token):
+
+| Column | Source | Wide only? |
+|--------|--------|------------|
+| ID | `.id` | |
+| NAME | `.displayName` | |
+| ROLE | `.access.role` | |
+| CREATED-BY | `.createdBy` | |
+| EXPIRES | `.expiresAt` → date (UTC) | |
+| STATUS | `Collected` when `.collected` and Ready, else `.status.phase` (`Pending` when unset) | |
+| CREATED | `.createdAt` → date (UTC) | ✓ |
+
 Column rendering uses `text/tabwriter` with 2-space padding. No unicode box characters in plain mode (breaks `awk`).
 
 ### Color in tables
@@ -257,6 +270,7 @@ Detection happens once. The `IOStreams` is threaded through the factory into eve
 | `ExecCredential` JSON (`kupe auth get-token`) | Spinners and progress |
 | API key secret (one-time) | Warnings, errors, deprecations |
 | Registry access token secret (`kupe registry token create`, one-time) | The token's details and `docker login` line (TTY only) |
+| Cluster access token kubeconfig (`kupe cluster access-tokens create`, one-time; nothing with `--merge`) | The token's ID, expiry and revoke command (TTY only); `--merge`'s "Merged" line |
 | Registry login credential (`kupe registry login --no-store -o json` only) | `kupe registry login`'s "Logged in" line and the unencrypted-storage warning |
 | `kupe completion <shell>` | `-v` debug traces |
 

@@ -4,6 +4,8 @@ package live
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +84,44 @@ func TestClusterLifecycle(t *testing.T) {
 	embedOut := runCLIExpectOK(t, "cluster", "kubeconfig", name, "--embed-token")
 	if !strings.Contains(embedOut, "token:") || strings.Contains(embedOut, "exec:") {
 		t.Errorf("--embed-token kubeconfig should embed a token and have no exec stanza:\n%s", embedOut[:min(len(embedOut), 500)])
+	}
+
+	t.Run("access token", func(t *testing.T) { testClusterAccessToken(t, name) })
+}
+
+// testClusterAccessToken creates an access token for the running cluster,
+// uses its kubeconfig with kubectl, lists it and revokes it.
+func testClusterAccessToken(t *testing.T, cluster string) {
+	kubectl, err := exec.LookPath("kubectl")
+	if err != nil {
+		t.Skip("kubectl not on PATH")
+	}
+	r := runCLI(t, "cluster", "access-tokens", "create", cluster, "--name", uniqueName("cli-live-cat"), "--expires-in-days", "1")
+	if r.exitCode != 0 {
+		t.Fatalf("access-tokens create exit=%d\nstderr:\n%s", r.exitCode, r.stderr)
+	}
+	assertNoTokenLeak(t, r.stdout)
+	kc := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(kc, []byte(r.stdout), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(kubectl, "--kubeconfig", kc, "get", "ns") //#nosec G204 -- fixed args under test
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("kubectl get ns with the access token: %v\n%s", err, out)
+	}
+
+	var listed []map[string]any
+	runCLIJSON(t, &listed, "cluster", "access-tokens", "list", cluster)
+	if len(listed) == 0 {
+		t.Fatal("access-tokens list is empty after create")
+	}
+	id, _ := listed[0]["id"].(string)
+	t.Cleanup(func() { _ = runCLI(t, "cluster", "access-tokens", "revoke", cluster, id, "--yes") })
+	if listed[0]["collected"] != true {
+		t.Errorf("newest token not collected: %+v", listed[0])
+	}
+	if out := runCLIExpectOK(t, "cluster", "access-tokens", "revoke", cluster, id, "--yes"); out != "access-token/"+id+" revoked\n" {
+		t.Errorf("revoke stdout = %q", out)
 	}
 }
 

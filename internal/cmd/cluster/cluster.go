@@ -1,5 +1,5 @@
 // Package cluster wires the "kupe cluster" subcommand tree: list, get,
-// create, delete, update, kubeconfig (Phase 4), wait.
+// create, delete, update, kubeconfig (Phase 4), wait, access-token.
 package cluster
 
 import (
@@ -34,6 +34,7 @@ the request.`,
 	cmd.AddCommand(newUpdateCmd(f))
 	cmd.AddCommand(newWaitCmd(f))
 	cmd.AddCommand(newKubeconfigCmd(f))
+	cmd.AddCommand(newAccessTokenCmd(f))
 
 	return cmd
 }

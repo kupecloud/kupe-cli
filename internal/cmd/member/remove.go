@@ -17,8 +17,9 @@ func newRemoveCmd(f *cli.Factory) *cobra.Command {
 		Long: `Remove a user from the tenant. Prompts on TTY; --yes required in CI.
 API access and the console's tenant pages end within a minute. Access to a
 cluster keeps working until the token in use expires: up to 8 hours for a
-console session or a signed-in kubeconfig, and the lifetime chosen at
-download for a token kubeconfig.`,
+console session or a signed-in kubeconfig. Cluster access tokens belong to
+the tenant and keep working after a member leaves; list and revoke them
+with "kupe cluster access-tokens".`,
 		Args:    cobra.ExactArgs(1),
 		Example: `  kupe member remove ex-employee@acme.com --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {

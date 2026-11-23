@@ -290,6 +290,12 @@ OIDC access tokens for the `kupe-cli` client are short-lived (1 hour once the pl
 
 Exec-plugin kubeconfigs need the `kupe` binary at the path embedded in the file. For throwaway kubeconfigs dropped into a container for a single `kubectl apply`, use `kupe cluster kubeconfig NAME --embed-token`. It writes the bearer token into the file, prints a warning, and the file is a secret. For an OIDC context that token is short-lived and cannot be refreshed; API-key contexts have no such expiry.
 
+For automation that needs its own long-lived cluster credential (Terraform, CI),
+use a cluster access token instead: `kupe cluster access-tokens create CLUSTER
+--name NAME` prints a kubeconfig carrying a token issued for that cluster, 1 to
+365 days, which belongs to the tenant and is revoked with `kupe cluster
+access-tokens revoke` ([commands](commands.md#kupe-cluster-access-tokens)).
+
 ## Rotation
 
 API keys don't rotate automatically. To rotate:

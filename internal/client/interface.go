@@ -35,6 +35,24 @@ type Interface interface {
 	// locally in internal/kubeconfig.
 	GetClusterKubeconfig(ctx context.Context, name string) (*ClusterKubeconfig, error)
 
+	// ListClusterAccessTokens lists a cluster's access tokens, newest
+	// first. Never a token.
+	ListClusterAccessTokens(ctx context.Context, cluster string) ([]ClusterAccessToken, error)
+
+	// GetClusterAccessToken returns one of a cluster's access tokens.
+	GetClusterAccessToken(ctx context.Context, cluster, id string) (*ClusterAccessToken, error)
+
+	// CreateClusterAccessToken creates an access token for a cluster
+	// (admin only); the response carries no token.
+	CreateClusterAccessToken(ctx context.Context, cluster string, req CreateClusterAccessTokenRequest) (*ClusterAccessToken, error)
+
+	// DeleteClusterAccessToken revokes a cluster access token (admin only).
+	DeleteClusterAccessToken(ctx context.Context, cluster, id string) error
+
+	// CollectClusterAccessToken returns the token and its kubeconfig,
+	// once, to the member or API key that created it.
+	CollectClusterAccessToken(ctx context.Context, cluster, id string) (*CollectedClusterAccessToken, error)
+
 	// ListAPIKeys lists all API keys for the tenant (metadata only; the
 	// raw key value is never returned). Admin-only server-side.
 	ListAPIKeys(ctx context.Context) ([]APIKey, error)

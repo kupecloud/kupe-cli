@@ -143,6 +143,7 @@ or add `--dry-run` to check and review a deployment without writing.
 | `kupe cluster list` | List clusters in the current tenant |
 | `kupe cluster create NAME` | Create a new cluster |
 | `kupe cluster kubeconfig NAME` | Fetch or merge a kubeconfig |
+| `kupe cluster access-tokens create CLUSTER --name NAME` | Create a cluster access token for CI and print its kubeconfig, once |
 | `kupe cluster delete NAME` | Delete a cluster |
 | `kupe app deploy --image IMAGE --yes` | Deploy an image, creating its app and environment when needed |
 | `kupe app create NAME` | Create an app |

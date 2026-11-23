@@ -1,0 +1,6 @@
+ID                    NAME       ROLE   CREATED-BY           EXPIRES     STATUS     CREATED
+cat-0a1b2c3d4e5f6a7b  terraform  admin  alice@acme.com       2027-02-20  Collected  2026-11-22
+cat-1111111111111111  ci         admin  ak-0123456789abcdef  2026-12-21  Ready      2026-11-21
+cat-2222222222222222  new        admin  alice@acme.com       2027-11-20  Pending    2026-11-20
+cat-3333333333333333  broken     admin  alice@acme.com       2027-02-17  Failed     2026-11-19
+cat-4444444444444444  old        admin  alice@acme.com       2027-02-16  Revoking   2026-11-18

@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kupecloud/kupe-cli/internal/cli"
 	"github.com/kupecloud/kupe-cli/internal/client"
+	"github.com/kupecloud/kupe-cli/internal/cmd/cmdutil"
 	"github.com/kupecloud/kupe-cli/internal/printer"
 )
 
@@ -228,13 +226,8 @@ command returns; if it is not issued within a minute it is revoked.`,
 // is sent only when given, so the platform's default applies otherwise.
 func (o *tokenCreateOpts) request(cmd *cobra.Command) (client.CreateRegistryTokenRequest, error) {
 	req := client.CreateRegistryTokenRequest{DisplayName: o.name, Access: o.access}
-	switch {
-	case strings.TrimSpace(o.name) == "":
-		return req, cli.MisuseError("--name is required").WithHint("e.g. --name github-actions")
-	case utf8.RuneCountInString(o.name) > 128:
-		return req, cli.MisuseError("--name must be 128 characters or less")
-	case strings.IndexFunc(o.name, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0:
-		return req, cli.MisuseError("--name must be printable text")
+	if err := cmdutil.CheckTokenName(o.name, "github-actions"); err != nil {
+		return req, err
 	}
 	switch o.access {
 	case client.RegistryAccessPull, client.RegistryAccessPush:

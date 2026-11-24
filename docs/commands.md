@@ -1683,8 +1683,8 @@ Before it sends anything the command reads the database and asks
 `This takes database NAME offline while it upgrades from R to T. Type yes to
 confirm:`. Anything but `yes` exits `2` and sends nothing; without `--yes` a
 non-interactive run exits `2`. Asking for the major the database already runs
-starts no upgrade and asks nothing: it cancels one that was requested and is
-requested. A major below the running one exits `2` before any question. `--cancel` never asks.
+starts no upgrade and asks nothing: it does nothing, or cancels a requested
+upgrade, like `--cancel`. A major below the running one exits `2` before any question. `--cancel` never asks.
 
 **Waiting.** The upgrade is done when the phase is `Running`, the operator has
 applied the request (`status.observedGeneration` has reached `generation`),

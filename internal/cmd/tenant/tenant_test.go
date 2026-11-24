@@ -188,33 +188,46 @@ func TestTenantGet_NoAmountInAnyFormat(t *testing.T) {
 }
 
 // TestTenantGet_OverageSwitches pins the tenant's overage switches in the
-// JSON and YAML output (CREDIT-17): the four switches are shown, the spend
-// cap (an amount) is not, and the removed enforceMetricsLimit /
+// JSON and YAML output (CREDIT-17, CREDIT-86): the five switches are shown,
+// the spend cap (an amount) is not, and the removed enforceMetricsLimit /
 // enforceLogLimit are not carried over from a server that still sends them.
+// Clusters and registry always differ, so a registry value read from or
+// printed as the clusters switch fails. A server that does not send
+// registry yet prints false.
 func TestTenantGet_OverageSwitches(t *testing.T) {
-	const tenantJSON = `{"name":"acme","plan":"pro",` +
-		`"overage":{"spendCap":"50.00","clusters":true,"databases":false,"logs":true,"metrics":false,"choiceMadeAt":"2026-11-19T09:30:00Z"},` +
-		`"enforceMetricsLimit":true,"enforceLogLimit":false,"status":{"phase":"Active"}}`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/api/v1/tenants/acme" {
-			http.NotFound(w, r)
-			return
-		}
-		fmt.Fprint(w, tenantJSON)
-	}))
-	t.Cleanup(srv.Close)
+	const (
+		registryOn = `{"name":"acme","plan":"pro",` +
+			`"overage":{"spendCap":"50.00","clusters":false,"databases":true,"registry":true,"logs":true,"metrics":false,"choiceMadeAt":"2026-11-19T09:30:00Z"},` +
+			`"enforceMetricsLimit":true,"enforceLogLimit":false,"status":{"phase":"Active"}}`
+		registryAbsent = `{"name":"acme","plan":"pro",` +
+			`"overage":{"spendCap":"50.00","clusters":true,"databases":false,"logs":false,"metrics":true},` +
+			`"status":{"phase":"Active"}}`
+	)
 
 	banned := []string{"50.00", "spendCap", "enforce", "Enforce"}
 	tests := []struct {
+		name   string
+		body   string
 		format string
 		want   []string
 	}{
-		{"json", []string{`"overage": {`, `"clusters": true`, `"databases": false`, `"logs": true`, `"metrics": false`}},
-		{"yaml", []string{"overage:\n", "clusters: true", "databases: false", "logs: true", "metrics: false"}},
+		{"registry on json", registryOn, "json", []string{`"overage": {`, `"clusters": false`, `"databases": true`, `"registry": true`, `"logs": true`, `"metrics": false`}},
+		{"registry on yaml", registryOn, "yaml", []string{"overage:\n", "clusters: false", "databases: true", "registry: true", "logs: true", "metrics: false"}},
+		{"registry absent json", registryAbsent, "json", []string{`"clusters": true`, `"databases": false`, `"registry": false`, `"logs": false`, `"metrics": true`}},
+		{"registry absent yaml", registryAbsent, "yaml", []string{"clusters: true", "databases: false", "registry: false", "logs: false", "metrics: true"}},
 	}
 	for _, tt := range tests {
-		t.Run(tt.format, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path != "/api/v1/tenants/acme" {
+					http.NotFound(w, r)
+					return
+				}
+				fmt.Fprint(w, tt.body)
+			}))
+			t.Cleanup(srv.Close)
+
 			f := factoryWith(t, clienttest.New())
 			f.Client = func() (client.Interface, error) {
 				return client.New(srv.URL, "acme", "kupe_test", "kupe-cli-test/0.0.0"), nil

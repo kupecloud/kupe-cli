@@ -2357,8 +2357,9 @@ Created:          2026-03-01T10:00:00Z (50d ago)
 With `-o json` or `-o yaml`, the tenant object is emitted including the nested
 `status.currentUsage.compute` and `status.currentUsage.observability` usage
 quantities — use `jq .status.currentUsage` to extract just the usage — and the
-`overage` switches (`clusters`, `databases`, `logs`, `metrics`): which services
-may run past the plan's credit, up to the spend cap. The spend cap is an amount
+`overage` switches (`clusters`, `databases`, `registry`, `logs`, `metrics`):
+which services may run past the plan's credit, up to the spend cap. `registry`
+covers registry storage above the plan's included storage. The spend cap is an amount
 and is not shown; overage is changed on the console's Billing page. No output
 format shows an amount.
 

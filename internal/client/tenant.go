@@ -24,9 +24,11 @@ type Tenant struct {
 // TenantOverage is which services may run past the plan's credit, up to the
 // tenant's spend cap. The spend cap itself is a money amount and is not
 // modelled: the CLI shows no amount. Overage is changed in the console.
+// Registry covers registry storage above the plan's included storage.
 type TenantOverage struct {
 	Clusters  bool `json:"clusters" yaml:"clusters"`
 	Databases bool `json:"databases" yaml:"databases"`
+	Registry  bool `json:"registry" yaml:"registry"`
 	Logs      bool `json:"logs" yaml:"logs"`
 	Metrics   bool `json:"metrics" yaml:"metrics"`
 }

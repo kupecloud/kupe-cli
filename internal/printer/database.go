@@ -125,6 +125,7 @@ func databaseDetailColumns(colorEnabled bool) Columns {
 		{Name: "Name", Get: func(v any) string { return database(v).Name }},
 		{Name: "Engine", Get: func(v any) string { return database(v).Engine }},
 		{Name: "Version", Get: func(v any) string { return databaseVersionDisplay(database(v)) }},
+		{Name: "Version Support", OmitEmpty: true, Get: func(v any) string { return databaseVersionSupport(database(v)) }},
 		{Name: "Upgrade", OmitEmpty: true, Get: func(v any) string { return databaseUpgradeDisplay(database(v)) }},
 		{Name: "Phase", Get: func(v any) string {
 			return ux.ColorPhase(databaseStatus(database(v)).Phase, colorEnabled)
@@ -231,6 +232,20 @@ func bindingStatus(b *client.DatabaseBinding) client.DatabaseBindingStatus { ret
 func databaseVersionDisplay(db *client.Database) string {
 	st := databaseStatus(db)
 	return versionDisplay(db.Version, st.CurrentVersion, st.PreviousVersion)
+}
+
+// databaseVersionSupport is the `database get` support line for the major
+// the database runs, worded as `cluster get`'s (versionSupportText) except
+// that a notice or an ended support shows the operator's message, which
+// says to upgrade or to move the data depending on what the platform
+// offers. Empty until the platform records a date, so the row is left out.
+func databaseVersionSupport(db *client.Database) string {
+	st := databaseStatus(db)
+	reason, message := "", ""
+	if c := st.Condition(client.ConditionVersionEndOfSupport); c != nil {
+		reason, message = c.Reason, c.Message
+	}
+	return versionSupportText(st.VersionEndOfSupport, reason, message, "database", true)
 }
 
 // databaseUpgradeDisplay is what a major upgrade is doing, for the detail

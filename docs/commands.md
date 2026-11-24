@@ -1346,6 +1346,7 @@ $ kupe db get orders-db
 Name:                 orders-db
 Engine:               postgres
 Version:              18 (running 18.0)
+Version Support:      supported until 2030-11-14
 Phase:                Running
 High Availability:    off
 Instances:            1/1
@@ -1373,6 +1374,17 @@ one completes), `Restore Window` the oldest and newest points the database can
 be restored to (empty until restore windows are available), and `Backup Size`
 the storage every full backup and the WAL kept take up, manual backups
 included, in binary units (empty until measured).
+
+`Version Support` is the end-of-support state and date of the database's
+major version; support ends at 00:00 UTC on that date. It reads `supported
+until DATE` as for clusters. From 180 days before the date, and from the date
+on, it shows the platform's message, which says what to do: upgrade the
+database with `kupe database upgrade` where the platform offers major upgrades;
+otherwise move the data to a new database. Without a message it reads `ends
+DATE` or `ended DATE`. The database keeps running after the date. The row is
+left out until the platform records a date. `-o json` and `-o yaml` carry
+`status.versionEndOfSupport` and the `VersionEndOfSupport` entry in
+`status.conditions`.
 
 Exits `4` if the database doesn't exist.
 

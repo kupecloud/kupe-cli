@@ -82,8 +82,14 @@ type DatabaseStatus struct {
 	RecoveryWindow *RecoveryWindow `json:"recoveryWindow,omitempty" yaml:"recoveryWindow,omitempty"`
 	// BackupSizeBytes is the storage every full backup and the WAL kept for
 	// the database take up, manual backups included; 0 until measured.
-	BackupSizeBytes int64       `json:"backupSizeBytes,omitempty" yaml:"backupSizeBytes,omitempty"`
-	Conditions      []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	BackupSizeBytes int64 `json:"backupSizeBytes,omitempty" yaml:"backupSizeBytes,omitempty"`
+	// VersionEndOfSupport is the YYYY-MM-DD end-of-support date of the
+	// database's major version; support ends at 00:00 UTC on that date.
+	// Empty until the platform records it. The VersionEndOfSupport
+	// condition (ConditionVersionEndOfSupport, as for clusters) says whether
+	// the notice has started or the date has passed.
+	VersionEndOfSupport string      `json:"versionEndOfSupport,omitempty" yaml:"versionEndOfSupport,omitempty"`
+	Conditions          []Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
 // DatabaseRotations is each role's credential rotation state, keyed by role

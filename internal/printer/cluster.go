@@ -157,38 +157,48 @@ func haReadyCount(st client.ClusterStatus) string {
 		itoaSuffix(int(st.HAEtcdReplicasReady), "/") + itoaSuffix(int(st.HAEtcdReplicasDesired), ")")
 }
 
-// versionSupportDisplay is the `cluster get` Kubernetes support line, built
-// from the structured end-of-support date and the VersionEndOfSupport
-// condition's reason; the message is used only when there is no date (the
-// Unsupported reason). Empty when neither the date nor the condition is set.
+// versionSupportDisplay is the `cluster get` Kubernetes support line (see
+// versionSupportText).
 func versionSupportDisplay(c *client.Cluster) string {
 	st := statusOf(c)
-	var cond *client.ClusterCondition
+	reason, message := "", ""
 	for i := range st.Conditions {
 		if st.Conditions[i].Type == client.ConditionVersionEndOfSupport {
-			cond = &st.Conditions[i]
+			reason, message = st.Conditions[i].Reason, st.Conditions[i].Message
 			break
 		}
 	}
-	date := st.VersionEndOfSupport
-	reason := ""
-	if cond != nil {
-		reason = cond.Reason
+	return versionSupportText(st.VersionEndOfSupport, reason, message, "cluster", false)
+}
+
+// versionSupportText is the "Version Support" line `cluster get` and
+// `database get` share, built from the structured end-of-support date and
+// the VersionEndOfSupport condition's reason. For clusters the message is
+// used only for the Unsupported reason, which carries no date, and noun is
+// what to upgrade. preferMessage (databases) shows the operator's message
+// for EndOfSupportApproaching and EndOfSupportReached instead, since what
+// the tenant can do depends on whether the platform offers major upgrades;
+// with no message it falls back to the date alone, with no advice. Empty
+// when neither the date nor a known reason is set (a database's
+// EndOfSupportUnknown), so the row is left out.
+func versionSupportText(date, reason, message, noun string, preferMessage bool) string {
+	if preferMessage && (reason == "EndOfSupportApproaching" || reason == "EndOfSupportReached") {
+		return endOfSupportMessage(date, reason, message)
 	}
 	switch reason {
 	case "EndOfSupportReached":
 		if date != "" {
-			return "ended " + date + ": upgrade the cluster to a newer version"
+			return "ended " + date + ": upgrade the " + noun + " to a newer version"
 		}
-		return "ended: upgrade the cluster to a newer version"
+		return "ended: upgrade the " + noun + " to a newer version"
 	case "EndOfSupportApproaching":
 		if date != "" {
-			return "ends " + date + ": upgrade the cluster before then"
+			return "ends " + date + ": upgrade the " + noun + " before then"
 		}
-		return "end of support approaching: upgrade the cluster before it ends"
+		return "end of support approaching: upgrade the " + noun + " before it ends"
 	case "Unsupported":
-		if cond.Message != "" {
-			return cond.Message
+		if message != "" {
+			return message
 		}
 		return "no longer supported"
 	case "Supported":
@@ -201,6 +211,23 @@ func versionSupportDisplay(c *client.Cluster) string {
 		return "ends " + date
 	}
 	return ""
+}
+
+// endOfSupportMessage is the operator's message for a notice or an ended
+// support, or the neutral "ends DATE" / "ended DATE" when it sent none.
+func endOfSupportMessage(date, reason, message string) string {
+	if message != "" {
+		return message
+	}
+	switch {
+	case reason == "EndOfSupportReached" && date != "":
+		return "ended " + date
+	case reason == "EndOfSupportReached":
+		return "ended"
+	case date != "":
+		return "ends " + date
+	}
+	return "end of support approaching"
 }
 
 func cluster(v any) *client.Cluster { return rowOf[client.Cluster](v) }

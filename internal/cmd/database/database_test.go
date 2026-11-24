@@ -235,6 +235,12 @@ func TestList_PhaseFilter(t *testing.T) {
 	}
 }
 
+// The operator's VersionEndOfSupport messages while major upgrades are off.
+const (
+	eosApproachingMove = "PostgreSQL 17 reaches end of support on 8 November 2029 and gets no fixes from then, security fixes included. Move your data to a database on a newer version before then; this one keeps running either way"
+	eosReachedMove     = "PostgreSQL 17 reached end of support on 8 November 2029 and gets no more fixes, security fixes included. Move your data to a database on a newer version; this one keeps running as it is"
+)
+
 func TestGet(t *testing.T) {
 	t.Run("json carries the full resource", func(t *testing.T) {
 		fake := clienttest.New()
@@ -329,6 +335,63 @@ func TestGet(t *testing.T) {
 			if !strings.Contains(out, w) {
 				t.Errorf("missing %q in:\n%s", w, out)
 			}
+		}
+	})
+	t.Run("version support follows the condition", func(t *testing.T) {
+		for _, tt := range []struct {
+			name, date, status, reason, message string
+			want                                string // "" means no Version Support row
+		}{
+			{"supported", "2030-11-14", "False", "Supported", "PostgreSQL 18 is supported until 14 November 2030", "supported until 2030-11-14"},
+			{"approaching shows the operator's message", "2029-11-08", "True", "EndOfSupportApproaching", eosApproachingMove, eosApproachingMove},
+			{"reached shows the operator's message", "2029-11-08", "True", "EndOfSupportReached", eosReachedMove, eosReachedMove},
+			{"approaching with no message", "2029-11-08", "True", "EndOfSupportApproaching", "", "ends 2029-11-08"},
+			{"reached with no message", "2029-11-08", "True", "EndOfSupportReached", "", "ended 2029-11-08"},
+			{"no date has no row", "", "Unknown", "EndOfSupportUnknown", "", ""},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				fake := clienttest.New()
+				db := running("orders-db")
+				db.Status.VersionEndOfSupport = tt.date
+				db.Status.Conditions = append(db.Status.Conditions,
+					client.Condition{Type: client.ConditionVersionEndOfSupport, Status: tt.status, Reason: tt.reason, Message: tt.message})
+				fake.DatabasesByName["orders-db"] = db
+				f := factoryWith(t, fake)
+				out, _, err := run(f, newGetCmd(f), "orders-db")
+				if err != nil {
+					t.Fatalf("get: %v", err)
+				}
+				got, ok := detailValue(out, "Version Support")
+				if tt.want == "" {
+					if ok {
+						t.Fatalf("want no Version Support row, got %q in:\n%s", got, out)
+					}
+					return
+				}
+				if !ok || got != tt.want {
+					t.Fatalf("Version Support = %q (found %v); want %q in:\n%s", got, ok, tt.want, out)
+				}
+			})
+		}
+	})
+	t.Run("json carries versionEndOfSupport", func(t *testing.T) {
+		fake := clienttest.New()
+		db := running("orders-db")
+		db.Status.VersionEndOfSupport = "2030-11-14"
+		fake.DatabasesByName["orders-db"] = db
+		f := factoryWith(t, fake)
+		out, _, err := run(f, newGetCmd(f), "orders-db", "-o", "json")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		var got struct {
+			Status map[string]any `json:"status"`
+		}
+		if err := json.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status["versionEndOfSupport"] != "2030-11-14" {
+			t.Fatalf("status.versionEndOfSupport = %v; want 2030-11-14 in:\n%s", got.Status["versionEndOfSupport"], out)
 		}
 	})
 	t.Run("missing database exits 4", func(t *testing.T) {
